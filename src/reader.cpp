@@ -1,11 +1,10 @@
-#define WIN32_LEAN_AND_MEAN
-#define NOMINMAX
-#include <windows.h>
-#include <setupapi.h>
-extern "C" {
-#include <hidsdi.h>
-}
+// The portable yoke reader: sampling, the supervised reference/loading tests,
+// session and reconnect logic, and Reader's start/stop/run. It reaches the
+// yoke only through Bridge (bridge.hpp) over a HidDevice (hid_device.hpp), so it
+// is identical on every platform. Moved unchanged from reader_win.cpp; the
+// operating system's HID access is in hid_win.cpp / hid_mac.cpp.
 #include "reader.hpp"
+#include "bridge.hpp"
 #include "reference.hpp"
 #include "loading.hpp"
 #include <functional>
@@ -16,119 +15,8 @@ extern "C" {
 
 namespace brunner {
 namespace {
-struct OperationCancelled : std::runtime_error {OperationCancelled():std::runtime_error("Reader stopped") {}};
-// USB-level failures: the link is gone or the controllers are silent. The
-// reader closes the bridge and keeps looking; nothing about the controllers'
-// state is concluded from them.
-struct TransportError : std::runtime_error {explicit TransportError(const char* what):std::runtime_error(what) {}};
-struct BridgeAbsent : TransportError {BridgeAbsent():TransportError("Expected one original CLS USB Bridge") {}};
-struct BridgeBusy : TransportError {BridgeBusy():TransportError("Yoke busy or unavailable; close CLS2Sim and Simux") {}};
 // A motor stop that could not be verified. Reported, never retried automatically.
 struct StopUnconfirmed : std::runtime_error {explicit StopUnconfirmed(const std::string& what):std::runtime_error(what) {}};
-struct Handle {
-    HANDLE value=INVALID_HANDLE_VALUE;
-    explicit Handle(HANDLE h=INVALID_HANDLE_VALUE):value(h) {}
-    ~Handle() { if (value!=INVALID_HANDLE_VALUE && value!=nullptr) CloseHandle(value); }
-    Handle(const Handle&)=delete;
-    Handle& operator=(const Handle&)=delete;
-};
-struct DeviceList {
-    HDEVINFO value;
-    ~DeviceList() { SetupDiDestroyDeviceInfoList(value); }
-};
-bool descriptor_matches(HANDLE h) {
-    HIDD_ATTRIBUTES attributes{}; attributes.Size=sizeof(attributes);
-    if (!HidD_GetAttributes(h,&attributes) || attributes.VendorID!=0x25bb || attributes.ProductID!=0x0081) return false;
-    PHIDP_PREPARSED_DATA data=nullptr;
-    if (!HidD_GetPreparsedData(h,&data)) return false;
-    HIDP_CAPS caps{};
-    const auto result=HidP_GetCaps(data,&caps);
-    HidD_FreePreparsedData(data);
-    return result==HIDP_STATUS_SUCCESS && caps.UsagePage==0xff00 && caps.Usage==0xff02
-        && caps.InputReportByteLength==64 && caps.OutputReportByteLength==64;
-}
-std::wstring find_bridge() {
-    GUID guid; HidD_GetHidGuid(&guid);
-    DeviceList list{SetupDiGetClassDevsW(&guid,nullptr,nullptr,DIGCF_PRESENT|DIGCF_DEVICEINTERFACE)};
-    if (list.value==INVALID_HANDLE_VALUE) throw std::runtime_error("Cannot enumerate HID devices");
-    std::vector<std::wstring> matches;
-    for (DWORD i=0;;++i) {
-        SP_DEVICE_INTERFACE_DATA entry{}; entry.cbSize=sizeof(entry);
-        if (!SetupDiEnumDeviceInterfaces(list.value,nullptr,&guid,i,&entry)) {
-            if (GetLastError()!=ERROR_NO_MORE_ITEMS) throw std::runtime_error("HID enumeration failed");
-            break;
-        }
-        DWORD bytes=0;
-        SetupDiGetDeviceInterfaceDetailW(list.value,&entry,nullptr,0,&bytes,nullptr);
-        if (!bytes) continue;
-        std::vector<std::uint8_t> buffer(bytes);
-        auto* detail=reinterpret_cast<SP_DEVICE_INTERFACE_DETAIL_DATA_W*>(buffer.data());
-        detail->cbSize=sizeof(SP_DEVICE_INTERFACE_DETAIL_DATA_W);
-        if (!SetupDiGetDeviceInterfaceDetailW(list.value,&entry,detail,bytes,nullptr,nullptr)) continue;
-        Handle candidate(CreateFileW(detail->DevicePath,0,FILE_SHARE_READ|FILE_SHARE_WRITE,nullptr,OPEN_EXISTING,0,nullptr));
-        if (candidate.value!=INVALID_HANDLE_VALUE && descriptor_matches(candidate.value)) matches.emplace_back(detail->DevicePath);
-    }
-    if (matches.empty()) throw BridgeAbsent{};
-    if (matches.size()!=1) throw std::runtime_error("Expected one original CLS USB Bridge; found several");
-    return matches.front();
-}
-// One outstanding request, one dedicated worker. No SDK calls on this thread.
-class Bridge {
-    Handle handle_;
-    std::uint16_t counter_=0;
-    void transfer(Report& report, bool write, DWORD wait_ms) {
-        Handle event(CreateEventW(nullptr,TRUE,FALSE,nullptr));
-        if (!event.value) throw TransportError("Cannot create HID completion event");
-        OVERLAPPED overlap{}; overlap.hEvent=event.value;
-        DWORD bytes=0;
-        const auto ok=write ? WriteFile(handle_.value,report.data(),64,&bytes,&overlap)
-                            : ReadFile(handle_.value,report.data(),64,&bytes,&overlap);
-        if (!ok) {
-            if (GetLastError()!=ERROR_IO_PENDING) throw TransportError("HID I/O failed");
-            if (WaitForSingleObject(event.value,wait_ms)!=WAIT_OBJECT_0) {
-                CancelIoEx(handle_.value,&overlap);
-                // Drain cancellation before the OVERLAPPED/buffer leave scope.
-                GetOverlappedResult(handle_.value,&overlap,&bytes,TRUE);
-                throw TransportError("HID I/O timed out");
-            }
-            if (!GetOverlappedResult(handle_.value,&overlap,&bytes,FALSE)) throw TransportError("HID completion failed");
-        }
-        if (bytes!=64) throw TransportError("Short HID report");
-    }
- public:
-    Bridge():handle_(CreateFileW(find_bridge().c_str(),GENERIC_READ|GENERIC_WRITE,0,nullptr,OPEN_EXISTING,FILE_FLAG_OVERLAPPED,nullptr)) {
-        if (handle_.value==INVALID_HANDLE_VALUE) throw BridgeBusy{};
-        if (!descriptor_matches(handle_.value)) throw TransportError("Unexpected bridge descriptor");
-        if (!HidD_FlushQueue(handle_.value)) throw TransportError("Cannot clear old HID input");
-    }
-    template<class Parse> std::uint32_t exchange(Report request,Parse parse,const std::atomic<bool>& stop) {
-        if (stop) throw OperationCancelled{};
-        transfer(request,true,100);
-        const auto end=Clock::now()+std::chrono::milliseconds(250);
-        while (!stop && Clock::now()<end) {
-            Report reply{};
-            const auto remaining=std::chrono::duration_cast<std::chrono::milliseconds>(end-Clock::now()).count();
-            transfer(reply,false,static_cast<DWORD>(std::max<std::int64_t>(1,remaining)));
-            if (const auto result=parse(reply)) return *result;
-        }
-        if (stop) throw OperationCancelled{};
-        throw TransportError("No matching controller reply");
-    }
-    std::uint32_t read(unsigned node,Object object,const std::atomic<bool>& stop) {
-        return exchange(read_request(node,object,counter_++),[=](const Report& r){return read_reply(r,node,object);},stop);
-    }
-    std::uint32_t ref_read(unsigned node,Register reg,const std::atomic<bool>& stop) {
-        return exchange(reference_read_request(node,reg,counter_++),[=](const Report& r){return reference_reply(r,node,reg,false);},stop);
-    }
-    void ref_write(unsigned node,RegisterWrite op,const std::atomic<bool>& stop) {
-        exchange(reference_write_request(node,op,counter_++),[=](const Report& r){return reference_reply(r,node,op.reg,true);},stop);
-        const auto deadline=Clock::now()+std::chrono::milliseconds(op.settle_ms);
-        while (Clock::now()<deadline && !stop) std::this_thread::sleep_for(std::chrono::milliseconds(10));
-    }
-    void load_write(unsigned node,RegisterWrite op,const std::atomic<bool>& stop) {
-        exchange(loading_write_request(node,op,counter_++),[=](const Report& r){return reference_reply(r,node,op.reg,true);},stop);
-    }
-};
 void sample(Bridge& bridge,Snapshot& s,const std::atomic<bool>& stop) {
     s.sampled=Clock::now();
     for (unsigned i=0;i<2;++i) {
@@ -483,7 +371,7 @@ void Reader::session(Snapshot& s) {
         });
         if (loading_requested_.exchange(false)) serve("Light spring test",[&]{
             end_requested_=false;
-            loading_test(bridge,s,stop_,publish_state,check_alive,gap_requested_,[this]{return SessionTarget{requested_tuning(),{}};},false,end_requested_);
+            loading_test(bridge,s,stop_,publish_state,check_alive,gap_requested_,[this]{return SessionTarget{requested_tuning(),{},{}};},false,end_requested_);
         });
         if (flight_requested_.exchange(false)) serve("Force feel",[&]{
             end_requested_=false;

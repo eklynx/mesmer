@@ -4,6 +4,18 @@ Versions are `0.1.0-alpha.N` while Mesmer is a preview. Each is a GitHub
 pre-release with a Windows zip, its SHA-256 in `SHA256SUMS`, and a build
 provenance attestation.
 
+## Unreleased
+
+- **A macOS development build.** `build_macos.sh` builds a universal
+  (arm64 and x86_64) plugin that loads in X-Plane 12 on a Mac. It reads the yoke
+  through IOKit, which has not been run on hardware yet, so it is not a
+  release. See `docs/macos-build.md`.
+- **More than one USB bridge id.** The plugin now opens the bridges listed in
+  `src/usb_ids.hpp`: `25BB:0081` as before, and `25BB:008B` (not yet tested
+  here). Every other check, including firmware v367, is unchanged. The reader
+  is split so the Windows and macOS HID access are small separate files; see
+  `docs/hid-bridge.md`.
+
 ## 0.1.0-alpha.2
 
 The first release built from the public repository, and so the first with a

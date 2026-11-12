@@ -31,7 +31,7 @@ If the project gains regular contributors, it may move here as its home.
   we can agree the approach before you spend time on it.
 - **Anything that moves the yoke is safety-critical.** Changes to what is
   written to the drives (`loading.hpp`, `reference.hpp`, `tuning.hpp`,
-  `reader_win.cpp`) need tests and a careful review, and are tried on
+  `reader.cpp`, `hid_win.cpp`, `hid_mac.cpp`) need tests and a careful review, and are tried on
   hardware before they ship.
 - **No new features in this preview** beyond what the release notes list,
   unless agreed in a discussion. Profiles, fixes, documentation, tests and
@@ -96,6 +96,22 @@ a header-only change.
 
 GitHub Actions builds every release on Windows against an SDK pinned by
 SHA-256 and runs the tests.
+
+**The plugin on macOS** is a universal (arm64 and x86_64) `.xpl` that loads in
+X-Plane 12 and reads the yoke through IOKit. That reader has **not yet been
+run on hardware**; try it with `build/brunner_hardware_read_test` (read-only,
+X-Plane and CLS2Sim closed) before anything else. It is for development, not
+for flying. Xcode's command line tools and CMake 3.20 or later are enough:
+
+```sh
+./build_macos.sh                  # downloads and verifies the pinned SDK
+./build_macos.sh --sdk /path/to/SDK --no-test
+```
+
+The result is `build/stage/BrunnerDirect/mac_x64/BrunnerDirect.xpl`, ad hoc
+signed; copy the `BrunnerDirect` folder into `Resources/plugins/`. What the
+script promises and how it fails is in [docs/macos-build.md](docs/macos-build.md);
+`tests/test-build-macos.sh` checks it.
 
 ## Writing an aircraft profile
 

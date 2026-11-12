@@ -81,9 +81,9 @@ This is a preview, so here is exactly where it stands.
 
 | | Today |
 |---|---|
-| **Operating system** | Windows x64 only. |
+| **Operating system** | Windows x64 only. A macOS build (universal, `build_macos.sh`) loads in X-Plane and reads the yoke through IOKit, but that reader has not been run on hardware yet: it is for development, not for flying. |
 | **Simulator** | X-Plane 12 only. |
-| **Yoke** | The original Brunner CLS-E yoke on USB, with controller firmware **v367**. Anything else is refused before the plugin sends it anything that moves it: the status line reads *Yoke not recognised - see X-Plane's Log.txt*. A yoke with a different USB bridge is not found at all and reads *Yoke off or unplugged*. [Tell us about yours](docs/compatibility-report.md). |
+| **Yoke** | The original Brunner CLS-E yoke on USB, with controller firmware **v367**. Anything else is refused before the plugin sends it anything that moves it: the status line reads *Yoke not recognised - see X-Plane's Log.txt*. The USB bridges it opens are `25BB:0081` and `25BB:008B` (the second not yet tested here); a yoke with a different USB bridge is not found at all and reads *Yoke off or unplugged*. [Tell us about yours](docs/compatibility-report.md). |
 | **Tested on** | One yoke. |
 | **Pitch and roll** | Every aircraft. |
 | **The yoke's buttons and hat** | **Not supported yet.** The plugin does not read them, so they do not reach X-Plane through it. Use another device for buttons for now. |

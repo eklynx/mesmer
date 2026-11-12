@@ -1,0 +1,97 @@
+# The yoke's HID bridge: specification
+
+How Mesmer finds and talks to the yoke's USB bridge, on every platform. The
+code it describes: `src/usb_ids.hpp` (which devices), `src/hid_device.hpp`
+(the seam; read it first), `src/hid_select.cpp` (which one), `src/bridge.hpp`
+(requests and replies), `src/reader.cpp` (the supervised reader), and one HID
+implementation per operating system: `src/hid_win.cpp` and `src/hid_mac.cpp`.
+`src/bridge_tests.cpp` checks every statement in the first four sections.
+
+Mesmer talks to the bridge directly. CLS2Sim is not needed and must be closed
+(see Exclusivity).
+
+## Which devices
+
+The bridge ids Mesmer will open are the list `bridge_ids` in `usb_ids.hpp`:
+
+| Vendor | Product | Notes |
+|---|---|---|
+| `0x25BB` | `0x0081` | The original CLS USB Bridge. |
+| `0x25BB` | `0x008B` | Added on the word that it is the same protocol. Not yet tested on hardware here. |
+
+An id in the list is necessary, never sufficient. A device is the bridge only
+if **all** of these hold (`select_bridge`):
+
+- its id is in the list;
+- its top-level usage is vendor page `0xFF00`, usage `0xFF02`;
+- its input and output reports are 64 bytes (report ID included).
+
+Then `reader.cpp` still refuses to go further unless both controllers answer
+with firmware **v367**, before anything that moves a motor is sent.
+
+To support another bridge, add its id to the list only when its descriptor and
+protocol are the same; the checks above and the firmware check keep a
+different device from being driven. Add a test case in `bridge_tests.cpp`.
+
+## Selecting among several
+
+- None qualifies: `BridgeAbsent` ("Expected one original CLS USB Bridge"). The
+  status line reads *Yoke off or unplugged*.
+- More than one qualifies, even with two different listed ids:
+  `std::runtime_error` "...found several". Nothing is opened; Mesmer will not
+  guess which yoke to drive.
+
+## Exclusivity
+
+The bridge is opened exclusively. If it cannot be (CLS2Sim, Simux or another
+program has it, or the operating system refuses access) the result is
+`BridgeBusy`: *Yoke busy or unavailable; close CLS2Sim and Simux*. The reader
+looks again every second.
+
+## Transport
+
+`HidDevice` moves one 64-byte report at a time; byte 0 is report ID `0x3f`.
+
+| Call | Happy path | Failure |
+|---|---|---|
+| `open_bridge()` | exactly one bridge, opened exclusively, stale input discarded | `BridgeAbsent`, `BridgeBusy`, "found several", `TransportError` |
+| `write(report, ms)` | the report is accepted within `ms` (the bridge layer uses 100) | `TransportError` ("HID I/O failed", "timed out") |
+| `read(report, ms)` | the next report arrives within `ms` | `TransportError` ("timed out", "Short HID report", device removed) |
+| `flush()` | queued input is discarded | `TransportError` |
+
+`Bridge::exchange` sends a request, then reads until a reply matches or 250 ms
+pass ("No matching controller reply"). It checks the stop flag between
+transfers (`OperationCancelled`). Any `TransportError` ends the session; the
+reader closes the bridge and starts over, and an unconfirmed motor stop is
+reported, never retried automatically.
+
+## Windows
+
+`hid_win.cpp`: SetupDi enumeration, `CreateFileW` with share mode 0, overlapped
+`ReadFile`/`WriteFile`, `HidD_FlushQueue`.
+
+## macOS
+
+`hid_mac.cpp`: `IOHIDManager` enumeration matching every listed id, then
+`IOHIDDeviceOpen` with `kIOHIDOptionsTypeSeizeDevice`. Input reports arrive by
+callback on a private run-loop thread into a queue; writes use
+`IOHIDDeviceSetReportWithCallback` so the timeout holds. Needs the frameworks
+IOKit and CoreFoundation.
+
+**Not yet verified on hardware.** Two assumptions to check with
+`build/brunner_hardware_read_test` (it first prints what macOS reports for each
+listed device):
+
+- macOS may report the maximum report size as 63 or 64 (with or without the
+  report-ID byte); both are accepted as 64.
+- Reports are delivered and sent with the report ID in byte 0.
+
+macOS may also ask for the *Input Monitoring* permission for the program that
+opens the device (X-Plane, or the Terminal running the test). Without it,
+enumeration fails; that reads as *Yoke busy or unavailable*.
+
+`brunner_hardware_read_test` opens the bridge, reads status, encoder and
+position from both controllers for 15 s and closes it. It never asks for force
+feel. The reader's session start would still disable motors that it finds
+already enabled (for example after a power glitch), as the Windows test does.
+Close X-Plane, CLS2Sim and Simux first.
