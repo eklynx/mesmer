@@ -49,7 +49,7 @@ ignored, and listed in `Log.txt` as *retired and ignored*.
 
 `allow_unverified_yoke` is one of them: whether to drive a yoke model that is not
 verified is now the Yoke (Brunner) menu's **Developer > Allow unverified yoke
-models**, saved in `BrunnerDirect.state.json` in the plugin folder and off by
+models**, saved in `Output/BrunnerDirect/BrunnerDirect.state.json` in X-Plane's folder (so updating the plugin keeps it) and off by
 default ([yoke-presets.md](yoke-presets.md)). An `.ini` that still has the line
 loads, and the line does nothing.
 

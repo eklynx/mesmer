@@ -6,6 +6,10 @@ provenance attestation.
 
 ## Unreleased
 
+- **The saved Developer choice moves to X-Plane's Output folder.** "Allow unverified yoke models" is
+  now saved in `Output/BrunnerDirect/BrunnerDirect.state.json`, so updating the plugin does not
+  replace it. An existing `BrunnerDirect.state.json` in the plugin folder is read once, saved to the
+  new place, and left where it was (delete it if you like).
 - **A macOS install script.** `src/scripts/install_macos.sh` installs the staged plugin into
   X-Plane (folder from `~/Library/Preferences/x-plane_install_12.txt`), backing up an existing
   one outside `plugins/` and keeping your ini, feel and yoke overrides. `--dry-run`, `--version`,

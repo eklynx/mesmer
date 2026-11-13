@@ -20,7 +20,7 @@ A yoke is read-only in exactly two cases, and **firmware is never one of them**
    preset needs. Another vendor's device is never opened.
 2. **Unverified model.** A known model whose **preset is not verified**, until the owner
    turns on **Developer > Allow unverified yoke models** (saved in
-   `BrunnerDirect.state.json` in the plugin folder; off by default). Today that is the
+   `Output/BrunnerDirect/BrunnerDirect.state.json` in X-Plane's folder; off by default). Today that is the
    **CLS-E NG** (`25BB:008B`); the original CLS-E is verified and always driven. With the
    key on, the NG is driven; its first writes are one setting written back unchanged (see
    the presets spec).

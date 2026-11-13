@@ -533,31 +533,44 @@ void publish_feel(const brunner::Snapshot& s,const brunner::FlightInput& input,c
     for (std::size_t i=0;i<live.pitch_curve.size();++i) live.pitch_curve[i]=shape[i];
     bench->publish(now,live);
 }
+// Where the choice is saved: X-Plane's Output/BrunnerDirect, not the plugin folder, so updating or
+// reinstalling the plugin never replaces it. (output_folder is only set at enable; this is needed at start.)
+std::filesystem::path owner_state_path() {
+    char system_path[1024]{};XPLMGetSystemPath(system_path);
+    return std::filesystem::path(system_path)/"Output"/"BrunnerDirect"/brunner::state_file;
+}
+void save_owner_state();
 // The saved choice, read once at start. A missing file is normal (off); a file that is not
-// exactly what is written is ignored and means off, and the log says so.
+// exactly what is written is ignored and means off, and the log says so. An older install kept
+// the file in the plugin folder: it is read when the new place has none, and saved to the new place.
 void load_owner_state() {
     allow_unverified_yoke=false;
-    std::ifstream in(plugin_folder/brunner::state_file,std::ios::binary);
+    const auto path=owner_state_path();
+    bool moved=false;
+    std::ifstream in(path,std::ios::binary);
+    if (!in) {in.clear();in.open(plugin_folder/brunner::state_file,std::ios::binary);moved=static_cast<bool>(in);}
     if (in) {
         std::stringstream text;text<<in.rdbuf();
         const auto state=brunner::parse_owner_state(text.str());
         allow_unverified_yoke=state.allow_unverified_yoke;
         if (!allow_unverified_yoke && text.str()!=brunner::serialize_owner_state({}))
             log(std::string("Ignored ")+brunner::state_file+": not valid, so unverified yoke models stay off");
+        if (moved) {log("Found "+std::string(brunner::state_file)+" in the plugin folder; saving it to "+path.string());save_owner_state();}
     }
     log(std::string("Allow unverified yoke models: ")+(allow_unverified_yoke?"ON":"off")+" (Developer menu)");
 }
-// Written atomically (temp file, then rename) into the plugin folder. A failed save is logged and the
+// Written atomically (temp file, then rename) into Output/BrunnerDirect. A failed save is logged and the
 // choice still holds for this run.
 void save_owner_state() {
-    const auto path=plugin_folder/brunner::state_file;
+    const auto path=owner_state_path();
+    std::error_code ec;
+    std::filesystem::create_directories(path.parent_path(),ec);
     const std::filesystem::path temp=path.string()+".tmp";
     {
         std::ofstream out(temp,std::ios::binary|std::ios::trunc);
         out<<brunner::serialize_owner_state({allow_unverified_yoke});
         if (!out) {log("Could not save "+path.string()+": the choice holds for this run only");return;}
     }
-    std::error_code ec;
     std::filesystem::rename(temp,path,ec);
     if (ec) log("Could not save "+path.string()+": "+ec.message()+"; the choice holds for this run only");
 }
