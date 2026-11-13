@@ -138,7 +138,7 @@ std::array<brunner::Calibration,2> calibration() {
 std::string last_input_status;
 // Read-only mode (brunner/readonly.hpp): the learned travel, where it is kept, and the surveys written.
 brunner::Travel read_only_travel;
-std::array<std::uint16_t,2> travel_firmware{};
+brunner::UsbId travel_id{0,0}; // the yoke model the learned range belongs to
 bool travel_dirty=false;
 brunner::Clock::time_point travel_saved{};
 unsigned surveys_written=0;
@@ -595,7 +595,7 @@ void save_travel(brunner::Clock::time_point now,bool force) {
     const std::filesystem::path temp=path.string()+".tmp";
     {
         std::ofstream out(temp,std::ios::binary|std::ios::trunc);
-        out<<brunner::serialize_travel(travel_firmware,read_only_travel);
+        out<<brunner::serialize_travel(travel_id,read_only_travel);
         if (!out) {log("Could not save the read-only travel range");travel_saved=now;return;}
     }
     std::error_code ec;
@@ -603,21 +603,21 @@ void save_travel(brunner::Clock::time_point now,bool force) {
     if (ec) {log("Could not save the read-only travel range: "+ec.message());travel_saved=now;return;}
     travel_dirty=false;travel_saved=now;
 }
-void load_travel(const std::array<std::uint16_t,2>& firmware) {
-    travel_firmware=firmware;read_only_travel={};
+void load_travel(const brunner::UsbId& id) {
+    travel_id=id;read_only_travel={};
     if (output_folder.empty()) return;
     std::ifstream in(travel_file(),std::ios::binary);
     if (!in) return;
     std::stringstream text;text<<in.rdbuf();
-    if (const auto saved=brunner::parse_travel(text.str(),firmware)) {read_only_travel=*saved;log("Read-only travel range restored from "+travel_file().string());}
-    else log("Ignored read-only-travel.json: not for this yoke's firmware, or not valid");
+    if (const auto saved=brunner::parse_travel(text.str(),id)) {read_only_travel=*saved;log("Read-only travel range restored from "+travel_file().string());}
+    else log("Ignored read-only-travel.json: not for this yoke model (USB id), or not valid");
 }
-// Position input: the CLS-E's own once centred (firmware 367), else, in read-only
+// Position input: the active drive's own once centred, else, in read-only
 // mode, the learned travel. The learners watch every sample; the file follows them.
 brunner::FlightInput current_input(const brunner::Snapshot& s,brunner::Clock::time_point now) {
     if (!s.read_only) return brunner::stopped_flight_input(s,calibration(),now);
-    const std::array<std::uint16_t,2> firmware{s.axes[0].firmware,s.axes[1].firmware};
-    if (firmware!=travel_firmware) {save_travel(now,true);load_travel(firmware);}
+    const brunner::UsbId id{s.usb_vendor,s.usb_product};
+    if (id.vendor!=travel_id.vendor || id.product!=travel_id.product) {save_travel(now,true);load_travel(id);}
     const auto result=brunner::read_only_flight_input(s,read_only_travel,
         std::array<bool,2>{{flight_settings.read_only_roll_reverse!=0,flight_settings.read_only_pitch_reverse!=0}},now);
     if (result.widened) travel_dirty=true;
@@ -977,7 +977,7 @@ void menu_action(brunner::ui::MenuItem item) {
         case MenuItem::force_feel:force_feel_handler(force_feel_toggle,xplm_CommandBegin,nullptr);break;
         case MenuItem::status_line:status_line_handler(nullptr,xplm_CommandBegin,nullptr);break;
         case MenuItem::unverified:unverified_toggle();break;
-        case MenuItem::survey:log(reader.request_survey()?"Survey requested: reading registers only; the file appears in Output/BrunnerDirect":"Survey refused: it is only for a yoke on firmware the plugin does not drive");break;
+        case MenuItem::survey:log(reader.request_survey()?"Survey requested: reading registers only; the file appears in Output/BrunnerDirect":"Survey refused: it is only for a yoke that is read-only");break;
         default:break;
         }
 }

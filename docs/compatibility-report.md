@@ -1,13 +1,15 @@
 # Compatibility report
 
-This version drives only the original Brunner CLS-E yoke on USB with
-controller firmware **v367**. If yours is different, the plugin leaves it
-alone: it reads the firmware version and stops there, before it sends
-anything that could move the yoke. The status line then reads
-**Yoke not recognised - see X-Plane's Log.txt**. A yoke whose USB
-bridge is not in the list is not found at all and reads **Yoke off or unplugged -
-check its power switch and USB cable**. The bridges this version opens are
-`25BB:0081` and `25BB:008B` ([the list](hid-bridge.md)).
+This version drives the original Brunner CLS-E yoke on USB (verified on
+controller firmware **v367**; another firmware is driven too, with a note in the
+log). The CLS-E NG (`25BB:008B`) is read-only until you turn on the Developer
+toggle. A Brunner bridge the plugin has no preset for is opened read-only as an
+*Unknown yoke*, so nothing is written to it. A controller whose settings it does
+not recognise reads **Yoke not recognised - see X-Plane's Log.txt**, before
+anything that could move the yoke is sent. A device whose USB vendor is not Brunner's
+is not found at all and reads **Yoke off or unplugged - check its power switch and
+USB cable**. The bridges this version opens by id are `25BB:0081` and `25BB:008B`
+([the list](hid-bridge.md)).
 
 A short report from your hardware is the first step to supporting it. It
 takes ten minutes and nothing in it moves the yoke.

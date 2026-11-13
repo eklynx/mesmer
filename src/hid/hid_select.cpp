@@ -4,21 +4,27 @@
 
 namespace brunner {
 namespace {
-bool is_bridge(const HidCandidate& c,const std::vector<UsbId>& ids) {
-    return id_listed(ids, c.vendor, c.product) && c.usage_page == 0xff00 && c.usage == 0xff02
-        && c.input_length == 64 && c.output_length == 64;
+bool has_bridge_descriptor(const HidCandidate& c) {
+    return c.usage_page == 0xff00 && c.usage == 0xff02 && c.input_length == 64 && c.output_length == 64;
 }
 }
-std::size_t select_bridge(const std::vector<HidCandidate>& candidates,const std::vector<UsbId>& ids) {
-    std::size_t found = candidates.size();
-    unsigned matches = 0;
-    for (std::size_t i = 0; i < candidates.size(); ++i)
-        if (is_bridge(candidates[i],ids)) {
-            found = i;
-            ++matches;
+std::size_t select_bridge(const std::vector<HidCandidate>& candidates,const std::vector<UsbId>& ids,
+    const std::vector<std::uint16_t>& unknown_vendors) {
+    // Tier 1: a known model's bridge. Tier 2, only if tier 1 is empty: an unknown model of a listed vendor.
+    for (const bool known:{true,false}) {
+        std::size_t found = candidates.size();
+        unsigned matches = 0;
+        for (std::size_t i = 0; i < candidates.size(); ++i) {
+            const auto& c = candidates[i];
+            const bool qualifies = known ? id_listed(ids, c.vendor, c.product) : vendor_listed(unknown_vendors, c.vendor);
+            if (qualifies && has_bridge_descriptor(c)) {
+                found = i;
+                ++matches;
+            }
         }
-    if (matches == 0) throw BridgeAbsent{};
-    if (matches != 1) throw std::runtime_error("Expected one original CLS USB Bridge; found several");
-    return found;
+        if (matches > 1) throw std::runtime_error("Expected one original CLS USB Bridge; found several");
+        if (matches == 1) return found;
+    }
+    throw BridgeAbsent{};
 }
 }

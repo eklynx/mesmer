@@ -1,6 +1,9 @@
-// SOURCE OF TRUTH for read-only mode: what the plugin does with a yoke whose
-// controller firmware it does not drive (the CLS-E NG reports 642; the plugin
-// drives only 367). Specification: docs/read-only-mode.md.
+// SOURCE OF TRUTH for read-only mode: what the plugin does with a yoke it will not drive.
+// That is (1) a Brunner bridge whose USB product id is not in the yoke presets (an unknown
+// model), and (2) a known model that is not verified, until the owner turns on Developer >
+// Allow unverified yoke models. Firmware never decides this: a firmware outside a preset's
+// verified list is a note in the log and the Force Monitor, nothing more, and a firmware update
+// never puts a yoke into read-only mode. Specification: docs/read-only-mode.md.
 //
 // In this mode the reader only reads (ReadOnlyBridge in brunner/bridge.hpp has no write
 // members) and the plugin never asks for centring, force feel or recovery. What
@@ -35,7 +38,12 @@ inline std::optional<std::string> read_only_reason(const YokePreset& preset,bool
     if (preset.verified || allow_unverified) return std::nullopt;
     return "Yoke model "+preset.title+" is not verified: read-only. To drive it, turn on Developer > Allow unverified yoke models in the Yoke (Brunner) menu";
 }
-// The note for a firmware the preset was not verified on, or empty when it was.
+// Why an unknown model (a Brunner bridge with no preset) is read-only. The owner's toggle does not
+// change this: only a preset for its USB id makes it drivable.
+inline std::string unknown_model_reason(UsbId id) {
+    return "Unknown yoke USB id "+usb_text(id)+": read-only. Add it to BrunnerDirect.yokes.json to drive it (docs/yoke-presets.md)";
+}
+// Information only, never a gate: the note for a firmware the preset was not verified on, or empty when it was.
 inline std::string firmware_note(const YokePreset& preset,const std::array<std::uint16_t,2>& firmware) {
     for (const auto f:firmware) {
         if (firmware_verified(preset,f)) continue;
@@ -99,29 +107,31 @@ inline ReadOnlyResult read_only_flight_input(const Snapshot& s,Travel& travel,co
     if (!travel[0].ready() || !travel[1].ready())
         return unavailable("Read-only: move the yoke to all four stops (roll "+std::to_string(travel[0].percent())+"%, pitch "+std::to_string(travel[1].percent())+"%)");
     result.input=FlightInput{true,travel[0].ratio(s.axes[0].encoder,reverse[0]),travel[1].ratio(s.axes[1].encoder,reverse[1]),
-        "Read-only input (firmware "+std::to_string(s.axes[0].firmware)+"): no force feel"};
+        "Read-only input"+(s.model_title.empty()?std::string():" ("+s.model_title+")")+": no force feel"};
     return result;
 }
 
 // ---- The remembered range: Output/BrunnerDirect/read-only-travel.json ----
-// {"version":2,"firmware":[642,642],"roll":{"low":-9000,"high":9100},"pitch":{"low":-7000,"high":7200}}
-// Version 2 learns only from referenced samples. An unversioned file was written
-// while the NG's homing sweep was still being learned, so it is ignored.
-inline constexpr int travel_file_version=2;
-inline std::string serialize_travel(const std::array<std::uint16_t,2>& firmware,const Travel& travel) {
+// {"version":3,"usb":[9659,139],"roll":{"low":-9000,"high":9100},"pitch":{"low":-7000,"high":7200}}
+// The range belongs to a yoke model (its USB vendor and product id), so a firmware update keeps it.
+// Version 3 keys it by USB id; version 2 keyed it by firmware, and an unversioned file was written while
+// the NG's homing sweep was still being learned: both are ignored.
+inline constexpr int travel_file_version=3;
+inline std::string serialize_travel(const UsbId& id,const Travel& travel) {
     const auto axis=[](const TravelLearner& t) {return "{\"low\":"+std::to_string(t.low)+",\"high\":"+std::to_string(t.high)+"}";};
-    return "{\"version\":"+std::to_string(travel_file_version)+",\"firmware\":["+std::to_string(firmware[0])+","+std::to_string(firmware[1])+"],\"roll\":"+axis(travel[0])+",\"pitch\":"+axis(travel[1])+"}\n";
+    return "{\"version\":"+std::to_string(travel_file_version)+",\"usb\":["+std::to_string(id.vendor)+","+std::to_string(id.product)+"],\"roll\":"+axis(travel[0])+",\"pitch\":"+axis(travel[1])+"}\n";
 }
-// The saved range, only when it is well-formed and for the same firmware; anything
+// The saved range, only when it is well-formed and for the same USB id; anything
 // else (garbage, another yoke, an inverted range) is ignored, never trusted.
-inline std::optional<Travel> parse_travel(const std::string& text,const std::array<std::uint16_t,2>& firmware) {
+inline std::optional<Travel> parse_travel(const std::string& text,const UsbId& id) {
     try {
         const auto root=parse_json(text);
         const auto* version=root.get("version");
         if (!version || version->kind!=Json::Kind::integer || version->integer!=travel_file_version) return std::nullopt;
-        const auto* fw=root.get("firmware");
-        if (!fw || fw->kind!=Json::Kind::array || fw->items.size()!=2) return std::nullopt;
-        for (unsigned i=0;i<2;++i) if (fw->items[i].kind!=Json::Kind::integer || fw->items[i].integer!=firmware[i]) return std::nullopt;
+        const auto* usb=root.get("usb");
+        if (!usb || usb->kind!=Json::Kind::array || usb->items.size()!=2) return std::nullopt;
+        const std::int64_t expected[2]={id.vendor,id.product};
+        for (unsigned i=0;i<2;++i) if (usb->items[i].kind!=Json::Kind::integer || usb->items[i].integer!=expected[i]) return std::nullopt;
         Travel travel;
         const char* names[2]={"roll","pitch"};
         for (unsigned i=0;i<2;++i) {

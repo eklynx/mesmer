@@ -25,16 +25,20 @@ provenance attestation.
   through IOKit, which has not been run on hardware yet, so it is not a
   release. See `docs/macos-build.md`.
 - **More than one USB bridge id.** The plugin now opens the bridges listed in
-  `src/hid/usb_ids.hpp`: `25BB:0081` as before, and `25BB:008B` (the CLS-E NG).
+  `src/hid/usb_ids.hpp`: `25BB:0081` as before, and `25BB:008B` (the CLS-E NG),
+  and, read-only, any other Brunner (`25BB`) bridge when no listed yoke is present.
 - **Yoke presets: per-model travel, force limits and settings.** What differs between yoke models (travel counts, force ceilings, target torque, wheel travel, status words, directions) is a preset chosen by the USB id, never the firmware, with the built-in CLS-E and CLS-E NG and an editable `BrunnerDirect.yokes.json` for more. Forces stop at the lower of the preset's ceiling and the controller's own limit register; travel scales the force models. A model that is not verified (the NG) is read-only until **Developer > Allow unverified yoke models** is turned on (saved in `BrunnerDirect.state.json`, off by default; an `allow_unverified_yoke` line in `BrunnerDirect.ini` is retired and ignored), and its first writes are one setting written back unchanged. A firmware outside a preset's verified list is only noted in the log and the Force Monitor. See `docs/yoke-presets.md`.
-- **Read-only mode for a yoke the plugin does not drive.** The NG reports
-  firmware 642, not the 367 the plugin drives, so it is **read-only** (see
-  `docs/read-only-mode.md`): nothing is ever written to it, the position feeds
+- **Read-only mode for a yoke the plugin does not drive.** Read-only (see
+  `docs/read-only-mode.md`) applies to a Brunner bridge no preset names (an
+  *Unknown yoke*, whatever its firmware) and to a model that is not verified until
+  the Developer toggle is on. Nothing is ever written to it, the position feeds
   X-Plane's pitch and roll through a travel learned as you move the yoke to its
-  stops (experimental), and a menu item surveys its registers. Force feel is
-  not available on it. The firmware 367 behaviour is unchanged. Read-only input and
-  learning use only referenced, fault-free samples, so the NG's power-on homing
-  sweep is neither learned nor sent to X-Plane.
+  stops (experimental), and a menu item surveys its registers. Firmware never
+  decides this: a firmware update changes nothing but a note, and the learned
+  range is kept per USB id (`read-only-travel.json` is now version 3; an old file
+  is relearned once). Read-only input and learning use only referenced,
+  fault-free samples, so the NG's power-on homing sweep is neither learned nor
+  sent to X-Plane.
 - **macOS and the log.** On macOS the plugin finds its own folder (it was given
   classic `Volume:Folder:` paths), and `Log.txt` now says why a yoke was
   refused. The reader is split so the Windows and macOS HID access are small separate files; see

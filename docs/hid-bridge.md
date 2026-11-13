@@ -17,19 +17,24 @@ The bridge ids Mesmer will open are the ids the yoke presets name ([yoke-presets
 | Vendor | Product | Notes |
 |---|---|---|
 | `0x25BB` | `0x0081` | The original CLS USB Bridge. |
-| `0x25BB` | `0x008B` | The CLS-E NG. Found and opened, and it answers the same read requests, but both controllers report firmware **642**, so its preset notes the firmware, and it is read-only until the owner acknowledges the unverified model. Seen on hardware 2026-11-12. |
+| `0x25BB` | `0x008B` | The CLS-E NG. Found and opened, and it answers the same read requests. Its preset is not verified, so it is read-only until the owner acknowledges the unverified model; its controllers report firmware 642, which its preset only notes. Seen on hardware 2026-11-12. |
 
 An id in the list is necessary, never sufficient. A device is the bridge only
 if **all** of these hold (`select_bridge`):
 
-- its id is in the list;
+- its id is in the list **or**, only when no listed bridge is present, its vendor is Brunner's
+  (`0x25BB`) with a product id no preset names (an *unknown model*, opened read-only,
+  [read-only-mode.md](read-only-mode.md)). A listed yoke always wins, so another Brunner device
+  never causes a refusal; with no listed yoke, two unknown Brunner bridges are refused;
 - its top-level usage is vendor page `0xFF00`, usage `0xFF02`;
 - its input and output reports are 64 bytes (report ID included).
 
+Another vendor's device is never opened, whatever it reports.
+
 Then `brunner/reader.cpp` identifies the model from the device, and before anything that
 moves a motor is sent a model whose preset is not verified is
-[read-only](read-only-mode.md) unless the owner acknowledges it. Firmware is only
-noted ([yoke-presets.md](yoke-presets.md)).
+[read-only](read-only-mode.md) unless the owner acknowledges it, and a bridge with no preset
+is only read. Firmware is only noted ([yoke-presets.md](yoke-presets.md)).
 
 To support another model, add a preset naming its bridge (in
 `BrunnerDirect.yokes.json`, no rebuild); the descriptor checks above and the
@@ -86,7 +91,7 @@ exclusive open, a firmware read request and its reply all work. macOS reports
 the vendor interface as usage page `0xFF00`, usage `0xFF02`, input and output
 64 bytes (so the report ID is included), and reports carry the report ID in
 byte 0. Not yet checked: motor commands, and a yoke with firmware v367 (the
-only firmware the plugin will drive). The reader still accepts a reported
+firmware the CLS-E's preset was verified on). The reader still accepts a reported
 size of 63 as 64, in case another macOS version excludes the ID byte.
 
 Paths: X-Plane on macOS hands plugins classic `Volume:Folder:` paths unless

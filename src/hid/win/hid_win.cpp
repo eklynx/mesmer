@@ -27,10 +27,12 @@ struct DeviceList {
     HDEVINFO value;
     ~DeviceList() { SetupDiDestroyDeviceInfoList(value); }
 };
-// Fills `out` from an open handle; false when it is not a listed id or cannot be read.
-bool describe(HANDLE h,HidCandidate& out,const std::vector<UsbId>& ids) {
+// Fills `out` from an open handle; false when it is neither a listed id nor of a listed unknown-model
+// vendor, or cannot be read.
+bool describe(HANDLE h,HidCandidate& out,const std::vector<UsbId>& ids,const std::vector<std::uint16_t>& unknown_vendors) {
     HIDD_ATTRIBUTES attributes{}; attributes.Size=sizeof(attributes);
-    if (!HidD_GetAttributes(h,&attributes) || !id_listed(ids,attributes.VendorID,attributes.ProductID)) return false;
+    if (!HidD_GetAttributes(h,&attributes)
+        || !(id_listed(ids,attributes.VendorID,attributes.ProductID) || vendor_listed(unknown_vendors,attributes.VendorID))) return false;
     PHIDP_PREPARSED_DATA data=nullptr;
     if (!HidD_GetPreparsedData(h,&data)) return false;
     HIDP_CAPS caps{};
@@ -42,7 +44,7 @@ bool describe(HANDLE h,HidCandidate& out,const std::vector<UsbId>& ids) {
     out.input_length=caps.InputReportByteLength;out.output_length=caps.OutputReportByteLength;
     return true;
 }
-std::wstring find_bridge(const std::vector<UsbId>& ids) {
+std::wstring find_bridge(const std::vector<UsbId>& ids,const std::vector<std::uint16_t>& unknown_vendors) {
     GUID guid; HidD_GetHidGuid(&guid);
     DeviceList list{SetupDiGetClassDevsW(&guid,nullptr,nullptr,DIGCF_PRESENT|DIGCF_DEVICEINTERFACE)};
     if (list.value==INVALID_HANDLE_VALUE) throw std::runtime_error("Cannot enumerate HID devices");
@@ -63,12 +65,12 @@ std::wstring find_bridge(const std::vector<UsbId>& ids) {
         if (!SetupDiGetDeviceInterfaceDetailW(list.value,&entry,detail,bytes,nullptr,nullptr)) continue;
         Handle candidate(CreateFileW(detail->DevicePath,0,FILE_SHARE_READ|FILE_SHARE_WRITE,nullptr,OPEN_EXISTING,0,nullptr));
         HidCandidate described;
-        if (candidate.value!=INVALID_HANDLE_VALUE && describe(candidate.value,described,ids)) {
+        if (candidate.value!=INVALID_HANDLE_VALUE && describe(candidate.value,described,ids,unknown_vendors)) {
             candidates.push_back(described);
             paths.emplace_back(detail->DevicePath);
         }
     }
-    return paths[select_bridge(candidates,ids)];
+    return paths[select_bridge(candidates,ids,unknown_vendors)];
 }
 class WinHidDevice final : public HidDevice {
     Handle handle_;
@@ -93,13 +95,13 @@ class WinHidDevice final : public HidDevice {
         if (bytes!=64) throw TransportError("Short HID report");
     }
  public:
-    WinHidDevice(const std::wstring& path,const std::vector<UsbId>& ids)
+    WinHidDevice(const std::wstring& path,const std::vector<UsbId>& ids,const std::vector<std::uint16_t>& unknown_vendors)
         :handle_(CreateFileW(path.c_str(),GENERIC_READ|GENERIC_WRITE,0,nullptr,OPEN_EXISTING,FILE_FLAG_OVERLAPPED,nullptr)) {
         if (handle_.value==INVALID_HANDLE_VALUE) throw BridgeBusy{};
         HidCandidate described;
-        if (!describe(handle_.value,described,ids)) throw TransportError("Unexpected bridge descriptor");
+        if (!describe(handle_.value,described,ids,unknown_vendors)) throw TransportError("Unexpected bridge descriptor");
         id_={described.vendor,described.product};
-        try {select_bridge({described},ids);} // the opened device must still qualify
+        try {select_bridge({described},ids,unknown_vendors);} // the opened device must still qualify
         catch (const std::exception&) {throw TransportError("Unexpected bridge descriptor");}
         flush();
     }
@@ -109,7 +111,7 @@ class WinHidDevice final : public HidDevice {
     void flush() override {if (!HidD_FlushQueue(handle_.value)) throw TransportError("Cannot clear old HID input");}
 };
 }
-std::unique_ptr<HidDevice> open_bridge(const std::vector<UsbId>& ids) {
-    return std::make_unique<WinHidDevice>(find_bridge(ids),ids);
+std::unique_ptr<HidDevice> open_bridge(const std::vector<UsbId>& ids,const std::vector<std::uint16_t>& unknown_vendors) {
+    return std::make_unique<WinHidDevice>(find_bridge(ids,unknown_vendors),ids,unknown_vendors);
 }
 }

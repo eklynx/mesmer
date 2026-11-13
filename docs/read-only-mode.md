@@ -1,6 +1,6 @@
 # Read-only mode: specification
 
-What Mesmer does with a yoke whose controller firmware it does not drive.
+What Mesmer does with a yoke it does not drive: one it cannot identify, or one it has not been told to drive.
 The code it describes: `src/brunner/readonly.hpp` (the rules; read it first),
 `src/brunner/bridge.hpp` (`ReadOnlyBridge`), `src/brunner/reader.cpp` (`read_only_session`),
 `src/brunner/reference.hpp` (`survey_controllers`), `src/brunner/yoke.hpp` and `src/plugin.cpp`.
@@ -8,15 +8,26 @@ The code it describes: `src/brunner/readonly.hpp` (the rules; read it first),
 
 ## When
 
-A yoke is read-only when its **model's preset is not verified** and the owner has
-not turned on **Developer > Allow unverified yoke models** (saved in
-`BrunnerDirect.state.json` in the plugin folder; off by default)
-([yoke-presets.md](yoke-presets.md)). The model follows from the USB id, never
-from the firmware: a firmware outside the verified list is noted in the log and the
-Force Monitor and changes nothing. Today that means a **CLS-E NG** (`25BB:008B`)
-without the key; the original CLS-E is verified and is always driven. Unlisted
-USB ids are never opened. With the key set, the NG is driven; its first writes are
-one setting written back unchanged (see the presets spec).
+A yoke is read-only in exactly two cases, and **firmware is never one of them**
+(a firmware update changes nothing about the mode):
+
+1. **Unknown model.** A Brunner bridge (USB vendor `25BB`) whose product id no yoke
+   preset names. It is opened only when no known yoke is present, and only if it has the
+   bridge's HID descriptor ([hid-bridge.md](hid-bridge.md)). There is no preset, so there
+   is nothing to drive it by (no travel, force ceiling or status words): it is only read,
+   and the owner's key below does not change that. To drive it, add a preset for its USB id
+   ([yoke-presets.md](yoke-presets.md)); the survey (below) is how to collect what the
+   preset needs. Another vendor's device is never opened.
+2. **Unverified model.** A known model whose **preset is not verified**, until the owner
+   turns on **Developer > Allow unverified yoke models** (saved in
+   `BrunnerDirect.state.json` in the plugin folder; off by default). Today that is the
+   **CLS-E NG** (`25BB:008B`); the original CLS-E is verified and always driven. With the
+   key on, the NG is driven; its first writes are one setting written back unchanged (see
+   the presets spec).
+
+The model follows from the USB id, never from the firmware. A firmware outside a preset's
+verified list is **information only**: it is noted in the log and the Force Monitor and
+changes nothing.
 
 ## The guarantee: nothing is written
 
@@ -29,13 +40,14 @@ one setting written back unchanged (see the presets spec).
   snapshot, never asks for any of them. The plugin menu, the datarefs and the
   feel page's buttons say so in `Log.txt`.
 - The motors are not stopped, recovered or touched when the session starts.
-  (A CLS-E on firmware 367 still does that, as before.)
+  (A driven yoke still does that, as before.)
 
 ## What it does
 
-1. **Shows the state.** The status line reads *Yoke firmware 642 not
-   supported: read-only, no force feel*, or, until the travel is learned, how
-   far each axis has come.
+1. **Shows the state.** The status line says why: *Unknown yoke USB id 25BB:00FF:
+   read-only. Add it to BrunnerDirect.yokes.json to drive it*, or *Yoke model ... is not
+   verified: read-only* with the menu item that turns it on, and, until the travel is
+   learned, how far each axis has come.
 2. **Feeds X-Plane's pitch and roll** from the live encoder, mapped by a
    travel it learns (below). Experimental.
 3. **Surveys the controllers** on request (Developer menu, *Survey yoke
@@ -81,14 +93,14 @@ written atomically at most every five seconds and only when it widened, and
 when the plugin is disabled:
 
 ```json
-{"version":2,"firmware":[642,642],"roll":{"low":-9000,"high":9100},"pitch":{"low":-7000,"high":7200}}
+{"version":3,"usb":[9659,139],"roll":{"low":-9000,"high":9100},"pitch":{"low":-7000,"high":7200}}
 ```
 
-At start it is used as the starting range, only if it is well-formed, **version 2**
-(a file without a version was learned while the homing sweep still counted, and is
-ignored), for the **same firmware**, and sane (low <= high, within one billion counts); anything
-else is ignored. Delete the file to start over. It is keyed by firmware only,
-not by yoke.
+At start it is used as the starting range, only if it is well-formed, **version 3**
+(a file without a version was learned while the homing sweep still counted, and version 2 was
+keyed by firmware; both are ignored), for the **same USB id** (vendor and product), and sane
+(low <= high, within one billion counts); anything else is ignored. Delete the file to start
+over. The range belongs to a yoke model, so a firmware update keeps it.
 
 ## Known limits
 
@@ -97,5 +109,5 @@ not by yoke.
   without Mesmer.
 - A controller fault stops the input (nothing reaches X-Plane) but nothing is
   written or moved by Mesmer.
-- No force feel on this firmware. Supporting it needs the controller's
-  register map and force limits, which the survey is meant to help collect.
+- No force feel while read-only. Driving a model needs its preset (its travel,
+  force limits and status words), which the survey is meant to help collect.

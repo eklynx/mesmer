@@ -12,7 +12,7 @@ write). `src/brunner/preset_tests.cpp`, `src/brunner/drive_tests.cpp` and
 A preset belongs to a model, found from the USB vendor/product id of the bridge
 Mesmer opened. A firmware update never changes a model's values. The ids Mesmer
 opens are the ids the presets name, so a model added to the presets file is found
-without a rebuild; an id no preset names is never opened.
+without a rebuild. A Brunner bridge whose id no preset names is opened read-only (see [read-only-mode.md](read-only-mode.md)); another vendor's is never opened.
 
 Built in: `cls-e` (USB `25BB:0081`, verified on firmware 367) and `cls-e-ng`
 (`25BB:008B`, not verified).
@@ -85,7 +85,8 @@ model with less travel has a proportionally stiffer spring per count.
   cannot show that a changed value would take. A refusal ends the session with the
   reason.
 - **Firmware never gates.** A firmware outside the preset's `verified_firmware`
-  is noted in `Log.txt` and on the Force Monitor's status line.
+  is noted in `Log.txt` and on the Force Monitor's status line, for information only;
+  it never makes a yoke read-only, and a firmware update changes nothing.
 - **Refusals print the status words** the controller reported, so the preset's
   status fields can be corrected from the log.
 

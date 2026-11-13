@@ -302,7 +302,7 @@ void wait_before_retry(const std::atomic<bool>& stop,std::chrono::milliseconds d
     while (!stop && Clock::now()<until) std::this_thread::sleep_for(std::chrono::milliseconds(50));
 }
 }
-// One USB session: open the bridge, confirm firmware, adopt a kept reference,
+// One USB session: open the bridge, read the firmware (a note only), adopt a kept reference,
 // then serve requests and samples until the link fails or the reader stops.
 // Controller-level errors from a request are reported in the snapshot and the
 // session continues; only transport errors end it. The outer loop in run()
@@ -329,7 +329,17 @@ void Reader::session(Snapshot& s) {
     }
     // The model follows from the device that was opened (never from its firmware).
     const YokePreset* preset=find_yoke_preset(presets_,bridge.id());
-    if (!preset) throw std::runtime_error("No yoke preset for USB id "+status_hex(bridge.id().vendor)+":"+status_hex(bridge.id().product));
+    if (!preset && bridge.id().vendor!=brunner_vendor)
+        throw std::runtime_error("No yoke preset for USB id "+usb_text(bridge.id())); // selection never opens another vendor's device; a factory that did is refused
+    if (!preset) {
+        // A Brunner bridge nobody has a preset for: no travel, force ceiling or status words to
+        // assume, so it is only read, never driven (even with the owner's toggle on). The survey
+        // is how a preset for it gets written.
+        s.model="unknown";s.model_title="Unknown Brunner yoke";s.yoke_note.clear();
+        ReadOnlyBridge read_only(bridge);
+        read_only_session(read_only,s,unknown_model_reason(bridge.id()));
+        return;
+    }
     s.model=preset->name;s.model_title=preset->title;s.yoke_note=firmware_note(*preset,firmware);
     // What each controller says its own force limit is (read, never written): the
     // ceiling is the lower of that and the preset's, so forces stop at the controller's limit.
@@ -446,7 +456,7 @@ void Reader::session(Snapshot& s) {
         std::this_thread::sleep_until(s.sampled+std::chrono::milliseconds(20));
     }
 }
-// Firmware the plugin does not drive (brunner/readonly.hpp): sample both controllers,
+// A yoke the plugin does not drive (brunner/readonly.hpp): sample both controllers,
 // serve the survey, and write nothing. Every request that could write is ignored
 // (and was refused when made); the supervisor, seeing read_only, asks for none.
 void Reader::read_only_session(ReadOnlyBridge& bridge,Snapshot& s,const std::string& why) {
@@ -484,7 +494,7 @@ void Reader::run() {
             // What the lost session's end read back stays on record.
             Snapshot lost;lost.bridge_present=true;lost.message=e.what();lost.pitch_force_cleared=snapshot().pitch_force_cleared;publish(lost);
         } catch (const std::exception& e) {
-            // Firmware mismatch or another refusal to talk to this hardware.
+            // A refusal to talk to this hardware (a drive that cannot be built, a refused test write).
             Snapshot refused;refused.bridge_present=true;refused.message=e.what();refused.loading_fault=true;publish(refused);
         }
         // A request made while the link was failing must not run, unannounced,

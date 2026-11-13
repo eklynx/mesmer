@@ -160,7 +160,7 @@ C++17 with tests that run on macOS and Windows.
 | `config.hpp` | Parsing `BrunnerDirect.ini` |
 | `brunner/core.hpp`, `brunner/reference.hpp` | The USB frames the plugin reads and writes, validated against an allowlist |
 | `brunner/yoke_preset.hpp`, `brunner/drive.hpp` | What differs between yoke models, and the numbers the force models use ([spec](yoke-presets.md)) |
-| `brunner/readonly.hpp` | What happens on firmware the plugin does not drive: only reads, a learned travel for pitch and roll ([spec](read-only-mode.md)) |
+| `brunner/readonly.hpp` | What happens with a yoke the plugin does not drive (an unknown model, or an unverified one): only reads, a learned travel for pitch and roll ([spec](read-only-mode.md)) |
 | `brunner/reader.cpp`, `brunner/bridge.hpp` | The reader thread and its request/reply layer; the same on every platform |
 | `hid/hid_device.hpp`, `hid/usb_ids.hpp`, `hid/hid_select.cpp` | The seam to the operating system and the USB ids Mesmer opens ([spec](hid-bridge.md)) |
 | `hid/win/hid_win.cpp`, `hid/mac/hid_mac.cpp` | The Windows and macOS HID access |

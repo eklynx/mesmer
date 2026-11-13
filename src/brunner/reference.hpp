@@ -93,7 +93,7 @@ template<class Transport> std::string inspect_loading(Transport& bridge,const st
     }
     return report.str();
 }
-// The read-only survey of a controller this plugin does not drive: the live
+// The read-only survey of a controller of a yoke this plugin does not drive: the live
 // objects and every register the allowlist can read, as JSON. A register the
 // controller lacks (an SDO abort) is recorded for that register and does not end
 // the survey. SDO uploads only; nothing is written.

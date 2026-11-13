@@ -7,6 +7,6 @@ the supervisor and its status texts (`yoke.hpp`), and what differs between model
 (`yoke_preset.hpp`, `drive.hpp`, `readonly.hpp`, `owner_state.hpp`).
 
 Sources of truth: `yoke_preset.hpp` (models), `drive.hpp` (the numbers the force models
-use), `readonly.hpp` (firmware the plugin does not drive), `bridge.hpp` (the controller
+use), `readonly.hpp` (a yoke the plugin does not drive), `bridge.hpp` (the controller
 transport). Specs: `docs/yoke-presets.md`, `docs/read-only-mode.md`, `docs/hid-bridge.md`.
 Tests: `*_tests.cpp` here, and `../tests.cpp`.

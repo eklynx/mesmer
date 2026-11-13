@@ -18,7 +18,7 @@
 
 using namespace brunner;
 // The tests give the reader their own devices; the real one is never opened here.
-std::unique_ptr<HidDevice> brunner::open_bridge(const std::vector<UsbId>&) {throw BridgeAbsent{};}
+std::unique_ptr<HidDevice> brunner::open_bridge(const std::vector<UsbId>&,const std::vector<std::uint16_t>&) {throw BridgeAbsent{};}
 namespace {
 void check_at(bool okay,int line) {if (!okay) throw std::runtime_error("check failed line "+std::to_string(line));}
 #define check(x) check_at((x),__LINE__)
@@ -311,7 +311,7 @@ void input_from_the_learned_travel() {
     step(3000,-2500);step(3000,2500);                       // pitch span 5000: both learned
     auto ready=step(1500,-2500);
     check(ready.input.ready && near(ready.input.roll,0.5f) && near(ready.input.pitch,-1.0f));
-    check(ready.input.reason.find("642")!=std::string::npos && ready.input.reason.find("no force feel")!=std::string::npos);
+    check(ready.input.reason.find("Read-only input")==0 && ready.input.reason.find("no force feel")!=std::string::npos && ready.input.reason.find("irmware")==std::string::npos);
     auto flipped=step(1500,-2500,pitch_reversed);
     check(near(flipped.input.roll,0.5f) && near(flipped.input.pitch,1.0f));
     // Stale data, a disconnect, or a yoke that is not read-only never give input, and are not learned from.
@@ -325,25 +325,30 @@ void input_from_the_learned_travel() {
 void the_remembered_travel() {
     Travel t;
     t[0].low=-9000;t[0].high=9100;t[0].seen=true;t[1].low=-7000;t[1].high=7200;t[1].seen=true;
-    const std::array<std::uint16_t,2> firmware{{642,642}};
-    const auto text=serialize_travel(firmware,t);
-    const auto back=parse_travel(text,firmware);
+    const UsbId ng{0x25bb,0x008b};
+    const auto text=serialize_travel(ng,t);
+    const auto back=parse_travel(text,ng);
     check(back && (*back)[0].low==-9000 && (*back)[0].high==9100 && (*back)[1].low==-7000 && (*back)[1].high==7200 && (*back)[0].seen && (*back)[1].seen);
-    check(!parse_travel(text,{{642,367}}) && !parse_travel(text,{{367,367}}));   // another yoke's firmware: ignored
-    // The version: only 2 is read. The stretched file written during the NG's homing sweep
-    // (no version) and any other version are ignored.
-    const std::string body="\"firmware\":[642,642],\"roll\":{\"low\":-7637,\"high\":7985},\"pitch\":{\"low\":-5458,\"high\":5712}}";
-    check(parse_travel("{\"version\":2,"+body,firmware).has_value());
-    for (const auto* version:{"","\"version\":1,","\"version\":3,","\"version\":\"2\",","\"version\":2.5,","\"version\":null,"})
-        check(!parse_travel(std::string("{")+version+body,firmware));
-    const std::string head="{\"version\":2,\"firmware\":[642,642],";
+    // The range belongs to a model: another USB id ignores it. A firmware update changes nothing here,
+    // because firmware is not in the file at all.
+    check(!parse_travel(text,{0x25bb,0x0081}) && !parse_travel(text,{0x25bb,0x00ff}) && !parse_travel(text,{0x1234,0x008b}));
+    check(text.find("firmware")==std::string::npos);
+    // The version: only 3 is read. The stretched file written during the NG's homing sweep (no
+    // version), the firmware-keyed version 2 and any other version are ignored.
+    const std::string body="\"usb\":[9659,139],\"roll\":{\"low\":-7637,\"high\":7985},\"pitch\":{\"low\":-5458,\"high\":5712}}";
+    check(parse_travel("{\"version\":3,"+body,ng).has_value());
+    for (const auto* version:{"","\"version\":1,","\"version\":2,","\"version\":4,","\"version\":\"3\",","\"version\":3.5,","\"version\":null,"})
+        check(!parse_travel(std::string("{")+version+body,ng));
+    const std::string old_file="{\"version\":2,\"firmware\":[642,642],\"roll\":{\"low\":-7637,\"high\":7985},\"pitch\":{\"low\":-5458,\"high\":5712}}";
+    check(!parse_travel(old_file,ng));
+    const std::string head="{\"version\":3,\"usb\":[9659,139],";
     for (const auto& garbage:{std::string(),std::string("x"),std::string("{}"),std::string("[]"),head+"\"roll\":{\"low\":0,\"high\":1}}",
             head+"\"roll\":{\"low\":5,\"high\":1},\"pitch\":{\"low\":0,\"high\":1}}",                      // inverted
             head+"\"roll\":{\"low\":\"a\",\"high\":1},\"pitch\":{\"low\":0,\"high\":1}}",                   // wrong type
             head+"\"roll\":{\"low\":-9999999999,\"high\":1},\"pitch\":{\"low\":0,\"high\":1}}",             // absurd
-            std::string("{\"version\":2,\"firmware\":[\"642\",\"642\"],\"roll\":{\"low\":0,\"high\":1},\"pitch\":{\"low\":0,\"high\":1}}"),
-            std::string("{\"version\":2,\"firmware\":[642],\"roll\":{\"low\":0,\"high\":1},\"pitch\":{\"low\":0,\"high\":1}}")})
-        check(!parse_travel(garbage,firmware));
+            std::string("{\"version\":3,\"usb\":[\"9659\",\"139\"],\"roll\":{\"low\":0,\"high\":1},\"pitch\":{\"low\":0,\"high\":1}}"),
+            std::string("{\"version\":3,\"usb\":[9659],\"roll\":{\"low\":0,\"high\":1},\"pitch\":{\"low\":0,\"high\":1}}")})
+        check(!parse_travel(garbage,ng));
 }
 // The NG homes itself at power-on, sweeping past its own limits with bit 0x1000 absent.
 // That sweep is the machine's, not the pilot's: never learned, never forwarded.
@@ -510,6 +515,43 @@ void a_pause_is_not_a_lapse() {
     SimulatorWatch quiet;quiet.update(true,false,t0);quiet.update(false,true,t0+ms(10));
     check(quiet.failure(t0+ms(10)+SimulatorWatch::heartbeat_limit+ms(1)).find("heartbeat expired")!=std::string::npos);
 }
+// A Brunner bridge with no preset is read-only, and the owner's toggle does not make it drivable:
+// there is nothing (travel, ceilings, status words) to drive it by.
+void an_unknown_brunner_id_is_read_only_and_never_written() {
+    ScopedDrive restore(cls_e_drive());
+    for (const bool allow:{false,true}) {
+        Run run({0x25bb,0x00ff});
+        run.reader.set_allow_unverified(allow);
+        run.reader.start();
+        check(wait_for([&] {const auto s=run.reader.snapshot();return s.read_only && s.connected && s.cycles>2;}));
+        const auto s=run.reader.snapshot();
+        check(s.model=="unknown" && s.model_title=="Unknown Brunner yoke");
+        check(s.message.find("Unknown yoke USB id 25BB:00FF")!=std::string::npos && s.message.find("BrunnerDirect.yokes.json")!=std::string::npos);
+        check(s.usb_vendor==0x25bb && s.usb_product==0x00ff && s.yoke_note.empty());
+        check(!run.reader.request_reference_test() && !run.reader.request_loading_test() && !run.reader.request_flight());
+        run.reader.stop();
+        check(!run.sent.empty() && run.writes.empty());          // read requests only, whatever the toggle
+    }
+    // A preset for the id (an edited BrunnerDirect.yokes.json) makes it a known model again.
+    auto club=builtin_cls_e_ng();club.name="club";club.usb_ids={{0x25bb,0x00ff}};
+    Run known({0x25bb,0x00ff});
+    known.reader.set_presets({builtin_cls_e(),club});
+    known.reader.start();
+    check(wait_for([&] {const auto s=known.reader.snapshot();return s.read_only && s.model=="club" && s.cycles>2;}));   // known, unverified: the gate, not "unknown"
+    known.reader.stop();
+    check(known.writes.empty());
+}
+// A firmware update never changes the mode: a known verified model is driven at any firmware, and the
+// learned range of a read-only yoke stays with its model.
+void firmware_never_changes_the_mode() {
+    ScopedDrive restore(cls_e_drive());
+    Run run({0x25bb,0x0081},[](ControllerFake& f) {f.firmware[1]=f.firmware[2]=999;});
+    run.reader.start();
+    check(wait_for([&] {return run.ready();}));
+    const auto s=run.reader.snapshot();
+    check(!s.read_only && s.model=="cls-e" && s.yoke_note.find("999")!=std::string::npos);   // driven; the note says so
+    run.reader.stop();
+}
 void the_new_config_keys() {
     const std::string base="schema_version=2\nroll_spring_percent=35\npitch_spring_percent=40\npitch_trim_counts=0\nauto_start=1\nreference_airspeed_knots=316\nminimum_spring_percent=20\nmaximum_trim_counts=6000\n";
     {std::istringstream in(base);const auto c=parse_configuration(in);check(c.flight.read_only_roll_reverse==0 && c.flight.read_only_pitch_reverse==0);}
@@ -535,6 +577,8 @@ int main() {
         the_gate_rule();
         the_saved_owner_state();
         a_pause_is_not_a_lapse();
+        an_unknown_brunner_id_is_read_only_and_never_written();
+        firmware_never_changes_the_mode();
         the_toggle_restarts_the_reader_with_the_new_choice();
         unverified_model_is_read_only_and_never_written();
         an_acknowledged_model_starts_with_a_no_change_write();

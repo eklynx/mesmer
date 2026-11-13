@@ -103,6 +103,26 @@ void the_id_list_is_the_callers() {
     check(throws<std::runtime_error>([&]{select_bridge({bridge_candidate(0x1234,0x5678),bridge_candidate(0x25bb,0x0081)},
         {{0x1234,0x5678},{0x25bb,0x0081}});},"found several"));
 }
+// An unknown model: a Brunner bridge whose product is not listed. Only when no known bridge is present,
+// only for a listed vendor, and only with the bridge's descriptor.
+void unknown_models_of_a_listed_vendor() {
+    const std::vector<std::uint16_t> brunner{brunner_vendor};
+    const auto unknown=bridge_candidate(0x25bb,0x00ff);
+    check(select_bridge({HidCandidate{},unknown},default_usb_ids(),brunner)==1);                       // opened as an unknown model
+    check(throws<BridgeAbsent>([&]{select_bridge({unknown},default_usb_ids());}));                     // no vendor list: not opened
+    check(throws<BridgeAbsent>([&]{select_bridge({unknown},default_usb_ids(),{0x1234});}));           // another vendor's list
+    check(throws<BridgeAbsent>([&]{select_bridge({bridge_candidate(0x1234,0x00ff)},default_usb_ids(),brunner);})); // another vendor's device
+    auto wrong=unknown;wrong.usage_page=0x0001;
+    check(throws<BridgeAbsent>([&]{select_bridge({wrong},default_usb_ids(),brunner);}));              // wrong descriptor
+    wrong=unknown;wrong.input_length=32;
+    check(throws<BridgeAbsent>([&]{select_bridge({wrong},default_usb_ids(),brunner);}));
+    // A known bridge wins over other Brunner devices: no "found several", the known one is chosen.
+    check(select_bridge({unknown,bridge_candidate(0x25bb,0x008b)},default_usb_ids(),brunner)==1);
+    check(select_bridge({bridge_candidate(0x25bb,0x0081),unknown},default_usb_ids(),brunner)==0);
+    // Two known ones, or (with none known) two unknown ones, are refused.
+    check(throws<std::runtime_error>([&]{select_bridge({bridge_candidate(0x25bb,0x0081),bridge_candidate(0x25bb,0x008b),unknown},default_usb_ids(),brunner);},"found several"));
+    check(throws<std::runtime_error>([&]{select_bridge({unknown,bridge_candidate(0x25bb,0x00fe)},default_usb_ids(),brunner);},"found several"));
+}
 void a_bridge_reports_the_id_it_opened() {
     Rig rig;
     check(rig.bridge->id().vendor==0x25bb && rig.bridge->id().product==0x0081);
@@ -146,6 +166,7 @@ int main() {
         the_id_list();
         selection();
         the_id_list_is_the_callers();
+        unknown_models_of_a_listed_vendor();
         a_bridge_reports_the_id_it_opened();
         a_read_returns_the_matching_reply();
         unrelated_replies_are_skipped();

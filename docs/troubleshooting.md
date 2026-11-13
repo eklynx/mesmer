@@ -41,7 +41,8 @@ starting `[BrunnerDirect]`.
 
 | Status | What it means | What to do |
 |---|---|---|
-| **Yoke not recognised - see X-Plane's Log.txt** | The plugin found the yoke but refused to drive it. Almost always this is controller firmware other than v367. Nothing was moved. | This version supports only firmware v367. Please send a [compatibility report](compatibility-report.md); it is how support for other yokes starts. |
+| **Yoke not recognised - see X-Plane's Log.txt** | The plugin found the yoke but refused to drive it: a setting it does not recognise (protection limits, spring mode), status words that differ from the model's preset, or a refused test write. `Log.txt` says which. Firmware alone never causes this. Nothing was moved. | Send a [compatibility report](compatibility-report.md) with the log line; it is how support for other yokes starts. |
+| **Unknown yoke USB id 25BB:xxxx: read-only** | A Brunner bridge the plugin has no preset for. It is only read; nothing is written. | Add a preset for its USB id ([yoke presets](yoke-presets.md)); run *Survey yoke registers* first and send the file. |
 | **Yoke fault - Retry** | A controller reported a fault, the motors were stopped, and two automatic recoveries didn't clear it. | Hands off, then *Retry*. |
 | **Yoke fault - switch the yoke off and on, then Retry** | The drives refused something only a power cycle clears. Nothing has moved; pitch and roll still work if the yoke was centred. | Switch the yoke off, wait a few seconds, switch it on, then *Retry*. |
 | **Yoke fault - switch the yoke off, then Retry** | The plugin could not confirm the motors stopped. | **Switch the yoke off now.** Then switch it on and *Retry*. Please [report it](https://github.com/antialias/mesmer/issues/new/choose). |

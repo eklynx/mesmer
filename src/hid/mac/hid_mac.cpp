@@ -46,7 +46,7 @@ bool number_property(IOHIDDeviceRef device,CFStringRef key,int& out) {
     return value && CFGetTypeID(value)==CFNumberGetTypeID()
         && CFNumberGetValue(static_cast<CFNumberRef>(value),kCFNumberIntType,&out);
 }
-Ref<CFMutableArrayRef> matching_ids(const std::vector<UsbId>& ids) {
+Ref<CFMutableArrayRef> matching_ids(const std::vector<UsbId>& ids,const std::vector<std::uint16_t>& unknown_vendors) {
     Ref<CFMutableArrayRef> list(CFArrayCreateMutable(kCFAllocatorDefault,0,&kCFTypeArrayCallBacks));
     for (const auto& id:ids) {
         Ref<CFMutableDictionaryRef> match(CFDictionaryCreateMutable(kCFAllocatorDefault,0,&kCFTypeDictionaryKeyCallBacks,&kCFTypeDictionaryValueCallBacks));
@@ -55,6 +55,14 @@ Ref<CFMutableArrayRef> matching_ids(const std::vector<UsbId>& ids) {
         Ref<CFNumberRef> product_number(CFNumberCreate(kCFAllocatorDefault,kCFNumberIntType,&product));
         CFDictionarySetValue(match.get(),CFSTR(kIOHIDVendorIDKey),vendor_number.get());
         CFDictionarySetValue(match.get(),CFSTR(kIOHIDProductIDKey),product_number.get());
+        CFArrayAppendValue(list.get(),match.get());
+    }
+    // An unknown model of a listed vendor: matched on the vendor alone; select_bridge decides.
+    for (const auto vendor_id:unknown_vendors) {
+        Ref<CFMutableDictionaryRef> match(CFDictionaryCreateMutable(kCFAllocatorDefault,0,&kCFTypeDictionaryKeyCallBacks,&kCFTypeDictionaryValueCallBacks));
+        const int vendor=vendor_id;
+        Ref<CFNumberRef> vendor_number(CFNumberCreate(kCFAllocatorDefault,kCFNumberIntType,&vendor));
+        CFDictionarySetValue(match.get(),CFSTR(kIOHIDVendorIDKey),vendor_number.get());
         CFArrayAppendValue(list.get(),match.get());
     }
     return list;
@@ -70,11 +78,11 @@ struct Enumeration {
     std::vector<Ref<IOHIDDeviceRef>> devices; // same order as candidates
     std::string text;                          // raw values, for describe_mac_bridges
 };
-Enumeration enumerate(const std::vector<UsbId>& ids) {
+Enumeration enumerate(const std::vector<UsbId>& ids,const std::vector<std::uint16_t>& unknown_vendors={}) {
     Enumeration found;
     found.manager=Ref<IOHIDManagerRef>(IOHIDManagerCreate(kCFAllocatorDefault,kIOHIDOptionsTypeNone));
     if (!found.manager.get()) throw TransportError("Cannot create HID manager");
-    const auto list=matching_ids(ids);
+    const auto list=matching_ids(ids,unknown_vendors);
     IOHIDManagerSetDeviceMatchingMultiple(found.manager.get(),list.get());
     const IOReturn opened=IOHIDManagerOpen(found.manager.get(),kIOHIDOptionsTypeNone);
     if (opened==kIOReturnNotPermitted) throw BridgeBusy{}; // typically: no Input Monitoring permission
@@ -210,9 +218,9 @@ class MacHidDevice final : public HidDevice {
     }
 };
 }
-std::unique_ptr<HidDevice> open_bridge(const std::vector<UsbId>& ids) {
-    auto found=enumerate(ids);
-    const auto index=select_bridge(found.candidates,ids);
+std::unique_ptr<HidDevice> open_bridge(const std::vector<UsbId>& ids,const std::vector<std::uint16_t>& unknown_vendors) {
+    auto found=enumerate(ids,unknown_vendors);
+    const auto index=select_bridge(found.candidates,ids,unknown_vendors);
     return std::make_unique<MacHidDevice>(std::move(found),index);
 }
 std::string describe_mac_bridges(const std::vector<UsbId>& ids) {

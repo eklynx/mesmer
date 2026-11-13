@@ -77,8 +77,11 @@ If a stop cannot be confirmed by the drive, the line reads
   switch within reach.
 - **How hard "1 lb" is.** The pound figures on the feel page are worked out
   from Brunner's display units and have not been checked with a scale.
-- **Other firmware.** The plugin refuses controllers with firmware other
-  than v367 before it sends them anything that moves them.
+- **Other firmware.** Firmware is not a gate: a model is driven whatever its
+  firmware, and the log notes when it is one the model's preset was not verified
+  on. Before anything moves, the plugin checks the protection limits and spring
+  mode against the model's, and, for a model nobody has verified, writes one
+  setting back unchanged and reads it back. A yoke it cannot identify is only read.
 
 ## No warranty
 

@@ -128,7 +128,7 @@ private:
     std::vector<YokePreset> presets_=builtin_yoke_presets();
     bool allow_unverified_=false;
     std::vector<UsbId> usb_ids_=default_usb_ids();
-    std::function<std::unique_ptr<HidDevice>()> device_factory_=[this] {return open_bridge(usb_ids_);};
+    std::function<std::unique_ptr<HidDevice>()> device_factory_=[this] {return open_bridge(usb_ids_,{brunner_vendor});};
     std::atomic<bool> survey_requested_{false};
     void publish(Snapshot state) { std::lock_guard<std::mutex> lock(mutex_); state_=std::move(state); }
     std::atomic<bool> stop_{true};

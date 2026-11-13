@@ -93,7 +93,7 @@ public:
             return finish(d,unavailable_text(s),true);
         }
         if (s.read_only) {
-            // Firmware the plugin does not drive (brunner/readonly.hpp): it only reads the yoke.
+            // A yoke the plugin does not drive (brunner/readonly.hpp): it only reads the yoke.
             // Never centre, recover or load, and never offer Retry for something that cannot happen.
             still_.reset();requested_at_={};healthy_since_={};input_missing_since_={};developer_test_=false;test_seen_=false;
             return finish(d,s.message,true);
@@ -239,7 +239,7 @@ private:
     static std::string unavailable_text(const Snapshot& s) {
         if (s.stop_unconfirmed) return fault_text(s);
         if (s.bridge_busy) return "Yoke is in use by another program - close CLS2Sim and Simux";
-        if (s.loading_fault) return "Yoke not recognised - see X-Plane's Log.txt"; // firmware or hardware the plugin refuses
+        if (s.loading_fault) return "Yoke not recognised - see X-Plane's Log.txt"; // hardware or settings the plugin refuses (never the firmware alone)
         // The yoke's power switch also removes its USB bridge, so the two cannot
         // be told apart, and the bridge appears a moment before the controllers.
         return "Yoke off or unplugged - check its power switch and USB cable";

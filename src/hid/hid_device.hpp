@@ -50,11 +50,14 @@ struct HidCandidate {
 };
 
 // Picks the yoke's bridge among enumerated devices and returns its index.
-// A device qualifies when its id is in `ids`, its top-level usage is
-// vendor page 0xff00 / usage 0xff02, and its input and output reports are 64 bytes.
-// Throws BridgeAbsent if none qualifies and std::runtime_error ("... found
-// several") if more than one does, whatever their ids.
-std::size_t select_bridge(const std::vector<HidCandidate>& candidates,const std::vector<UsbId>& ids);
+// A device qualifies when its top-level usage is vendor page 0xff00 / usage 0xff02, its input
+// and output reports are 64 bytes, and either its id is in `ids` (a known model) or, only when no
+// known one is present, its vendor is in `unknown_vendors` (an unknown model: the caller opens it
+// read-only). A known yoke therefore always wins over other devices of the same vendor.
+// Throws BridgeAbsent if none qualifies and std::runtime_error ("... found several") if more than
+// one qualifies at the tier that decides.
+std::size_t select_bridge(const std::vector<HidCandidate>& candidates,const std::vector<UsbId>& ids,
+    const std::vector<std::uint16_t>& unknown_vendors={});
 
 // An open, exclusively held bridge. One outstanding request at a time; not
 // thread-safe. Timeouts are in milliseconds.
@@ -72,6 +75,7 @@ public:
 };
 
 // Implemented once per platform (hid/win/hid_win.cpp, hid/mac/hid_mac.cpp). Only devices with one of
-// `ids` are considered; BridgeAbsent if there is none.
-std::unique_ptr<HidDevice> open_bridge(const std::vector<UsbId>& ids);
+// `ids`, or (when none is present) of a vendor in `unknown_vendors`, are considered; BridgeAbsent if
+// there is none. The device's id() says which it was.
+std::unique_ptr<HidDevice> open_bridge(const std::vector<UsbId>& ids,const std::vector<std::uint16_t>& unknown_vendors={});
 }
