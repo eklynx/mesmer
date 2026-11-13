@@ -6,6 +6,11 @@ provenance attestation.
 
 ## Unreleased
 
+- **Yoke models are shipped files.** `config/yokes/cls-e.json` (the original, exactly what was
+  compiled in before) and `cls-e-ng.json` are packaged in the plugin's `yokes/` folder and loaded
+  at start, one complete file per model. `BrunnerDirect.yokes.json` stays as the optional
+  overrides file (kept by the installer); `BrunnerDirect.yokes.example.json` is gone. A missing
+  or refused folder falls back to the compiled-in models (kept equal to the files by a test).
 - **Natural drift allowed when centring.** A sensitive yoke wanders a little, so a centring
   now counts as settled when it holds within ±0.2 % of the axis's travel of where the hold began
   (it was a fixed 2 counts between samples). Set `centre_drift_permille` in `BrunnerDirect.ini`

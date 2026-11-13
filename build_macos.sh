@@ -124,5 +124,6 @@ cp "$xpl" "$stage/mac_x64/"
 for file in config/BrunnerDirect.ini config/BrunnerDirect.profiles.json config/skunkcrafts_updater.cfg README.md LICENSE NOTICE SAFETY.md; do
     cp "$ROOT/$file" "$stage/"
 done
+cp -R "$ROOT/config/yokes" "$stage/yokes"
 
 echo "Built a universal plugin ($archs): $stage/mac_x64/BrunnerDirect.xpl"

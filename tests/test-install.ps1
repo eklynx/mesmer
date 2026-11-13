@@ -20,6 +20,9 @@ function New-Sandbox {
     Set-Content -LiteralPath (Join-Path $stage 'win_x64/BrunnerDirect.xpl') -Value 'new plugin'
     Set-Content -LiteralPath (Join-Path $stage 'BrunnerDirect.ini') -Value 'schema_version=6'
     Set-Content -LiteralPath (Join-Path $stage 'BrunnerDirect.profiles.json') -Value '{"schema":2}'
+    New-Item -ItemType Directory -Path (Join-Path $stage 'yokes') -Force | Out-Null
+    Set-Content -LiteralPath (Join-Path $stage 'yokes/cls-e.json') -Value '{"schema":1}'
+    Set-Content -LiteralPath (Join-Path $stage 'yokes/cls-e-ng.json') -Value '{"schema":1}'
     $zip = Join-Path $dir 'mesmer-0.1.0-alpha.1-win_x64.zip'
     Compress-Archive -Path $stage -DestinationPath $zip
     $hash = (Get-FileHash -LiteralPath $zip -Algorithm SHA256).Hash.ToLowerInvariant()
@@ -34,13 +37,16 @@ $s = New-Sandbox
 & $installer -XPlaneRoot $s.XPlane -Zip $s.Zip -Sums $s.Sums -MoveConnector Yes | Out-Null
 Check (Test-Path (Join-Path $s.Plugins 'BrunnerDirect/win_x64/BrunnerDirect.xpl')) 'fresh install: plugin in Resources/plugins/BrunnerDirect/win_x64'
 Check (Test-Path (Join-Path $s.Plugins 'BrunnerDirect/BrunnerDirect.profiles.json')) 'fresh install: profiles beside it'
+Check ((Test-Path (Join-Path $s.Plugins 'BrunnerDirect/yokes/cls-e.json')) -and (Test-Path (Join-Path $s.Plugins 'BrunnerDirect/yokes/cls-e-ng.json'))) 'fresh install: the yoke models beside it'
 Check (-not (Test-Path (Join-Path $s.Plugins 'XPlane10Connector'))) 'fresh install: connector out of the plugins folder'
 Check (@(Get-ChildItem (Join-Path $s.XPlane 'Mesmer-backups') -Directory -Filter 'XPlane10Connector-*').Count -eq 1) 'fresh install: connector kept in Mesmer-backups'
 
 # 2. An upgrade keeps the pilot's settings and backs up the old plugin outside plugins/.
 Set-Content -LiteralPath (Join-Path $s.Plugins 'BrunnerDirect/BrunnerDirect.ini') -Value 'schema_version=6 # mine'
 Set-Content -LiteralPath (Join-Path $s.Plugins 'BrunnerDirect/BrunnerDirect.feel.ini') -Value 'feel_schema=4 # mine'
+Set-Content -LiteralPath (Join-Path $s.Plugins 'BrunnerDirect/BrunnerDirect.yokes.json') -Value '{"schema":1,"yokes":[]} # mine'
 & $installer -XPlaneRoot $s.XPlane -Zip $s.Zip -Sums $s.Sums -MoveConnector No | Out-Null
+Check ((Get-Content (Join-Path $s.Plugins 'BrunnerDirect/BrunnerDirect.yokes.json')) -eq '{"schema":1,"yokes":[]} # mine') 'upgrade: BrunnerDirect.yokes.json kept'
 Check ((Get-Content (Join-Path $s.Plugins 'BrunnerDirect/BrunnerDirect.ini')) -eq 'schema_version=6 # mine') 'upgrade: BrunnerDirect.ini kept'
 Check ((Get-Content (Join-Path $s.Plugins 'BrunnerDirect/BrunnerDirect.feel.ini')) -eq 'feel_schema=4 # mine') 'upgrade: BrunnerDirect.feel.ini kept'
 Check (@(Get-ChildItem (Join-Path $s.XPlane 'Mesmer-backups') -Directory -Filter 'BrunnerDirect-*').Count -eq 1) 'upgrade: old plugin in Mesmer-backups'

@@ -81,6 +81,7 @@ if [ -n "${MESMER_TEST_SDK:-}" ]; then
     codesign --verify --strict "$xpl" 2>/dev/null; check $? "plugin is signed"
     nm -gU "$xpl" 2>/dev/null | grep -q "_XPluginStart"; check $? "plugin exports XPluginStart"
     [ -f "$ROOT/build/stage/BrunnerDirect/BrunnerDirect.ini" ] && [ -f "$ROOT/build/stage/BrunnerDirect/LICENSE" ]; check $? "staging carries the release extras"
+    [ -f "$ROOT/build/stage/BrunnerDirect/yokes/cls-e.json" ] && [ -f "$ROOT/build/stage/BrunnerDirect/yokes/cls-e-ng.json" ]; check $? "staging carries the yoke models"
     vtool -show-build "$xpl" 2>/dev/null | grep -q "minos 11.0"; check $? "deployment target is macOS 11.0"
 else
     echo "skip full build (set MESMER_TEST_SDK to an unpacked SDK directory)"

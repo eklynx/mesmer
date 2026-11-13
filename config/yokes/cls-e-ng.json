@@ -6,22 +6,50 @@
       "title": "Brunner CLS-E NG",
       "verified": false,
       "verified_firmware": [],
-      "usb": [{"vendor": 9659, "product": 139}],
+      "usb": [
+        {
+          "vendor": 9659,
+          "product": 139
+        }
+      ],
       "roll_travel_counts": 7350,
       "pitch_travel_counts": 5300,
       "wheel_deg": 90,
       "pitch_travel_mm": 160,
+      "pitch_units_per_lb": 222,
+      "roll_units_per_nm": 1000,
       "roll_ceiling_units": 11000,
       "pitch_ceiling_units": 9500,
       "margin_fraction": 0.1111,
       "target_torque": 25,
       "status_stopped": 1057,
       "status_ready_mask": 4103,
+      "status_acquired_mask": 4100,
       "spring_mode": 1541,
       "idle_enabled": true,
       "rest": {
-        "roll_curve": [50, 150, 250, 350, 450, 550, 650, 800, 950],
-        "pitch_curve": [50, 150, 250, 350, 450, 550, 650, 800, 950],
+        "roll_curve": [
+          50,
+          150,
+          250,
+          350,
+          450,
+          550,
+          650,
+          800,
+          950
+        ],
+        "pitch_curve": [
+          50,
+          150,
+          250,
+          350,
+          450,
+          550,
+          650,
+          800,
+          950
+        ],
         "roll_spring_percent": 180,
         "pitch_spring_percent": 160,
         "pitch_gain_denominator": 3,

@@ -78,6 +78,7 @@ jobs:
           foreach ($file in 'config/BrunnerDirect.ini','config/BrunnerDirect.profiles.json','config/skunkcrafts_updater.cfg','README.md','LICENSE','NOTICE','SAFETY.md') {
             Copy-Item -LiteralPath $file -Destination $plugin
           }
+          Copy-Item -LiteralPath config/yokes -Destination (Join-Path $plugin 'yokes') -Recurse
           New-Item -ItemType Directory -Path dist | Out-Null
           $zip="dist/Mesmer-$env:VERSION.zip"
           Compress-Archive -Path $plugin -DestinationPath $zip

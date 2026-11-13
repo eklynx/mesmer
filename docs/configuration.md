@@ -5,6 +5,7 @@ set it up:
 
 - `BrunnerDirect.ini`: startup settings. Read once, when X-Plane starts.
 - `BrunnerDirect.profiles.json`: each aircraft's control-surface figures.
+- `yokes/*.json`: the yoke models (shipped), and `BrunnerDirect.yokes.json`, your optional overrides of them (docs/yoke-presets.md).
   Read again within two seconds of a change, mid-flight.
 
 A third, `BrunnerDirect.feel.ini`, is written by the feel page's *Save*

@@ -5,10 +5,11 @@
 // firmware: a firmware update must not change these values. The firmware a
 // preset has been verified on is only a note (see YokePreset::verified_firmware).
 //
-// Built-ins: "cls-e" (the original, verified) and "cls-e-ng". More models, or
-// changes to these, come from BrunnerDirect.yokes.json next to the profiles file,
-// checked as strictly as the profiles are. A file that does not validate is
-// refused whole and the built-ins stay in force.
+// Models are the files in the plugin's yokes/ folder (config/yokes/): cls-e.json (the original,
+// verified) and cls-e-ng.json. The compiled-in "built-ins" below are the fallback when that folder
+// is missing or refused, and a test pins them equal to the files. The user's changes and new models
+// go in BrunnerDirect.yokes.json next to the profiles file, patching by name; every file is checked as
+// strictly as the profiles are, and one that does not validate is refused whole.
 //
 // A preset is a *ceiling and a geometry*, not a permission to exceed the
 // controller: the force ceiling actually used is the lower of the preset's and
@@ -317,6 +318,49 @@ inline std::vector<YokePreset> parse_yoke_presets(std::string_view text,const st
     }
     validate_presets(result);
     return result;
+}
+
+// ---- Where the models come from: the shipped yokes/ folder, then the user's overrides ----
+// Each file in the plugin's yokes/ folder (config/yokes/ in the source) is a complete presets file for
+// one model. A shipped file is parsed against an empty set, so it cannot patch another model; names and
+// USB ids must be unique across the folder. Any refusal refuses the whole folder.
+inline std::vector<YokePreset> parse_shipped_yokes(const std::vector<std::string>& texts) {
+    if (texts.empty()) throw PresetError("the yokes folder has no files");
+    std::vector<YokePreset> all;
+    for (const auto& text:texts) {
+        const auto one=parse_yoke_presets(text,{});
+        all.insert(all.end(),one.begin(),one.end());
+    }
+    validate_presets(all);
+    return all;
+}
+struct LoadedYokes {
+    std::vector<YokePreset> presets;
+    bool from_files=false;                 // false: the built-in fallback is in force
+    bool overrides_applied=false;
+    std::vector<std::string> notes;        // one line each for the log: what was refused and why
+};
+// Happy path: the shipped files, patched by the overrides file when there is one. Errors (none thrown):
+// a refused folder falls back to the built-ins; a refused overrides file leaves the shipped models as
+// they are. Both leave a note.
+inline LoadedYokes load_yoke_models(const std::vector<std::string>& shipped,const std::optional<std::string>& overrides) {
+    LoadedYokes out;
+    try {
+        out.presets=parse_shipped_yokes(shipped);
+        out.from_files=true;
+    } catch (const std::exception& e) {
+        out.presets=builtin_yoke_presets();
+        out.notes.push_back(std::string("Yoke model files refused, built-in models in force: ")+e.what());
+    }
+    if (overrides) {
+        try {
+            out.presets=parse_yoke_presets(*overrides,out.presets);
+            out.overrides_applied=true;
+        } catch (const std::exception& e) {
+            out.notes.push_back(std::string("Yoke overrides file refused, ignored: ")+e.what());
+        }
+    }
+    return out;
 }
 
 // ---- Lookup ----

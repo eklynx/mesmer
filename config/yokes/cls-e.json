@@ -1,0 +1,41 @@
+{
+  "schema": 1,
+  "yokes": [
+    {
+      "name": "cls-e",
+      "title": "Brunner CLS-E",
+      "verified": true,
+      "verified_firmware": [367],
+      "usb": [{"vendor": 9659, "product": 129}],
+      "roll_travel_counts": 13000,
+      "pitch_travel_counts": 12000,
+      "wheel_deg": 86,
+      "pitch_travel_mm": 0,
+      "pitch_units_per_lb": 222,
+      "roll_units_per_nm": 1000,
+      "roll_ceiling_units": 4500,
+      "pitch_ceiling_units": 4500,
+      "margin_fraction": 0.1111111111,
+      "target_torque": 50,
+      "status_stopped": 1073,
+      "status_ready_mask": 4119,
+      "status_acquired_mask": 4100,
+      "spring_mode": 517,
+      "idle_enabled": false,
+      "rest": {
+        "roll_curve": [100, 350, 400, 450, 500, 600, 750, 900, 1000],
+        "pitch_curve": [100, 350, 400, 450, 500, 600, 750, 900, 1000],
+        "roll_spring_percent": 100,
+        "pitch_spring_percent": 100,
+        "pitch_gain_denominator": 6,
+        "pitch_move_back": 180,
+        "pitch_cutoff": 0,
+        "mode": 0
+      },
+      "roll_encoder_sign": -1,
+      "pitch_encoder_sign": -1,
+      "roll_input_reverse": true,
+      "pitch_input_reverse": false
+    }
+  ]
+}

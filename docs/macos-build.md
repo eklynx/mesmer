@@ -7,7 +7,7 @@ specification; `tests/test-build-macos.sh` checks each statement.
 
 A universal plugin, `build/stage/BrunnerDirect/mac_x64/BrunnerDirect.xpl`,
 with the files the Windows release ships (`BrunnerDirect.ini`,
-`BrunnerDirect.profiles.json`, `skunkcrafts_updater.cfg`, `README.md`,
+`BrunnerDirect.profiles.json`, the `yokes/` folder, `skunkcrafts_updater.cfg`, `README.md`,
 `LICENSE`, `NOTICE`, `SAFETY.md`) beside it in `BrunnerDirect/`.
 
 - Slices: exactly `arm64` and `x86_64`.

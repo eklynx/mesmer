@@ -131,7 +131,7 @@ function Expand-Release([string]$ZipPath, [string]$Work) {
     $unpacked = Join-Path $Work 'unpacked'
     Expand-Archive -LiteralPath $ZipPath -DestinationPath $unpacked -Force -WhatIf:$false
     $plugin = Join-Path $unpacked 'BrunnerDirect'
-    foreach ($file in 'win_x64\BrunnerDirect.xpl', 'BrunnerDirect.ini', 'BrunnerDirect.profiles.json') {
+    foreach ($file in 'win_x64\BrunnerDirect.xpl', 'BrunnerDirect.ini', 'BrunnerDirect.profiles.json', 'yokes\cls-e.json', 'yokes\cls-e-ng.json') {
         if (-not (Test-Path -LiteralPath (Join-Path $plugin $file))) { Stop-Install "the zip has no BrunnerDirect\$file." }
     }
     return $plugin
@@ -158,7 +158,7 @@ try {
     # folder in it), keeping the pilot's own settings for the new one.
     $kept = @()
     if (Test-Path -LiteralPath $target) {
-        foreach ($own in 'BrunnerDirect.ini', 'BrunnerDirect.feel.ini') {
+        foreach ($own in 'BrunnerDirect.ini', 'BrunnerDirect.feel.ini', 'BrunnerDirect.yokes.json') {
             $path = Join-Path $target $own
             if (Test-Path -LiteralPath $path) { Copy-Item -LiteralPath $path -Destination (Join-Path $new $own) -Force -WhatIf:$false; $kept += $own }
         }

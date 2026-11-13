@@ -45,6 +45,9 @@ X-Plane 12\
       BrunnerDirect\
         BrunnerDirect.ini              startup settings
         BrunnerDirect.profiles.json    aircraft figures
+        yokes\
+          cls-e.json                   yoke model: CLS-E
+          cls-e-ng.json                yoke model: CLS-E NG
         win_x64\
           BrunnerDirect.xpl            the plugin
 ```

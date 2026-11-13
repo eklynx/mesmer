@@ -564,22 +564,30 @@ void unverified_toggle() {
     reader.set_allow_unverified(allow_unverified_yoke);
     reader.start();
 }
-// Read once at start. A missing file is normal; a file that does not validate is refused whole
-// and the built-in models stay in force (nothing half-applied).
-void load_yoke_presets() {
-    yoke_presets=brunner::builtin_yoke_presets();
-    const auto path=plugin_folder/brunner::yokes_file;
+// Read once at start: the shipped yokes/*.json (one model each), then the user's BrunnerDirect.yokes.json
+// patching them. A missing overrides file is normal; anything that does not validate is refused whole and
+// logged (the built-in models stand in for a refused folder). Parsing is brunner::load_yoke_models.
+std::string read_text_file(const std::filesystem::path& path) {
     std::ifstream in(path,std::ios::binary);
-    if (in) {
-        std::stringstream text;text<<in.rdbuf();
-        try {
-            yoke_presets=brunner::parse_yoke_presets(text.str(),yoke_presets);
-            log("Yoke models loaded from "+path.string());
-        } catch (const std::exception& e) {
-            yoke_presets=brunner::builtin_yoke_presets();
-            log(std::string("Yoke models file refused, built-in models only: ")+e.what());
-        }
-    }
+    std::stringstream text;text<<in.rdbuf();
+    return text.str();
+}
+void load_yoke_presets() {
+    std::vector<std::filesystem::path> files;
+    std::error_code ec;
+    for (std::filesystem::directory_iterator it(plugin_folder/"yokes",ec),end;!ec && it!=end;it.increment(ec))
+        if (it->is_regular_file(ec) && it->path().extension()==".json") files.push_back(it->path());
+    std::sort(files.begin(),files.end());
+    std::vector<std::string> shipped;
+    for (const auto& f:files) shipped.push_back(read_text_file(f));
+    std::optional<std::string> overrides;
+    const auto overrides_path=plugin_folder/brunner::yokes_file;
+    if (std::filesystem::exists(overrides_path,ec)) overrides=read_text_file(overrides_path);
+    const auto loaded=brunner::load_yoke_models(shipped,overrides);
+    yoke_presets=loaded.presets;
+    for (const auto& note:loaded.notes) log(note);
+    log(loaded.from_files?"Yoke models loaded from "+(plugin_folder/"yokes").string():std::string("Yoke models: built-in fallback in force"));
+    if (loaded.overrides_applied) log("Yoke overrides applied from "+overrides_path.string());
     std::string names;
     for (const auto& m:yoke_presets) names+=(names.empty()?"":", ")+m.name+(m.verified?"":" (unverified)");
     log("Yoke models: "+names);

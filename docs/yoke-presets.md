@@ -48,11 +48,24 @@ confirmed on a powered yoke, and the NG's are unknown. If the first powered run
 shows the rest mirrored or the spring pushing the wrong way, flip the sign in the
 presets file; no rebuild.
 
-## The presets file
+## The shipped models: the `yokes/` folder
 
-`BrunnerDirect.yokes.json`, next to the profiles file (an example:
-`config/BrunnerDirect.yokes.example.json`). Read once when the plugin starts. An
-entry whose `name` is a built-in's changes only the fields it gives. A new name
+Each model is a file in the plugin's `yokes/` folder (`config/yokes/` in the source):
+`cls-e.json` (the original, verified) and `cls-e-ng.json`. A file is a complete
+`{"schema":1,"yokes":[{...}]}` with every field spelled out, so a new model is a copy
+and an edit; numbers are decimal (JSON has no hex: `status_stopped` 1057 is 0x0421,
+`spring_mode` 1541 is 0x0605). The files are read once at start, each on its own (a
+shipped file cannot patch another), and names and USB ids must be unique across the folder.
+If the folder is missing or any file does not validate, the **whole folder** is refused,
+the reason is in `Log.txt`, and the compiled-in models (equal to the files, pinned by a
+test) stand in. Do not edit the shipped files to tune a yoke: an update replaces them.
+Put changes in the overrides file below.
+
+## The overrides file
+
+`BrunnerDirect.yokes.json`, next to the profiles file, optional, never replaced by an
+update or the installer. Read once at start, after the `yokes/` folder. An
+entry whose `name` is a shipped model's changes only the fields it gives. A new name
 must give `usb`, both travels, both ceilings and `target_torque`; it is
 unverified unless it says otherwise. No two models may claim one USB id.
 Every field is bounded; an unknown field or a file that does not validate is

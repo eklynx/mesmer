@@ -47,25 +47,55 @@ void the_built_ins() {
     // Firmware is only a note.
     check(firmware_verified(e,367) && !firmware_verified(e,368) && !firmware_verified(n,642));
 }
-// The shipped example (config/BrunnerDirect.yokes.example.json) must stay equal to the built-in
-// NG, so copying it as BrunnerDirect.yokes.json changes nothing.
-void the_example_file_is_the_built_in() {
-    std::ifstream in(BRUNNER_YOKES_EXAMPLE,std::ios::binary);
+// The shipped files (config/yokes/) must stay equal to the built-ins: the CLS-E's are what the project
+// was built on, and the fallback must never differ from what a healthy install loads.
+bool same_preset(const YokePreset& a,const YokePreset& b) {
+    return a.name==b.name && a.title==b.title && a.verified==b.verified && a.verified_firmware==b.verified_firmware
+        && a.usb_ids.size()==b.usb_ids.size() && a.usb_ids[0].vendor==b.usb_ids[0].vendor && a.usb_ids[0].product==b.usb_ids[0].product
+        && a.roll_travel_counts==b.roll_travel_counts && a.pitch_travel_counts==b.pitch_travel_counts && a.wheel_deg==b.wheel_deg
+        && a.pitch_travel_mm==b.pitch_travel_mm && a.roll_ceiling_units==b.roll_ceiling_units && a.pitch_ceiling_units==b.pitch_ceiling_units
+        && a.target_torque==b.target_torque && std::fabs(a.margin_fraction-b.margin_fraction)<1e-3
+        && a.status_ready_mask==b.status_ready_mask && a.status_stopped==b.status_stopped && a.status_acquired_mask==b.status_acquired_mask
+        && a.spring_mode==b.spring_mode && a.idle_enabled==b.idle_enabled && a.rest==b.rest
+        && a.roll_encoder_sign==b.roll_encoder_sign && a.pitch_encoder_sign==b.pitch_encoder_sign
+        && a.roll_input_reverse==b.roll_input_reverse && a.pitch_input_reverse==b.pitch_input_reverse
+        && a.pitch_units_per_lb==b.pitch_units_per_lb && a.roll_units_per_nm==b.roll_units_per_nm;
+}
+std::string shipped_text(const char* file) {
+    std::ifstream in(std::string(BRUNNER_YOKES_DIR)+"/"+file,std::ios::binary);
     check(in.good());
     std::stringstream text;text<<in.rdbuf();
-    const auto merged=parse_yoke_presets(text.str(),builtin_yoke_presets());
-    check(merged.size()==2);
-    const auto& a=named(merged,"cls-e-ng");const auto b=builtin_cls_e_ng();
-    check(a.title==b.title && a.verified==b.verified && a.verified_firmware==b.verified_firmware);
-    check(a.usb_ids.size()==1 && a.usb_ids[0].vendor==b.usb_ids[0].vendor && a.usb_ids[0].product==b.usb_ids[0].product);
-    check(a.roll_travel_counts==b.roll_travel_counts && a.pitch_travel_counts==b.pitch_travel_counts && a.wheel_deg==b.wheel_deg && a.pitch_travel_mm==b.pitch_travel_mm);
-    check(a.roll_ceiling_units==b.roll_ceiling_units && a.pitch_ceiling_units==b.pitch_ceiling_units && a.target_torque==b.target_torque);
-    check(std::fabs(a.margin_fraction-b.margin_fraction)<1e-3);   // the file's 0.1111 against 500/4500
-    check(a.status_ready_mask==b.status_ready_mask && a.status_stopped==b.status_stopped && a.status_acquired_mask==b.status_acquired_mask);
-    check(a.spring_mode==b.spring_mode && a.idle_enabled==b.idle_enabled && a.rest==b.rest);
-    check(a.roll_encoder_sign==b.roll_encoder_sign && a.pitch_encoder_sign==b.pitch_encoder_sign);
-    check(a.roll_input_reverse==b.roll_input_reverse && a.pitch_input_reverse==b.pitch_input_reverse);
-    check(a.pitch_units_per_lb==b.pitch_units_per_lb && a.roll_units_per_nm==b.roll_units_per_nm);
+    return text.str();
+}
+void the_shipped_files_are_the_built_ins() {
+    const auto loaded=load_yoke_models({shipped_text("cls-e.json"),shipped_text("cls-e-ng.json")},std::nullopt);
+    check(loaded.from_files && loaded.notes.empty() && loaded.presets.size()==2);
+    check(same_preset(named(loaded.presets,"cls-e"),builtin_cls_e()));
+    check(same_preset(named(loaded.presets,"cls-e-ng"),builtin_cls_e_ng()));
+}
+void loading_the_models() {
+    const auto cls_e=shipped_text("cls-e.json"),ng=shipped_text("cls-e-ng.json");
+    // The same file twice, or two files claiming one USB id, is refused whole: the fallback is in force.
+    auto twice=load_yoke_models({cls_e,cls_e},std::nullopt);
+    check(!twice.from_files && twice.notes.size()==1 && twice.presets.size()==2);
+    std::string clash=ng;clash.replace(clash.find("\"cls-e-ng\""),10,"\"other\"");clash.replace(clash.find("139"),3,"129");
+    check(!load_yoke_models({cls_e,clash},std::nullopt).from_files);
+    // A malformed file, an empty folder: fallback with a note, never half applied.
+    const auto bad=load_yoke_models({cls_e,"{not json"},std::nullopt);
+    check(!bad.from_files && bad.notes.size()==1 && same_preset(named(bad.presets,"cls-e-ng"),builtin_cls_e_ng()));
+    const auto none=load_yoke_models({},std::nullopt);
+    check(!none.from_files && none.presets.size()==2);
+    // A shipped file cannot patch another model by name: it is parsed against an empty set.
+    check(!load_yoke_models({cls_e,"{\"schema\":1,\"yokes\":[{\"name\":\"cls-e\",\"verified\":false}]}"},std::nullopt).from_files);
+    // The user's overrides patch a shipped model by name; a refused overrides file changes nothing.
+    const std::string patch="{\"schema\":1,\"yokes\":[{\"name\":\"cls-e-ng\",\"pitch_input_reverse\":true}]}";
+    const auto patched=load_yoke_models({cls_e,ng},patch);
+    check(patched.from_files && patched.overrides_applied && named(patched.presets,"cls-e-ng").pitch_input_reverse && patched.presets.size()==2);
+    const auto refused_patch=load_yoke_models({cls_e,ng},std::string("{\"schema\":1,\"yokes\":[{\"name\":\"cls-e-ng\",\"nonsense\":1}]}"));
+    check(refused_patch.from_files && !refused_patch.overrides_applied && refused_patch.notes.size()==1
+        && !named(refused_patch.presets,"cls-e-ng").pitch_input_reverse);
+    // Overrides also patch the fallback.
+    check(named(load_yoke_models({},patch).presets,"cls-e-ng").pitch_input_reverse);
 }
 void an_edit_of_a_built_in() {
     const auto merged=parse_yoke_presets(R"({"schema":1,"yokes":[{"name":"cls-e-ng","roll_travel_counts":7800,"verified":true,"verified_firmware":[642,643]}]})",builtin_yoke_presets());
@@ -168,7 +198,8 @@ void bounds_and_malformed_files() {
 int main() {
     try {
         the_built_ins();
-        the_example_file_is_the_built_in();
+        the_shipped_files_are_the_built_ins();
+        loading_the_models();
         an_edit_of_a_built_in();
         a_new_model();
         resting_settings();
