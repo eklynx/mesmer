@@ -20,9 +20,9 @@
       "spring_mode": 1541,
       "idle_enabled": true,
       "roll_encoder_sign": -1,
-      "pitch_encoder_sign": 1,
+      "pitch_encoder_sign": -1,
       "roll_input_reverse": true,
-      "pitch_input_reverse": true
+      "pitch_input_reverse": false
     }
   ]
 }

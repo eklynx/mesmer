@@ -102,9 +102,6 @@ inline YokePreset builtin_cls_e_ng() {
     p.status_stopped=0x0421;
     p.spring_mode=0x0605;
     p.idle_enabled=true;
-    // Pitch inverted from the CLS-E's, at the owner's request (2026-11-12): the input X-Plane
-    // sees is reversed, and the spring frame's sign flips with it so the force acts the same way.
-    p.pitch_input_reverse=true;p.pitch_encoder_sign=1;
     return p;
 }
 inline std::vector<YokePreset> builtin_yoke_presets() {return {builtin_cls_e(),builtin_cls_e_ng()};}
