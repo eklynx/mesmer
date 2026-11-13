@@ -1,9 +1,9 @@
 // Explicit operator-run hardware integration test, never part of CTest.
 #define WIN32_LEAN_AND_MEAN
-#define NOMINMAX // reader.hpp's headers call std::min and std::max
+#define NOMINMAX // brunner/reader.hpp's headers call std::min and std::max
 #include <windows.h>
 #include <tlhelp32.h>
-#include "reader.hpp"
+#include "brunner/reader.hpp"
 #include <iostream>
 #include <cstring>
 int main(int argc,char** argv) {

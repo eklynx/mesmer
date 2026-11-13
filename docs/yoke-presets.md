@@ -1,11 +1,11 @@
 # Yoke presets: specification
 
 What differs between yoke **models**, how it is chosen, and how forces stop at
-a limit. The code: `src/yoke_preset.hpp` (the settings and the file; read it
-first), `src/drive.hpp` (what the models and writes actually use),
-`src/readonly.hpp` (the gate), `src/reader.cpp` (identification and the test
-write). `src/preset_tests.cpp`, `src/drive_tests.cpp` and
-`src/readonly_tests.cpp` check every statement here.
+a limit. The code: `src/brunner/yoke_preset.hpp` (the settings and the file; read it
+first), `src/brunner/drive.hpp` (what the models and writes actually use),
+`src/brunner/readonly.hpp` (the gate), `src/brunner/reader.cpp` (identification and the test
+write). `src/brunner/preset_tests.cpp`, `src/brunner/drive_tests.cpp` and
+`src/brunner/readonly_tests.cpp` check every statement here.
 
 ## A model, not a firmware
 

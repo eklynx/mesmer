@@ -1,5 +1,5 @@
-// SOURCE OF TRUTH for the seam between the portable reader (reader.cpp,
-// bridge.hpp) and an operating system's HID access (hid/win/hid_win.cpp, hid/mac/hid_mac.cpp).
+// SOURCE OF TRUTH for the seam between the portable reader (brunner/reader.cpp,
+// brunner/bridge.hpp) and an operating system's HID access (hid/win/hid_win.cpp, hid/mac/hid_mac.cpp).
 // Specification: docs/hid-bridge.md. Read this header, not the platform files,
 // to use or implement a HidDevice.
 //
@@ -17,7 +17,7 @@
 //   TransportError  any later I/O failure: timeout, short report, device removed.
 //   OperationCancelled  the reader was asked to stop between transfers.
 #pragma once
-#include "core.hpp"
+#include "brunner/core.hpp"
 #include "hid/usb_ids.hpp"
 #include <cstddef>
 #include <memory>

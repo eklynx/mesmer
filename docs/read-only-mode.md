@@ -1,10 +1,10 @@
 # Read-only mode: specification
 
 What Mesmer does with a yoke whose controller firmware it does not drive.
-The code it describes: `src/readonly.hpp` (the rules; read it first),
-`src/bridge.hpp` (`ReadOnlyBridge`), `src/reader.cpp` (`read_only_session`),
-`src/reference.hpp` (`survey_controllers`), `src/yoke.hpp` and `src/plugin.cpp`.
-`src/readonly_tests.cpp` checks every statement below.
+The code it describes: `src/brunner/readonly.hpp` (the rules; read it first),
+`src/brunner/bridge.hpp` (`ReadOnlyBridge`), `src/brunner/reader.cpp` (`read_only_session`),
+`src/brunner/reference.hpp` (`survey_controllers`), `src/brunner/yoke.hpp` and `src/plugin.cpp`.
+`src/brunner/readonly_tests.cpp` checks every statement below.
 
 ## When
 

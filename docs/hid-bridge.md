@@ -2,10 +2,10 @@
 
 How Mesmer finds and talks to the yoke's USB bridge, on every platform. The
 code it describes: `src/hid/usb_ids.hpp` (which devices), `src/hid/hid_device.hpp`
-(the seam; read it first), `src/hid/hid_select.cpp` (which one), `src/bridge.hpp`
-(requests and replies), `src/reader.cpp` (the supervised reader), and one HID
+(the seam; read it first), `src/hid/hid_select.cpp` (which one), `src/brunner/bridge.hpp`
+(requests and replies), `src/brunner/reader.cpp` (the supervised reader), and one HID
 implementation per operating system: `src/hid/win/hid_win.cpp` and `src/hid/mac/hid_mac.cpp`.
-`src/bridge_tests.cpp` checks every statement in the first four sections.
+`src/brunner/bridge_tests.cpp` checks every statement in the first four sections.
 
 Mesmer talks to the bridge directly. CLS2Sim is not needed and must be closed
 (see Exclusivity).
@@ -26,7 +26,7 @@ if **all** of these hold (`select_bridge`):
 - its top-level usage is vendor page `0xFF00`, usage `0xFF02`;
 - its input and output reports are 64 bytes (report ID included).
 
-Then `reader.cpp` identifies the model from the device, and before anything that
+Then `brunner/reader.cpp` identifies the model from the device, and before anything that
 moves a motor is sent a model whose preset is not verified is
 [read-only](read-only-mode.md) unless the owner acknowledges it. Firmware is only
 noted ([yoke-presets.md](yoke-presets.md)).

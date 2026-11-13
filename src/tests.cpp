@@ -1,10 +1,10 @@
-#include "core.hpp"
-#include "reference.hpp"
-#include "loading.hpp"
+#include "brunner/core.hpp"
+#include "brunner/reference.hpp"
+#include "brunner/loading.hpp"
 #include "config.hpp"
 #include "lab.hpp"
-#include "buffet.hpp"
-#include "slew.hpp"
+#include "force/buffet.hpp"
+#include "force/slew.hpp"
 #include <cstring>
 #include <map>
 #include <random>
@@ -89,7 +89,7 @@ struct LoadingTransport {
 // Decision 16: after every live write, each drive's line (spring, centre and,
 // on pitch, constant force) stays within the margin over its whole travel.
 struct MarginTransport:LoadingTransport {
-    double worst=0,worst_with_shake=0; // the line alone, and the line plus the slow vibration amplitude (buffet.hpp)
+    double worst=0,worst_with_shake=0; // the line alone, and the line plus the slow vibration amplitude (force/buffet.hpp)
     bool kept=true; // pitch never above the constant-force cut-off with a constant force
     double now(unsigned node) {
         const auto travel=node==2?pitch_travel_bound():roll_travel_bound();
@@ -801,9 +801,9 @@ int main() {
         FlightSettings flight_defaults;
         check(flight_defaults.auto_start==0 && flight_defaults.pitch_force_units_per_lb==222 && valid_flight_settings(flight_defaults));
         {
-            // The pitch solver (elevator.hpp, decision 15). Test figures: the
+            // The pitch solver (force/elevator.hpp, decision 15). Test figures: the
             // C172 profile's in ansible/brunner.yml when this was written;
-            // workbench_tests.cpp checks the solver against elevator.html itself.
+            // ui/workbench/workbench_tests.cpp checks the solver against elevator.html itself.
             const ElevatorFigures c172{1.35,0.427,0.45,28,23,0.137,30,0.6,22,19};
             check(valid_figures(c172));
             {

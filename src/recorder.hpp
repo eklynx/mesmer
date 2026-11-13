@@ -1,5 +1,5 @@
 #pragma once
-#include "telemetry.hpp"
+#include "ui/view/telemetry.hpp"
 #include <atomic>
 #include <filesystem>
 #include <fstream>

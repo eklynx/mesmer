@@ -1,15 +1,15 @@
 #define WIN32_LEAN_AND_MEAN
 #define NOMINMAX
-#include "reader.hpp"
-#include "owner_state.hpp"
-#include "readonly.hpp"
+#include "brunner/reader.hpp"
+#include "brunner/owner_state.hpp"
+#include "brunner/readonly.hpp"
 #include "config.hpp"
 #include "lab.hpp"
-#include "yoke.hpp"
-#include "panel_win.hpp"
-#include "loading.hpp"
-#include "slew.hpp"
-#include "workbench_server.hpp"
+#include "brunner/yoke.hpp"
+#include "ui/view/panel_win.hpp"
+#include "brunner/loading.hpp"
+#include "force/slew.hpp"
+#include "ui/workbench/workbench_server.hpp"
 #include "XPLMPlugin.h"
 #include "XPLMProcessing.h"
 #include "XPLMUtilities.h"
@@ -115,9 +115,9 @@ wb::SessionNotices session_notices; // force feel on and off, said in the workbe
 int notice_draws=0;
 bool simulator_ready_for_start=false;
 brunner::FlightSample flight_sample;
-// X-Plane's stalled shares as the models take them (slew.hpp); flight_sample keeps the raw ones.
+// X-Plane's stalled shares as the models take them (force/slew.hpp); flight_sample keeps the raw ones.
 brunner::StallSlews stall_slews;
-// The wing roots' two sections as buffet reads them for pitch (buffet.hpp):
+// The wing roots' two sections as buffet reads them for pitch (force/buffet.hpp):
 // pressure, angle of attack and stalled share, on the profile's own aircraft only.
 std::optional<std::array<brunner::AileronSide,2>> root_stall;
 const void* buffet_seeded_for=nullptr; // the page whose buffet knob the feel settings seeded
@@ -169,7 +169,7 @@ bool owns_axes=false;
 bool owns_trim=false;
 bool default_cessna=false; // selects the flight-dependent loading model and trim ownership only
 std::string last_input_status;
-// Read-only mode (readonly.hpp): the learned travel, where it is kept, and the surveys written.
+// Read-only mode (brunner/readonly.hpp): the learned travel, where it is kept, and the surveys written.
 brunner::Travel read_only_travel;
 std::array<std::uint16_t,2> travel_firmware{};
 bool travel_dirty=false;
@@ -179,7 +179,7 @@ std::filesystem::path output_folder; // Output/BrunnerDirect, set when the plugi
 // The yoke models: the built-ins, plus anything BrunnerDirect.yokes.json adds or changes.
 std::vector<brunner::YokePreset> yoke_presets=brunner::builtin_yoke_presets();
 std::string last_yoke_note,last_yoke_model;
-// The owner's choice to drive a yoke model that is not verified (owner_state.hpp): off unless saved on.
+// The owner's choice to drive a yoke model that is not verified (brunner/owner_state.hpp): off unless saved on.
 bool allow_unverified_yoke=false;
 enum class LiveField { roll_target,pitch_target,trim_target,roll_applied,pitch_applied,trim_applied,
     connected,reference_active,referenced,loading_active,tuning_valid,remaining,sample_age,
@@ -399,7 +399,7 @@ void find_controls() {
     scenery_loading=XPLMFindDataRef("sim/graphics/scenery/async_scenery_load_in_progress");
     flight_clock=XPLMFindDataRef("sim/time/total_flight_time_sec");
 }
-// The user's aircraft: its file picks its profile (profiles.hpp); the stock
+// The user's aircraft: its file picks its profile (force/profiles.hpp); the stock
 // C172 SP's also selects roll's airflow and the page's C172 details.
 void identify_aircraft() {
     char name[256]{},path[1024]{};

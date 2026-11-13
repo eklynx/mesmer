@@ -30,8 +30,8 @@ If the project gains regular contributors, it may move here as its home.
   [discussion](https://github.com/antialias/mesmer/discussions) first, so
   we can agree the approach before you spend time on it.
 - **Anything that moves the yoke is safety-critical.** Changes to what is
-  written to the drives (`loading.hpp`, `reference.hpp`, `tuning.hpp`,
-  `reader.cpp`, `hid/win/hid_win.cpp`, `hid/mac/hid_mac.cpp`) need tests and a careful review, and are tried on
+  written to the drives (`brunner/loading.hpp`, `brunner/reference.hpp`, `force/tuning.hpp`,
+  `brunner/reader.cpp`, `hid/win/hid_win.cpp`, `hid/mac/hid_mac.cpp`) need tests and a careful review, and are tried on
   hardware before they ship.
 - **No new features in this preview** beyond what the release notes list,
   unless agreed in a discussion. Profiles, fixes, documentation, tests and

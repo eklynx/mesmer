@@ -1,5 +1,5 @@
 #pragma once
-#include "core.hpp"
+#include "brunner/core.hpp"
 
 namespace brunner {
 // Simulator-only input lease. Never authorizes a device write or motor start.

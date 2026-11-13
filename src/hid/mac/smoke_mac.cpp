@@ -6,7 +6,7 @@
 // it finds already enabled (for example after a power glitch).
 // Close X-Plane, CLS2Sim and Simux first: the open is exclusive.
 #include "hid/mac/hid_mac.hpp"
-#include "reader.hpp"
+#include "brunner/reader.hpp"
 #include <iostream>
 int main(int argc,char**) {
     if (argc!=1) {std::cerr<<"No options\n";return 2;}
