@@ -643,14 +643,8 @@ void a_model_without_rest_settings_is_left_as_found() {
 void the_new_config_keys() {
     const std::string base="schema_version=2\nroll_spring_percent=35\npitch_spring_percent=40\npitch_trim_counts=0\nauto_start=1\nreference_airspeed_knots=316\nminimum_spring_percent=20\nmaximum_trim_counts=6000\n";
     {std::istringstream in(base);const auto c=parse_configuration(in);check(c.flight.read_only_roll_reverse==0 && c.flight.read_only_pitch_reverse==0);}
-    {std::istringstream in(base);const auto c=parse_configuration(in);check(c.flight.centre_drift_permille==2);}   // 0.2 % by default
-    {std::istringstream in(base+"centre_drift_permille=5\n");const auto c=parse_configuration(in);check(c.flight.centre_drift_permille==5);}
-    {std::istringstream in(base+"centre_drift_permille=0\n");const auto c=parse_configuration(in);check(c.flight.centre_drift_permille==0);}
-    for (const auto* bad:{"centre_drift_permille=51\n","centre_drift_permille=-1\n"}) {
-        bool refused=false;
-        try {std::istringstream in(base+bad);parse_configuration(in);} catch (const std::exception&) {refused=true;}
-        check(refused);
-    }
+    // The old centre_drift_permille key is still accepted (an existing ini keeps loading) and ignored: the setting is the yoke's.
+    {std::istringstream in(base+"centre_drift_permille=5\n");parse_configuration(in);}
     {std::istringstream in(base+"read_only_roll_reverse=1\nread_only_pitch_reverse=1\n");const auto c=parse_configuration(in);
         check(c.flight.read_only_roll_reverse==1 && c.flight.read_only_pitch_reverse==1);}
     // allow_unverified_yoke is no longer an ini setting (the Developer menu's saved choice is the only

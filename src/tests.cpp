@@ -208,7 +208,11 @@ int main() {
         for (int i=0;i<40;++i) drift_settled=drifting.observe(3*i-60,ms(100*i),10) || drift_settled;
         check(!drift_settled);
         // The default tolerance is a share of each axis's own travel: 0.2 % of 12000 and 13000 on the CLS-E.
-        check(centre_tolerance(1,2)==24 && centre_tolerance(0,2)==26 && centre_tolerance(1,0)==2 && centre_tolerance(1,1000)==600);
+        // The CLS-E's 0.1 % of travel: 12 counts of pitch (12000), 13 of roll (13000); never below the old 2.
+        check(centre_tolerance(1)==12 && centre_tolerance(0)==13);
+        {auto flat=builtin_cls_e();flat.centre_drift_percent=0;ScopedDrive scope(make_drive(flat,4500,4500));check(centre_tolerance(1)==2);}
+        {auto fine=builtin_cls_e();fine.centre_drift_percent=0.05;ScopedDrive scope(make_drive(fine,4500,4500));check(centre_tolerance(1)==6 && centre_tolerance(0)==6);}   // decimals: 0.05 % of 12000 is 6, of 13000 is 6.5, truncated to 6
+        {auto wide=builtin_cls_e();wide.centre_drift_percent=5;ScopedDrive scope(make_drive(wide,4500,4500));check(centre_tolerance(1)==600);}
         auto stopped=s;
         for (auto& axis:stopped.axes) {axis.status=0x431;axis.encoder=100;axis.position=99999;}
         check(!stopped_flight_input(stopped,cal,now).ready);

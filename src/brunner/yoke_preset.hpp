@@ -78,6 +78,10 @@ struct YokePreset {
     // does at its limit is unknown, so nothing is asked of it that close.
     double margin_fraction=500.0/4500.0;
     int target_torque=50;                   // 0x6071, the only value written
+    // How far the yoke may drift while a centring decides it has settled, in percent of the axis's own
+    // travel (0.1 = +-0.1 %, decimals allowed; 0 to 5; 0 asks for the old fixed 2 counts). A sensitive
+    // yoke wanders a little at rest: the centring settles when it holds within this of where the hold began.
+    double centre_drift_percent=0.1;
     // Status words (0x6041) the CLS-E flow expects, as numbers (no hex in JSON). stopped:
     // referenced and motors off (the 0x0800 limit flag ignored); ready_mask: every one of
     // these bits set while a spring is live; acquired_mask: set while centring. A model whose
@@ -161,6 +165,7 @@ inline void validate_preset(const YokePreset& p) {
         fail("force ceilings must be 100 to 20000 units");
     if (!in(p.margin_fraction,0.02,0.5)) fail("margin_fraction must be 0.02 to 0.5");
     if (p.target_torque<1 || p.target_torque>1000) fail("target_torque must be 1 to 1000");
+    if (!in(p.centre_drift_percent,0,5)) fail("centre_drift_percent must be 0 to 5");
     for (const int w:{p.status_stopped,p.status_ready_mask,p.status_acquired_mask}) if (w<1 || w>0xffff) fail("status words must be 1 to 65535");
     {
         const auto& r=p.rest;
@@ -198,7 +203,7 @@ inline void validate_presets(const std::vector<YokePreset>& presets) {
 // unless it says otherwise. Fields: name, title, usb [{vendor,product}], verified,
 // verified_firmware [..], roll_travel_counts, pitch_travel_counts, wheel_deg,
 // pitch_travel_mm, pitch_units_per_lb, roll_units_per_nm, roll_ceiling_units,
-// pitch_ceiling_units, margin_fraction, target_torque, status_stopped,
+// pitch_ceiling_units, margin_fraction, target_torque, centre_drift_percent, status_stopped,
 // status_ready_mask, status_acquired_mask, spring_mode, idle_enabled, rest {roll_curve, pitch_curve,
 // roll_spring_percent, pitch_spring_percent, pitch_gain_denominator, pitch_move_back, pitch_cutoff, mode},
 // roll_encoder_sign,
@@ -279,6 +284,7 @@ inline std::vector<YokePreset> parse_yoke_presets(std::string_view text,const st
             else if (key=="pitch_ceiling_units") p.pitch_ceiling_units=whole(v,what);
             else if (key=="margin_fraction") p.margin_fraction=number(v,what);
             else if (key=="target_torque") p.target_torque=whole(v,what);
+            else if (key=="centre_drift_percent") p.centre_drift_percent=number(v,what);
             else if (key=="status_stopped") p.status_stopped=whole(v,what);
             else if (key=="status_ready_mask") p.status_ready_mask=whole(v,what);
             else if (key=="status_acquired_mask") p.status_acquired_mask=whole(v,what);

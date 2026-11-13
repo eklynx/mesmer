@@ -50,7 +50,7 @@ inline Configuration parse_configuration(std::istream& input) {
     const int version=schema->second;
     // Required keys first, then optional ones with their defaults.
     std::vector<std::string> required{"schema_version","pitch_trim_counts","auto_start","reference_airspeed_knots"},
-        optional{"force_feel","buffet","buffet_percent","buffet_period","read_only_roll_reverse","read_only_pitch_reverse","centre_drift_permille"};
+        optional{"force_feel","buffet","buffet_percent","buffet_period","read_only_roll_reverse","read_only_pitch_reverse","centre_drift_permille"}; // centre_drift_permille: accepted and ignored, the setting is the yoke's centre_drift_percent
     const std::vector<std::string> drive{"pitch_force_units_per_lb","pitch_force_gain_divisor","pitch_move_back_gain"};
     // What only the firmness pitch read (main's schemas 2 and 3), the
     // never-deployed elevator_model switch, and roll's airflow and plain
@@ -79,7 +79,6 @@ inline Configuration parse_configuration(std::istream& input) {
     f.auto_start=values.at("auto_start");
     f.reference_airspeed=values.at("reference_airspeed_knots");
     f.force_feel=value("force_feel",f.force_feel);
-    f.centre_drift_permille=value("centre_drift_permille",f.centre_drift_permille);
     f.read_only_roll_reverse=value("read_only_roll_reverse",f.read_only_roll_reverse);f.read_only_pitch_reverse=value("read_only_pitch_reverse",f.read_only_pitch_reverse);
     f.buffet=value("buffet",f.buffet);f.buffet_percent=value("buffet_percent",f.buffet_percent);f.buffet_period=value("buffet_period",f.buffet_period);
     f.roll_torque_units_per_nm=value("roll_torque_units_per_nm",f.roll_torque_units_per_nm);

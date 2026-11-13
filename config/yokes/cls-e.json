@@ -16,6 +16,7 @@
       "roll_ceiling_units": 4500,
       "pitch_ceiling_units": 4500,
       "margin_fraction": 0.1111111111,
+      "centre_drift_percent": 0.1,
       "target_torque": 50,
       "status_stopped": 1073,
       "status_ready_mask": 4119,

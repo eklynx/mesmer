@@ -54,7 +54,7 @@ bool same_preset(const YokePreset& a,const YokePreset& b) {
         && a.usb_ids.size()==b.usb_ids.size() && a.usb_ids[0].vendor==b.usb_ids[0].vendor && a.usb_ids[0].product==b.usb_ids[0].product
         && a.roll_travel_counts==b.roll_travel_counts && a.pitch_travel_counts==b.pitch_travel_counts && a.wheel_deg==b.wheel_deg
         && a.pitch_travel_mm==b.pitch_travel_mm && a.roll_ceiling_units==b.roll_ceiling_units && a.pitch_ceiling_units==b.pitch_ceiling_units
-        && a.target_torque==b.target_torque && std::fabs(a.margin_fraction-b.margin_fraction)<1e-3
+        && a.target_torque==b.target_torque && a.centre_drift_percent==b.centre_drift_percent && std::fabs(a.margin_fraction-b.margin_fraction)<1e-3
         && a.status_ready_mask==b.status_ready_mask && a.status_stopped==b.status_stopped && a.status_acquired_mask==b.status_acquired_mask
         && a.spring_mode==b.spring_mode && a.idle_enabled==b.idle_enabled && a.rest==b.rest
         && a.roll_encoder_sign==b.roll_encoder_sign && a.pitch_encoder_sign==b.pitch_encoder_sign
@@ -164,6 +164,11 @@ void resting_settings() {
 void bounds_and_malformed_files() {
     const auto edit=[](const std::string& fields) {return R"({"schema":1,"yokes":[{"name":"cls-e-ng",)"+fields+"}]}";};
     check(!refused(edit("\"roll_travel_counts\":1000")) && !refused(edit("\"roll_travel_counts\":30000")));   // the edges are fine
+    // The centre drift is a decimal percent of travel: 0.1 by default, 0 to 5, a whole number is fine too.
+    check(builtin_cls_e().centre_drift_percent==0.1 && builtin_cls_e_ng().centre_drift_percent==0.1);
+    for (const auto* good:{"\"centre_drift_percent\":0","\"centre_drift_percent\":0.05","\"centre_drift_percent\":0.125","\"centre_drift_percent\":5"}) check(!refused(edit(good)));
+    {const auto p=parse_yoke_presets(edit("\"centre_drift_percent\":0.125"),builtin_yoke_presets());check(named(p,"cls-e-ng").centre_drift_percent==0.125 && named(p,"cls-e").centre_drift_percent==0.1);}
+    for (const auto* bad:{"\"centre_drift_percent\":-0.01","\"centre_drift_percent\":5.01","\"centre_drift_percent\":\"0.1\""}) check(refused(edit(bad)));
     for (const auto* bad:{"\"roll_travel_counts\":999","\"roll_travel_counts\":30001","\"pitch_travel_counts\":999","\"pitch_travel_counts\":30001",
             "\"wheel_deg\":9","\"wheel_deg\":181","\"pitch_travel_mm\":-1","\"pitch_travel_mm\":1001",
             "\"pitch_units_per_lb\":49","\"pitch_units_per_lb\":1001","\"roll_units_per_nm\":99","\"roll_units_per_nm\":10001",
