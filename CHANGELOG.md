@@ -6,6 +6,10 @@ provenance attestation.
 
 ## Unreleased
 
+- **A pause no longer ends force feel.** The motors stay on and hold the last
+  forces through a pause, so there is no delay on resume (it used to rebuild
+  the whole session). Real lapses still release the motors. Not yet run on
+  hardware.
 - **CLS-E NG: centring no longer refuses at idle.** The NG idles with its motors
   enabled (status 0x1427) in a force mode of 0x0605, which the CLS-E flow read as
   a fault and an unknown spring mode. Presets now carry `spring_mode` and

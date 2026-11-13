@@ -23,7 +23,7 @@ starting `[BrunnerDirect]`.
 | **Ready - force feel starting** | You switched force feel on; it is starting. | Keep a light hand on the yoke for a moment. |
 | **Ready - force feel on** | The yoke carries the model's loads. | Fly. |
 | **Ready - force feel switching off** | Force feel is stopping; the motors stop next. | Nothing. |
-| **Ready - force feel paused with X-Plane** | X-Plane is paused, so force feel is paused. | Unpause; it comes back by itself. |
+| **Ready - force feel paused with X-Plane** | X-Plane is paused before force feel started, so it waits. (Once force feel is running, a pause holds its forces and shows no message.) | Unpause; it starts by itself. |
 | **Ready - force feel waiting for X-Plane** | Force feel is on but X-Plane isn't steady yet (loading, or just unpaused). | Wait a moment. |
 
 ### Waiting

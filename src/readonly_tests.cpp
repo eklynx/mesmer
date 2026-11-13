@@ -485,6 +485,31 @@ void a_model_that_idles_off_is_still_refused_when_enabled() {
     try {validate_preset(bad);} catch (const PresetError&) {refused=true;}
     check(refused);
 }
+// A pause holds a force-feel session instead of ending it, so resume has nothing to rebuild.
+void a_pause_is_not_a_lapse() {
+    using ms=std::chrono::milliseconds;
+    const auto t0=Clock::now();
+    SimulatorWatch w;
+    check(w.failure(t0)=="Simulator controls are not ready");                      // nothing known yet
+    w.update(true,false,t0);check(w.failure(t0).empty());
+    // Paused for a long time, the plugin still calling each frame: no lapse, however long.
+    for (int i=1;i<=100;++i) {w.update(false,true,t0+ms(i*100));check(w.failure(t0+ms(i*100)).empty() && w.paused());}
+    // Resumed, the first frames without a verdict yet: believed for the grace only.
+    const auto resume=t0+ms(10000);
+    w.update(false,false,resume);check(!w.paused() && w.failure(resume+ms(100)).empty());
+    check(w.failure(resume+SimulatorWatch::resume_grace-ms(1)).empty());   // still inside the grace...
+    w.update(false,false,resume+ms(450));
+    check(w.failure(resume+SimulatorWatch::resume_grace+ms(100))=="Simulator controls are not ready");   // ...a real loss outlasts it
+    // A verdict of running before the grace ends clears it for good.
+    SimulatorWatch r;r.update(true,false,t0);r.update(false,true,t0+ms(50));r.update(true,false,t0+ms(100));
+    r.update(true,false,t0+ms(1500));check(r.failure(t0+ms(1600)).empty());
+    // Paused from the start: the watch reports no lapse while the pauses keep coming, because
+    // there is no session to hold (the supervisor never starts one while paused).
+    SimulatorWatch cold;cold.update(false,true,t0);cold.update(false,true,t0+ms(600));check(cold.failure(t0+ms(600)).empty());
+    // A silent plugin is a lapse whether paused or not: the heartbeat.
+    SimulatorWatch quiet;quiet.update(true,false,t0);quiet.update(false,true,t0+ms(10));
+    check(quiet.failure(t0+ms(10)+SimulatorWatch::heartbeat_limit+ms(1)).find("heartbeat expired")!=std::string::npos);
+}
 void the_new_config_keys() {
     const std::string base="schema_version=2\nroll_spring_percent=35\npitch_spring_percent=40\npitch_trim_counts=0\nauto_start=1\nreference_airspeed_knots=316\nminimum_spring_percent=20\nmaximum_trim_counts=6000\n";
     {std::istringstream in(base);const auto c=parse_configuration(in);check(c.flight.read_only_roll_reverse==0 && c.flight.read_only_pitch_reverse==0);}
@@ -509,6 +534,7 @@ int main() {
     try {
         the_gate_rule();
         the_saved_owner_state();
+        a_pause_is_not_a_lapse();
         the_toggle_restarts_the_reader_with_the_new_choice();
         unverified_model_is_read_only_and_never_written();
         an_acknowledged_model_starts_with_a_no_change_write();

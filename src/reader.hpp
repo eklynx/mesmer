@@ -12,6 +12,32 @@
 
 namespace brunner {
 class ReadOnlyBridge;
+// What the reader knows of the simulator, from the plugin's per-frame updates (docs/how-it-works.md,
+// "Pause"). failure() is empty while a force-feel session may carry on. Not thread-safe: the
+// Reader guards it with its mutex.
+//  - A pause is not a lapse: the verdict of the last unpaused update stands through it, so forces
+//    hold and resume is instant. The pause itself is paused(), for sessions that do end on one.
+//  - Just after a pause the first frames have no fresh physics, so "controls not ready" is not
+//    believed for resume_grace; a real loss outlasts it.
+//  - A heartbeat older than 500 ms is a lapse.
+class SimulatorWatch {
+    bool running_=false,paused_=false;
+    Clock::time_point heartbeat_{},last_paused_{};
+public:
+    static constexpr std::chrono::milliseconds resume_grace{500},heartbeat_limit{500};
+    void update(bool running,bool paused,Clock::time_point now) {
+        if (!paused) running_=running; else last_paused_=now;
+        paused_=paused;heartbeat_=now;
+    }
+    bool paused() const {return paused_;}
+    std::string failure(Clock::time_point now) const {
+        const bool just_resumed=last_paused_!=Clock::time_point{} && now>=last_paused_ && now-last_paused_<=resume_grace;
+        if (!running_ && !just_resumed) return "Simulator controls are not ready";
+        const auto age=std::chrono::duration_cast<std::chrono::milliseconds>(now-heartbeat_).count();
+        if (now<heartbeat_ || now-heartbeat_>heartbeat_limit) return "Simulator heartbeat expired ("+std::to_string(age)+" ms)";
+        return {};
+    }
+};
 class Reader {
 public:
     ~Reader() { stop(); }
@@ -86,8 +112,7 @@ public:
     void simulator_update(bool running,bool paused,const Tuning& flight_target,const std::optional<PitchModel>& pitch_model={},
         const std::optional<RollModel>& roll_model={}) {
         std::lock_guard<std::mutex> lock(mutex_);
-        simulator_running_=running;simulator_paused_=paused;
-        heartbeat_=Clock::now();
+        watch_.update(running,paused,Clock::now());
         // Stop/pause carries no new device demand. If a poll is finishing
         // concurrently, it must never see a default 40% target on source loss.
         // Both models or neither: a session never flies one axis on its own.
@@ -121,21 +146,17 @@ private:
     std::thread thread_;
     mutable std::mutex mutex_;
     Snapshot state_;
-    Clock::time_point heartbeat_{};
-    bool simulator_running_=false,simulator_paused_=false;
-    bool simulator_paused() const {std::lock_guard<std::mutex> lock(mutex_);return simulator_paused_;}
+    SimulatorWatch watch_;
+    bool simulator_paused() const {std::lock_guard<std::mutex> lock(mutex_);return watch_.paused();}
     SessionTarget flight_target() const {std::lock_guard<std::mutex> lock(mutex_);return flight_target_;}
     PitchSetup pitch_setup() const {std::lock_guard<std::mutex> lock(mutex_);return pitch_setup_;}
     BuffetTarget buffet_target() const {std::lock_guard<std::mutex> lock(mutex_);return buffet_target_;}
-    // Any lapse releases the motors; none of them is a controller fault. The
+    // Any lapse releases the motors; none of them is a controller fault. (An engaged force-feel
+    // session does not treat a pause as a lapse: see check_engaged in Reader::session.) The
     // session is suspended with its reference kept and resumes when steady.
     std::string simulator_failure() const {
         std::lock_guard<std::mutex> lock(mutex_);
-        const auto now=Clock::now();
-        if (!simulator_running_) return "Simulator controls are not ready";
-        const auto age=std::chrono::duration_cast<std::chrono::milliseconds>(now-heartbeat_).count();
-        if (now<heartbeat_ || now-heartbeat_>std::chrono::milliseconds(500)) return "Simulator heartbeat expired ("+std::to_string(age)+" ms)";
-        return {};
+        return watch_.failure(Clock::now());
     }
 };
 }

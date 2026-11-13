@@ -117,8 +117,14 @@ what the yoke should do and what the pilot is told:
 - A controller fault: stop the motors, then recover by itself at most twice
   (resting settings with the motors off, clear the fault, centre). After
   that, ask the pilot with one action, *Retry*.
-- Pause or aircraft change: force feel pauses and pitch and roll are
-  released, then both come back by themselves.
+- Pause: an engaged force-feel session holds. The motors stay on with the
+  last spring and pitch force, the plugin stops updating them, and on resume
+  there is nothing to rebuild. (The pitch and roll axes are released to
+  X-Plane as before.) A session that has not started yet waits for the
+  unpause. The first 0.5 s after a pause, "controls not ready" is not
+  believed, because the first frames have no fresh physics yet.
+- Aircraft change, or any real lapse (controls lost, no frames for half a
+  second): force feel is released and comes back by itself.
 
 Every message the pilot sees comes from one status text, shared by the
 menu, the corner line, the feel card and the feel page. The full list is in

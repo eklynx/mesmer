@@ -117,7 +117,11 @@ void reference_test(Bridge& bridge,Snapshot& s,const std::atomic<bool>& stop,con
 void loading_test(Bridge& bridge,Snapshot& s,const std::atomic<bool>& stop,
     const std::function<void(const Snapshot&)>& publish,const std::function<void()>& check_alive,std::atomic<bool>& gap,
     const std::function<SessionTarget()>& requested,bool flight,std::atomic<bool>& end,const PitchSetup& pitch={},
-    BuffetDrive* buffet=nullptr,const std::function<BuffetTarget()>& buffet_target={}) {
+    BuffetDrive* buffet=nullptr,const std::function<BuffetTarget()>& buffet_target={},
+    const std::function<void()>& check_engaged={}) {
+    // Once force feel is engaged a pause holds it (the owner's choice, 2026-11-12); a caller that gives
+    // no check_engaged (the light spring test) ends on a pause as before.
+    const auto alive_engaged=[&] {if (flight && check_engaged) check_engaged();else check_alive();};
     s.pitch_solved=false;s.pitch_engaged=false;s.roll_solved=false;s.update_hz=0;
     s.tuning_valid=false;s.loading_seconds_remaining=0;s.flight_session=flight;s.flight_suspended=false;s.loading_fault=false;
     s.force_unavailable.clear();s.power_cycle_needed=false;s.pitch_force_cleared.reset();
@@ -185,7 +189,7 @@ void loading_test(Bridge& bridge,Snapshot& s,const std::atomic<bool>& stop,
         if (pitch.constant_force) {const auto t=requested();engage.emplace(applied,t.pitch?t.pitch->edit:t.roll?t.roll->edit:0);}
         else ramp.emplace(applied);
         while (!stop && Clock::now()<deadline) {
-            check_alive();
+            alive_engaged();
             if (end.exchange(false)) break; // force feel switched off or motors stopped: clean stop, reference kept
             if (gap.exchange(false)) {
                 if (Clock::now()+std::chrono::seconds(11)>deadline) throw std::runtime_error("Not enough test time remains for a ten-second gap");
@@ -312,6 +316,11 @@ void Reader::session(Snapshot& s) {
         const auto failure=simulator_failure();
         if (!failure.empty()) throw FlightPaused(failure);
     };
+    // The check for an engaged force-feel session: a pause is not a lapse.
+    const auto check_engaged=[this] {
+        const auto failure=simulator_failure();
+        if (!failure.empty()) throw FlightPaused(failure);
+    };
     const auto publish_state=[this](const Snapshot& current) {publish(current);};
     std::array<std::uint16_t,2> firmware{};
     for (unsigned i=0;i<2;++i) {
@@ -425,7 +434,7 @@ void Reader::session(Snapshot& s) {
         if (flight_requested_.exchange(false)) serve("Force feel",[&]{
             end_requested_=false;
             loading_test(bridge,s,stop_,publish_state,check_alive,gap_requested_,[this]{return flight_target();},true,end_requested_,pitch_setup(),
-                &buffet_,[this]{return buffet_target();});
+                &buffet_,[this]{return buffet_target();},check_engaged);
         });
         if (stop_) break;
         sample(bridge,s,stop_);
