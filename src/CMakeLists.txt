@@ -89,7 +89,7 @@ if(WIN32)
   set_target_properties(BrunnerDirect PROPERTIES PREFIX "" SUFFIX ".xpl")
   set_property(TARGET BrunnerDirect brunner_buttons_test brunner_core_test brunner_monitor_test brunner_hud_test brunner_yoke_test brunner_panel_preview brunner_hardware_read_test brunner_workbench_test brunner_workbench_demo PROPERTY MSVC_RUNTIME_LIBRARY "MultiThreaded$<$<CONFIG:Debug>:Debug>")
 elseif(APPLE AND XPLANE_SDK)
-  # macOS plugin (build_macos.sh); the yoke is reached through hid/mac/hid_mac.cpp (IOKit).
+  # macOS plugin (src/scripts/build_macos.sh); the yoke is reached through hid/mac/hid_mac.cpp (IOKit).
   if(NOT EXISTS "${XPLANE_SDK}/CHeaders/XPLM/XPLMPlugin.h")
     message(FATAL_ERROR "XPLANE_SDK is not the official SDK directory: ${XPLANE_SDK}")
   endif()

@@ -104,8 +104,8 @@ X-Plane and CLS2Sim closed) before anything else. It is for development, not
 for flying. Xcode's command line tools and CMake 3.20 or later are enough:
 
 ```sh
-./build_macos.sh                  # downloads and verifies the pinned SDK
-./build_macos.sh --sdk /path/to/SDK --no-test
+src/scripts/build_macos.sh       # downloads and verifies the pinned SDK
+src/scripts/build_macos.sh --sdk /path/to/SDK --no-test
 ```
 
 The result is `build/stage/BrunnerDirect/mac_x64/BrunnerDirect.xpl`, ad hoc

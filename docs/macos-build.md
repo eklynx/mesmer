@@ -1,6 +1,6 @@
 # macOS build: specification
 
-`build_macos.sh` is the interface to the macOS build. This page is its
+`src/scripts/build_macos.sh` is the interface to the macOS build. This page is its
 specification; `tests/test-build-macos.sh` checks each statement.
 
 ## What it produces
@@ -23,7 +23,7 @@ with the files the Windows release ships (`BrunnerDirect.ini`,
 ## Usage
 
 ```
-./build_macos.sh [--sdk PATH] [--clean] [--no-test] [--help]
+src/scripts/build_macos.sh [--sdk PATH] [--clean] [--no-test] [--help]
 ```
 
 | Option | Meaning |

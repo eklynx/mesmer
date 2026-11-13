@@ -81,7 +81,7 @@ This is a preview, so here is exactly where it stands.
 
 | | Today |
 |---|---|
-| **Operating system** | Windows x64 only. A macOS build (universal, `build_macos.sh`) loads in X-Plane and reads the yoke through IOKit, but that reader has not been run on hardware yet: it is for development, not for flying. |
+| **Operating system** | Windows x64 only. A macOS build (universal, `src/scripts/build_macos.sh`) loads in X-Plane and reads the yoke through IOKit, but that reader has not been run on hardware yet: it is for development, not for flying. |
 | **Simulator** | X-Plane 12 only. |
 | **Yoke** | The original Brunner CLS-E yoke on USB, verified on controller firmware **v367**; on another firmware it is still driven, with a note in the log and the Force Monitor (firmware never changes the mode). A model that is not verified, such as the CLS-E NG (`25BB:008B`), is [read-only](docs/read-only-mode.md) until you turn on **Developer > Allow unverified yoke models** in the Yoke (Brunner) menu; see [yoke presets](docs/yoke-presets.md). A Brunner bridge no model names is opened read-only as an *Unknown yoke*; another vendor's device is never opened. A controller it cannot make sense of at all reads *Yoke not recognised - see X-Plane's Log.txt*. [Tell us about yours](docs/compatibility-report.md). |
 | **Tested on** | One yoke. |

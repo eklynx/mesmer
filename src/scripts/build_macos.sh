@@ -3,7 +3,7 @@
 # binary. Specification: docs/macos-build.md (the source of truth for what this
 # script guarantees and how it fails). Tests: tests/test-build-macos.sh.
 #
-#   ./build_macos.sh [--sdk PATH] [--clean] [--no-test] [--help]
+#   src/scripts/build_macos.sh [--sdk PATH] [--clean] [--no-test] [--help]
 #
 # Output: build/stage/BrunnerDirect/mac_x64/BrunnerDirect.xpl (plus the files
 # the Windows release ships). Written for macOS's stock bash 3.2.
@@ -16,7 +16,7 @@ SDK_SHA256="${MESMER_SDK_SHA256:-b9875ab27b593927b4f9b3e0ddfffe7401ee5dce6d86b50
 DEPLOYMENT_TARGET="11.0"
 ARCHS="arm64;x86_64"
 
-ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)" # the repository root: this script is src/scripts/build_macos.sh
 BUILD="$ROOT/build"
 sdk="${XPLANE_SDK:-}"
 clean=0

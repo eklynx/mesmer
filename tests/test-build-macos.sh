@@ -14,8 +14,9 @@ check() { if [ "$1" -eq 0 ]; then echo "ok   $2"; else echo "FAIL $2"; failures=
 
 sandbox="$(mktemp -d "${TMPDIR:-/tmp}/mesmer-test.XXXXXX")"
 trap 'rm -rf "$sandbox"' EXIT
-cp "$ROOT/build_macos.sh" "$sandbox/"
-script="$sandbox/build_macos.sh"
+mkdir -p "$sandbox/src/scripts"
+cp "$ROOT/src/scripts/build_macos.sh" "$sandbox/src/scripts/"
+script="$sandbox/src/scripts/build_macos.sh"
 
 # Spec: --help prints usage and exits 0 without building.
 out="$("$script" --help 2>&1)"; code=$?
@@ -63,8 +64,8 @@ out="$(MESMER_SDK_URL="$url_base/missing.zip" "$script" 2>&1)"; code=$?
 [ $code -ne 0 ] && echo "$out" | grep -q "could not download"; check $? "an unreachable download fails with advice"
 
 # Spec: the pin matches the release workflow's.
-url="$(grep -o 'https://[^"]*XPSDK[0-9]*\.zip' "$ROOT/build_macos.sh" | head -1)"
-sha="$(grep -o '[0-9a-f]\{64\}' "$ROOT/build_macos.sh" | head -1)"
+url="$(grep -o 'https://[^"]*XPSDK[0-9]*\.zip' "$ROOT/src/scripts/build_macos.sh" | head -1)"
+sha="$(grep -o '[0-9a-f]\{64\}' "$ROOT/src/scripts/build_macos.sh" | head -1)"
 grep -q "XPLANE_SDK_URL: $url" "$ROOT/.github/workflows/release.yml" && grep -q "XPLANE_SDK_SHA256: $sha" "$ROOT/.github/workflows/release.yml"
 check $? "the SDK pin equals release.yml's"
 
@@ -74,7 +75,7 @@ check $? "build/ is git-ignored"
 
 # Spec: the full build yields a universal, signed plugin, staged where X-Plane looks.
 if [ -n "${MESMER_TEST_SDK:-}" ]; then
-    "$ROOT/build_macos.sh" --clean --sdk "$MESMER_TEST_SDK" >"$sandbox/full.log" 2>&1
+    "$ROOT/src/scripts/build_macos.sh" --clean --sdk "$MESMER_TEST_SDK" >"$sandbox/full.log" 2>&1
     check $? "full build succeeds (log: $sandbox/full.log)"
     xpl="$ROOT/build/stage/BrunnerDirect/mac_x64/BrunnerDirect.xpl"
     [ "$(lipo -archs "$xpl" 2>/dev/null | tr ' ' '\n' | sort | tr '\n' ' ')" = "arm64 x86_64 " ]; check $? "plugin has arm64 and x86_64 slices"
