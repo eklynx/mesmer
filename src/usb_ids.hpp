@@ -15,7 +15,7 @@ struct UsbId {
 // select_bridge and the v367 firmware check still refuse anything that differs.
 inline constexpr std::array<UsbId, 2> bridge_ids{{
     {0x25bb, 0x0081}, // original CLS USB Bridge
-    {0x25bb, 0x008b}, // same protocol per the user's word; untested here
+    {0x25bb, 0x008b}, // CLS-E NG: same HID framing; reports firmware v642, so the v367 gate refuses it
 }};
 constexpr bool is_bridge_id(std::uint16_t vendor, std::uint16_t product) {
     for (const auto& id : bridge_ids)

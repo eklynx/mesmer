@@ -654,6 +654,10 @@ float update(float,float,int,void*) {
     // (owner, 2026-11-08). The end of a session clears the constant force;
     // the notice says cleared only when its read-back confirmed it.
     const bool in_session=s.loading_active && s.flight_session;
+    // "see X-Plane's Log.txt" must lead somewhere: log a refusal's reason once per change.
+    static std::string logged_refusal;
+    if (s.loading_fault && !s.message.empty() && s.message!=logged_refusal) {logged_refusal=s.message;log("Yoke refused: "+s.message);}
+    else if (s.connected) logged_refusal.clear();
     const auto said=session_notices.update(now,in_session,s.loading_result.empty()?s.message:s.loading_result,s.pitch_force_cleared);
     if (bench && said) bench->notify(now,"force_feel",*said);
     corner_notice=bench?bench->latest_notice(now,corner_notice_time):std::nullopt;
@@ -1007,6 +1011,11 @@ PLUGIN_API int XPluginStart(char* name,char* signature,char* description) {
     std::snprintf(name,256,"Yoke (Brunner)");
     std::snprintf(signature,256,"one.abaci.brunner-direct");
     std::snprintf(description,256,"Brunner CLS-E yoke: pitch and roll for every aircraft, optional force feel");
+#if APL
+    // Without this, X-Plane on macOS hands out classic paths ("Volume:Folder:"), which the
+    // filesystem calls below would take for a relative name. Must precede every path call.
+    XPLMEnableFeature("XPLM_USE_NATIVE_PATHS",1);
+#endif
     try {
         char plugin_path[1024]{};
         XPLMGetPluginInfo(XPLMGetMyID(),nullptr,plugin_path,nullptr,nullptr);

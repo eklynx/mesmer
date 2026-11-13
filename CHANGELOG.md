@@ -11,8 +11,10 @@ provenance attestation.
   through IOKit, which has not been run on hardware yet, so it is not a
   release. See `docs/macos-build.md`.
 - **More than one USB bridge id.** The plugin now opens the bridges listed in
-  `src/usb_ids.hpp`: `25BB:0081` as before, and `25BB:008B` (not yet tested
-  here). Every other check, including firmware v367, is unchanged. The reader
+  `src/usb_ids.hpp`: `25BB:0081` as before, and `25BB:008B` (the CLS-E NG). It is
+  found, but reports firmware 642, so the unchanged v367 check refuses it.
+  The log now says why a yoke was refused, and on macOS the plugin finds its
+  own folder (it was given classic `Volume:Folder:` paths). The reader
   is split so the Windows and macOS HID access are small separate files; see
   `docs/hid-bridge.md`.
 

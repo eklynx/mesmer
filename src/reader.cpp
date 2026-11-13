@@ -300,7 +300,7 @@ void Reader::session(Snapshot& s) {
     const auto publish_state=[this](const Snapshot& current) {publish(current);};
     for (unsigned i=0;i<2;++i) {
         s.axes[i].firmware=static_cast<std::uint16_t>(bridge.read(i+1,Object::firmware,stop_));
-        if (s.axes[i].firmware!=367) throw std::runtime_error("Unsupported controller firmware; expected v367");
+        if (s.axes[i].firmware!=367) throw std::runtime_error("Unsupported controller firmware v"+std::to_string(s.axes[i].firmware)+(i==0?" (roll)":" (pitch)")+"; expected v367");
     }
     // A link lost while buffet was on: what it set is cleared once both
     // motors are confirmed stopped (the stop comes first, never delayed), and
