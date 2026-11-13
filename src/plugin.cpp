@@ -7,6 +7,7 @@
 #include "lab.hpp"
 #include "brunner/yoke.hpp"
 #include "ui/view/panel_win.hpp"
+#include "ui/view/startup_notice.hpp"
 #include "brunner/loading.hpp"
 #include "force/slew.hpp"
 #include "ui/workbench/workbench_server.hpp"
@@ -107,12 +108,11 @@ bool force_feel=false; // the pilot's switch; startup value from configuration
 bool show_status_line=true;
 brunner::StartupReadiness startup_readiness;
 XPLMFlightLoopID readiness_loop=nullptr;
-XPLMWindowID startup_window=nullptr;
+brunner::ui::StartupNotice startup_notice; // the corner window (ui/view/startup_notice.hpp)
 // The workbench's newest notice while it is fresh: the corner line shows it.
 std::optional<wb::Notice> corner_notice;
 constexpr std::chrono::seconds corner_notice_time{6};
 wb::SessionNotices session_notices; // force feel on and off, said in the workbench's notices
-int notice_draws=0;
 bool simulator_ready_for_start=false;
 brunner::FlightSample flight_sample;
 // X-Plane's stalled shares as the models take them (force/slew.hpp); flight_sample keeps the raw ones.
@@ -270,7 +270,7 @@ int read_live(void* refcon) {
     case LiveField::move_back:return flight_settings.pitch_move_back_gain;
     case LiveField::auto_start:return flight_settings.auto_start;
     case LiveField::startup_notice:return static_cast<int>(notice_code());
-    case LiveField::notice_draws:return notice_draws;
+    case LiveField::notice_draws:return startup_notice.draws();
     case LiveField::airspeed_knots:return std::isfinite(flight_sample.airspeed)?static_cast<int>(std::lround(flight_sample.airspeed)):-1;
     case LiveField::owns_trim:return owns_trim;
     case LiveField::lab_trim:return diagnostic_trim.target();
@@ -844,7 +844,7 @@ float update(float,float,int,void*) {
     const bool must_show=decision.status==brunner::centring_text || decision.retry_offered;
     // A feel notice shows for a few seconds when the yoke's own status line
     // has nothing to say: it never takes the place of a link lost or a fault.
-    if (startup_window) XPLMSetWindowIsVisible(startup_window,(decision.show_notice && (show_status_line || must_show)) || corner_notice);
+    startup_notice.set_visible((decision.show_notice && (show_status_line || must_show)) || corner_notice);
     if (decision.status!=last_status) {log(decision.status);last_status=decision.status;}
     refresh_menu(s);
     const auto solution=shown_pitch(s,input);
@@ -930,51 +930,31 @@ float observe_completed_frame(float,float,int,void*) {
     return -1.0f;
 }
 int recenter_handler(XPLMCommandRef,XPLMCommandPhase,void*);
-void draw_startup_notice(XPLMWindowID window,void*) {
+// What the corner window shows: the yoke's status and a hint, or the feel page's
+// newest notice when the status line has nothing to say (ui/view/startup_notice.hpp).
+brunner::ui::NoticeFrame notice_frame(int inner_width,const brunner::ui::TextWidth& measure) {
     const bool must_show=decision.show_notice && (decision.status==brunner::centring_text || decision.retry_offered);
     const bool status_shown=decision.show_notice && (show_status_line || must_show);
-    if (!status_shown && !corner_notice) return;
-    int l,t,r,b;XPLMGetWindowGeometry(window,&l,&t,&r,&b);
-    XPLMDrawTranslucentDarkBox(l,t,r,b);
-    float color[]{0.94f,0.94f,0.94f};
+    brunner::ui::NoticeFrame frame;
+    frame.visible=status_shown || corner_notice.has_value();
+    if (!frame.visible) return frame;
     if (!status_shown) {
         // The workbench's notice, as the page shows it, in the window's two
         // lines, fitted by the font's own widths.
-        const auto lines=wb::corner_lines(corner_notice->text,r-l-24,[](const std::string& text) {
-            return static_cast<double>(XPLMMeasureString(xplmFont_Proportional,text.c_str(),static_cast<int>(text.size())));
-        });
-        for (std::size_t i=0;i<lines.size();++i) XPLMDrawString(color,l+12,t-22-21*static_cast<int>(i),lines[i].c_str(),nullptr,xplmFont_Proportional);
-        if (notice_draws<std::numeric_limits<int>::max()) ++notice_draws;
-        return;
+        frame.lines=wb::corner_lines(corner_notice->text,inner_width,measure);
+        return frame;
     }
     // A stop's short reason replaces the bare retry hint: what failed, where
     // the pilot is looking. The page has the whole sentence.
     const std::string detail=decision.retry_offered?(corner_reason.empty()?"Click here to retry":corner_reason):
         decision.status==brunner::centring_text?"Keep your hands off the yoke until it settles":"Pitch and roll return automatically";
-    XPLMDrawString(color,l+12,t-22,decision.status.c_str(),nullptr,xplmFont_Proportional);
-    XPLMDrawString(color,l+12,t-43,detail.c_str(),nullptr,xplmFont_Proportional);
-    if (notice_draws<std::numeric_limits<int>::max()) ++notice_draws;
+    frame.lines={decision.status,detail};
+    return frame;
 }
-int notice_mouse(XPLMWindowID,int,int,XPLMMouseStatus status,void*) {
-    if (status==xplm_MouseDown && decision.retry_offered) recenter_handler(nullptr,xplm_CommandBegin,nullptr);
-    return 1;
-}
-int notice_wheel(XPLMWindowID,int,int,int,int,void*) {return 1;}
-XPLMCursorStatus notice_cursor(XPLMWindowID,int,int,void*) {return xplm_CursorDefault;}
-void notice_key(XPLMWindowID,char,XPLMKeyFlags,char,void*,int) {}
 void create_startup_notice() {
-    int l,t,r,b;XPLMGetScreenBoundsGlobal(&l,&t,&r,&b);
-    XPLMCreateWindow_t parameters{};parameters.structSize=sizeof(parameters);
-    parameters.left=l+24;parameters.right=l+544;parameters.top=t-60;parameters.bottom=t-120;
-    parameters.drawWindowFunc=draw_startup_notice;parameters.handleMouseClickFunc=notice_mouse;
-    parameters.handleRightClickFunc=notice_mouse;parameters.handleMouseWheelFunc=notice_wheel;
-    parameters.handleCursorFunc=notice_cursor;parameters.handleKeyFunc=notice_key;
-    parameters.decorateAsFloatingWindow=xplm_WindowDecorationNone;parameters.layer=xplm_WindowLayerFlightOverlay;
-    startup_window=XPLMCreateWindowEx(&parameters);
-    if (!startup_window) throw std::runtime_error("Could not create yoke status indicator");
-    int char_width=0,char_height=0;XPLMGetFontDimensions(xplmFont_Proportional,&char_width,&char_height,nullptr);
-    log("Corner notices: proportional font about "+std::to_string(char_width)+" x "+std::to_string(char_height)+" px, two lines of "
-        +std::to_string(parameters.right-parameters.left-24)+" px, measured per string");
+    startup_notice.create({notice_frame,
+        [] {if (decision.retry_offered) recenter_handler(nullptr,xplm_CommandBegin,nullptr);},
+        [](const std::string& line) {log(line);}});
 }
 // Developer tests: the supervisor stands back while they run and resumes
 // automatic operation when they end on their own.
@@ -1296,7 +1276,7 @@ PLUGIN_API int XPluginEnable() {
     } catch (const std::exception& e) {
         log(e.what());reader.stop();force_hud.close();recorder.stop();
         if (readiness_loop) {XPLMDestroyFlightLoop(readiness_loop);readiness_loop=nullptr;}
-        if (startup_window) {XPLMDestroyWindow(startup_window);startup_window=nullptr;}
+        startup_notice.destroy();
         return 0;
     }
 }
@@ -1313,7 +1293,7 @@ PLUGIN_API void XPluginDisable() {
     recorder.event("Plugin disabled; reader stopped");recorder.stop();
     decision=brunner::YokeDecision{};decision.status="Yoke plugin is disabled";
     if (readiness_loop) {XPLMDestroyFlightLoop(readiness_loop);readiness_loop=nullptr;}
-    if (startup_window) {XPLMDestroyWindow(startup_window);startup_window=nullptr;}
+    startup_notice.destroy();
     if (menu) XPLMSetMenuItemName(menu,menu_status,decision.status.c_str(),0);
 }
 PLUGIN_API void XPluginStop() {
