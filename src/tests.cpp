@@ -375,7 +375,7 @@ int main() {
         stopped.axes[0].status=0x143f;check(!stopped_flight_input(stopped,cal,now).ready);
         for (unsigned status:{0x431u,0x438u,0x470u,0x2038u}) check(stopped_for_recovery(status));
         for (unsigned status:{0x1437u,0x0000u,0x0437u,0x000fu}) check(!stopped_for_recovery(status));
-        check(base_spring_mode(0x2205)==spring_mode && base_spring_mode(0x0a05)==spring_mode && base_spring_mode(0x0207)!=spring_mode);
+        check(base_spring_mode(0x2205)==spring_mode() && base_spring_mode(0x0a05)==spring_mode() && base_spring_mode(0x0207)!=spring_mode());
         check(advance_trim(0,600,0.02)==12);
         check(advance_trim(0,-600,0.02)==-12);
         check(advance_trim(595,600,0.02)==600);

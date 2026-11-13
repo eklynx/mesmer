@@ -203,7 +203,7 @@ template<class Transport> void check_controllers(Transport& bridge,const std::at
         for (const auto reg:{force_limit,torque_limit})
             if (bridge.ref_read(node,reg,stop)!=expected_protection_limit(node))
                 throw SettingsRefused("Controller protection limits differ from their switch-on values");
-        if (base_spring_mode(static_cast<std::uint16_t>(bridge.ref_read(node,force_mode,stop)))!=spring_mode)
+        if (base_spring_mode(static_cast<std::uint16_t>(bridge.ref_read(node,force_mode,stop)))!=spring_mode())
             throw SettingsRefused("Unknown controller spring mode");
     }
 }
@@ -430,7 +430,7 @@ template<class Transport> bool rest_after_stop(Transport& bridge,std::string* de
 // check_controllers refuses.
 template<class Transport> void recover_controllers(Transport& bridge,const std::atomic<bool>& stop) {
     check_controllers(bridge,stop,false);
-    const std::array<std::uint16_t,2> shutdown_words{{6,6}},shutdown_modes{{spring_mode,spring_mode}};
+    const std::array<std::uint16_t,2> shutdown_words{{6,6}},shutdown_modes{{spring_mode(),spring_mode()}};
     if (!stop_reference(bridge,shutdown_words,shutdown_modes)) throw std::runtime_error("Recovery could not confirm both motors disabled");
     for (unsigned node=1;node<=2;++node) write_spring(bridge,node,resting_scale,stop);
     // Do not erase the error-history object or set the initialization bit.

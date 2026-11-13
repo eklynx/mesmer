@@ -91,7 +91,7 @@ public:
             if (!a.touched) continue;
             // Each step on its own, so one refusal does not leave the others.
             bool done=true;
-            try {enable(bridge,node,false,spring_mode,cleanup);} catch (...) {done=false;}
+            try {enable(bridge,node,false,spring_mode(),cleanup);} catch (...) {done=false;}
             try {write(bridge,node,vibration_slow_force,0,cleanup);} catch (...) {done=false;}
             // The time as found, when the write bounds allow that value;
             // otherwise it stays as buffet left it, and is reported.

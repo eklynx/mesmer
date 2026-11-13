@@ -62,6 +62,14 @@ struct YokePreset {
     // these bits set while a spring is live; acquired_mask: set while centring. A model whose
     // words differ refuses safely and every refusal prints the words it saw: set them here.
     int status_stopped=0x0431,status_ready_mask=0x1017,status_acquired_mask=0x1004;
+    // The force-mode word (0x2101:01) the controllers rest in, with the reference request,
+    // vibration and the other bits the flow sets and clears (bits 13, 11, 6, 5) left out.
+    // The flow refuses any other mode, so a model whose resting mode differs needs its own.
+    int spring_mode=0x0205;
+    // True for a model whose controllers idle with their motors enabled (its own spring
+    // running, status bit 0x0004 set). Centring then disables them first, with the standard
+    // shutdown, instead of refusing; the CLS-E, which idles disabled, keeps the refusal.
+    bool idle_enabled=false;
 };
 
 // ---- Built-in models ----
@@ -86,9 +94,14 @@ inline YokePreset builtin_cls_e_ng() {
     p.roll_ceiling_units=11000;p.pitch_ceiling_units=9500;
     p.target_torque=25;
     // At rest, referenced with its own spring running, the NG reads 0x1427: it lacks the CLS-E's
-    // bit 0x0010 in that state, so its ready mask is 0x1007 (seen 2026-11-12). Its stopped word
-    // is not yet known; the CLS-E's is kept until a run shows it.
+    // bit 0x0010 in that state, so its ready mask is 0x1007 (seen 2026-11-12). It idles with its
+    // motors enabled; after the standard shutdown it reads 0x0421 (seen 2026-11-12, Log.txt of
+    // the first drive attempt), the CLS-E's stopped word less bit 0x0010. Its force mode at rest
+    // is 0x2605, and 0x0605 once the reference request (bit 13) is taken off.
     p.status_ready_mask=0x1007;
+    p.status_stopped=0x0421;
+    p.spring_mode=0x0605;
+    p.idle_enabled=true;
     return p;
 }
 inline std::vector<YokePreset> builtin_yoke_presets() {return {builtin_cls_e(),builtin_cls_e_ng()};}
@@ -115,6 +128,8 @@ inline void validate_preset(const YokePreset& p) {
     if (!in(p.margin_fraction,0.02,0.5)) fail("margin_fraction must be 0.02 to 0.5");
     if (p.target_torque<1 || p.target_torque>1000) fail("target_torque must be 1 to 1000");
     for (const int w:{p.status_stopped,p.status_ready_mask,p.status_acquired_mask}) if (w<1 || w>0xffff) fail("status words must be 1 to 65535");
+    if (p.spring_mode<1 || p.spring_mode>0xffff || (p.spring_mode&((1<<13)|(1<<11)|(1<<6)|(1<<5)))!=0)
+        fail("spring_mode must be 1 to 65535 with bits 13, 11, 6 and 5 clear (they are the flow's, not the resting mode's)");
 }
 // No two models may claim one USB id: the model must follow from the device.
 inline void validate_presets(const std::vector<YokePreset>& presets) {
@@ -138,7 +153,7 @@ inline void validate_presets(const std::vector<YokePreset>& presets) {
 // verified_firmware [..], roll_travel_counts, pitch_travel_counts, wheel_deg,
 // pitch_travel_mm, pitch_units_per_lb, roll_units_per_nm, roll_ceiling_units,
 // pitch_ceiling_units, margin_fraction, target_torque, status_stopped,
-// status_ready_mask, status_acquired_mask, roll_encoder_sign,
+// status_ready_mask, status_acquired_mask, spring_mode, idle_enabled, roll_encoder_sign,
 // pitch_encoder_sign, roll_input_reverse, pitch_input_reverse. Unknown fields are refused.
 namespace preset_detail {
 inline double number(const Json& j,const std::string& what) {
@@ -218,6 +233,8 @@ inline std::vector<YokePreset> parse_yoke_presets(std::string_view text,const st
             else if (key=="status_stopped") p.status_stopped=whole(v,what);
             else if (key=="status_ready_mask") p.status_ready_mask=whole(v,what);
             else if (key=="status_acquired_mask") p.status_acquired_mask=whole(v,what);
+            else if (key=="spring_mode") p.spring_mode=whole(v,what);
+            else if (key=="idle_enabled") p.idle_enabled=flag(v,what);
             else if (key=="roll_encoder_sign") p.roll_encoder_sign=whole(v,what);
             else if (key=="pitch_encoder_sign") p.pitch_encoder_sign=whole(v,what);
             else if (key=="roll_input_reverse") p.roll_input_reverse=flag(v,what);

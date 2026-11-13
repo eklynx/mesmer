@@ -135,7 +135,7 @@ inline std::uint16_t stopped_controlword(std::uint16_t word) {
 // IL 0x938c..0x96a6. This is a testable command plan, not permission to execute.
 // The spring mode with the bits CLS2Sim clears before a reference removed; a
 // switch-on sets bit 13, the reference request, on top of it.
-inline constexpr std::uint16_t spring_mode=0x0205;
+inline std::uint16_t spring_mode() {return active_drive().spring_mode;}
 inline std::uint16_t base_spring_mode(std::uint16_t mode) {
     return static_cast<std::uint16_t>(mode & ~((1u<<13)|(1u<<11)|(1u<<5)|(1u<<6)));
 }

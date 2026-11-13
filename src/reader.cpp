@@ -48,7 +48,20 @@ void link_lost(Bridge& bridge,Snapshot& s,const std::array<std::uint16_t,2>& wor
 void reference_test(Bridge& bridge,Snapshot& s,const std::atomic<bool>& stop,const std::function<void(const Snapshot&)>& publish,
     const std::function<void()>& check_alive) {
     sample(bridge,s,stop);
-    for (const auto& a:s.axes) if (a.status&0x000c) throw std::runtime_error("Reference test requires disabled, fault-free drives ("+status_words(s)+")");
+    for (const auto& a:s.axes) if (a.status&0x0008) throw std::runtime_error("Reference test requires disabled, fault-free drives ("+status_words(s)+")");
+    if ((s.axes[0].status|s.axes[1].status)&0x0004) {
+        // A model that idles with its motors on (its own spring) is shut down the standard way
+        // first; one that does not has been left enabled by something else, and is refused.
+        if (!active_drive().idle_enabled) throw std::runtime_error("Reference test requires disabled, fault-free drives ("+status_words(s)+")");
+        std::array<std::uint16_t,2> idle_words{},idle_modes{};
+        for (unsigned i=0;i<2;++i) {
+            idle_words[i]=static_cast<std::uint16_t>(bridge.ref_read(i+1,controlword,stop));
+            idle_modes[i]=static_cast<std::uint16_t>(bridge.ref_read(i+1,force_mode,stop));
+        }
+        if (!stop_reference(bridge,idle_words,idle_modes)) throw StopUnconfirmed("Could not confirm the yoke's motors disabled before centring ("+status_words(s)+")");
+        sample(bridge,s,stop);
+        for (const auto& a:s.axes) if (a.status&0x000c) throw std::runtime_error("Reference test requires disabled, fault-free drives ("+status_words(s)+")");
+    }
     // Every centring starts from the plugin's own resting settings, whatever a
     // switch-on, CLS2Sim or an interrupted session left (motors off throughout).
     rest_controllers(bridge,stop);

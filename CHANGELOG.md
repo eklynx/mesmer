@@ -6,6 +6,11 @@ provenance attestation.
 
 ## Unreleased
 
+- **CLS-E NG: centring no longer refuses at idle.** The NG idles with its motors
+  enabled (status 0x1427) in a force mode of 0x0605, which the CLS-E flow read as
+  a fault and an unknown spring mode. Presets now carry `spring_mode` and
+  `idle_enabled`; the NG's stopped word is 0x0421 (all seen on the first attempt
+  to drive it). Still unverified on a full run.
 - **A macOS development build.** `build_macos.sh` builds a universal
   (arm64 and x86_64) plugin that loads in X-Plane 12 on a Mac. It reads the yoke
   through IOKit, which has not been run on hardware yet, so it is not a

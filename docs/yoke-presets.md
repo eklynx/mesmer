@@ -31,6 +31,8 @@ Built in: `cls-e` (USB `25BB:0081`, verified on firmware 367) and `cls-e-ng`
 | `margin_fraction` | headroom kept under the ceiling (0.02 to 0.5; the CLS-E's 500 of 4500 is 0.1111) |
 | `target_torque` | the only target-torque value the plugin writes (CLS-E 50, NG 25) |
 | `status_stopped`, `status_ready_mask`, `status_acquired_mask` | the status words the CLS-E flow expects (decimal) |
+| `spring_mode` | the force mode (`0x2101:01`) the controllers rest in, without the flow's bits 13, 11, 6 and 5 (decimal; the CLS-E's is 517 = 0x0205, the NG's 1541 = 0x0605). Any other mode is refused |
+| `idle_enabled` | `true` for a model that idles with its motors enabled (the NG). Centring then shuts them down the standard way first instead of refusing; `false` (the CLS-E) keeps the refusal |
 | `roll_encoder_sign`, `pitch_encoder_sign` | the spring's frame is sign x encoder (+1 or -1) |
 | `roll_input_reverse`, `pitch_input_reverse` | flips the pilot's input direction |
 

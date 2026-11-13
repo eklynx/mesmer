@@ -48,6 +48,10 @@ struct ControllerFake : HidDevice {
     std::uint16_t firmware[3]={0,642,642};   // by node
     bool refuse_writes=false;
     int encoder=100;
+    // A model that idles with its motors enabled (the NG): status 0x1427 until a shutdown
+    // controlword (low nibble 6) is written, then 0x0421. Set again, it is enabled again.
+    std::atomic<bool> enabled{false};
+    bool tracks_state=false;      // false: the status stays 0x0010, as the older tests expect
     static std::uint32_t key(unsigned node,unsigned index,unsigned sub) {return (node<<24)|(index<<8)|sub;}
     explicit ControllerFake(std::vector<Report>* log,std::vector<Report>* write_log,UsbId id={0x25bb,0x008b}):usb(id),sent(log),writes(write_log) {
         const bool cls_e=id.product==0x0081;
@@ -55,8 +59,22 @@ struct ControllerFake : HidDevice {
             const std::uint32_t limit=cls_e?4500:(node==1?2150:2250);
             regs[key(node,0x211b,0)]=limit;regs[key(node,0x6072,0)]=limit;
             regs[key(node,0x2114,0)]=cls_e?100:(node==1?180:160);
+            regs[key(node,0x2101,1)]=cls_e?0x2205:0x2605;      // resting force mode with the reference request set
+            regs[key(node,0x6040,0)]=cls_e?0x0006:0x006f;
         }
         if (cls_e) firmware[1]=firmware[2]=367;
+    }
+    // The rest of what a session reads, as the NG's register survey showed it (2026-11-12). Off by
+    // default: the survey tests rely on a controller that lacks some registers.
+    void surveyed_registers() {
+        for (unsigned node=1;node<=2;++node) {
+            static const unsigned curve[9]={50,150,250,350,450,550,650,800,950};
+            for (unsigned i=1;i<=18;++i) {regs[key(node,0x2113,i)]=i<=9?curve[i-1]:0;regs[key(node,0x20a1,i)]=0;}
+            regs[key(node,0x2099,0)]=0;regs[key(node,0x209a,0)]=100;regs[key(node,0x2100,1)]=1;regs[key(node,0x2100,2)]=node==1?6:3;
+            regs[key(node,0x2101,4)]=0;regs[key(node,0x2102,0)]=200;regs[key(node,0x2108,0)]=0;regs[key(node,0x2109,0)]=100;
+            regs[key(node,0x2115,0)]=0;regs[key(node,0x2116,0)]=0;regs[key(node,0x2117,0)]=0;regs[key(node,0x211a,0)]=0;
+            regs[key(node,0x211f,0)]=40;regs[key(node,0x6071,0)]=25;
+        }
     }
     UsbId id() const override {return usb;}
     static unsigned width_of(unsigned index) {
@@ -79,13 +97,14 @@ struct ControllerFake : HidDevice {
                 std::uint32_t value=0;
                 for (unsigned i=0;i<(r[6]==0x2b?2u:4u);++i) value|=static_cast<std::uint32_t>(r[10+i])<<(i*8);
                 regs[key(node,index,sub)]=value;
+                if (index==0x6040 && (value&0x87)==0x06) enabled=false;   // CiA-402 shutdown: bits 1,2 set, 0 and 7 clear
                 reply[6]=0x60;for (unsigned i=0;i<4;++i) reply[10+i]=0;
             }
         } else {
             std::uint32_t value=0;bool known=true;
             switch (index) {
             case 0x3018:value=firmware[node];break;
-            case 0x6041:value=0x0010;break;
+            case 0x6041:value=tracks_state?(enabled?0x1427u:0x0421u):0x0010u;break;
             case 0x6064:value=static_cast<std::uint32_t>(encoder++);break;
             case 0x2106:value=0;break;
             default: {
@@ -420,6 +439,52 @@ void the_toggle_restarts_the_reader_with_the_new_choice() {
     run.reader.stop();
     check(run.writes.size()==written);
 }
+// The NG idles enabled. Session start shuts it down the standard way, and its resting mode
+// (0x0605, not the CLS-E's 0x0205) is accepted; before this it was "Unknown controller spring mode".
+void an_idle_enabled_model_is_shut_down_and_its_own_mode_accepted() {
+    ScopedDrive restore(cls_e_drive());
+    ControllerFake* device=nullptr;
+    Run run({0x25bb,0x008b},[&](ControllerFake& f) {device=&f;f.tracks_state=true;f.enabled=true;f.surveyed_registers();});
+    run.reader.set_allow_unverified(true);
+    run.reader.start();
+    check(wait_for([&] {return run.ready();}));
+    const auto s=run.reader.snapshot();
+    check(!s.loading_fault && s.loading_result.find("failed")==std::string::npos);
+    check(s.loading_result.find("disabled")!=std::string::npos);
+    bool shutdown=false;
+    for (const auto& w:run.writes) if ((w[7]|(w[8]<<8))==0x6040 && (le(w,10,2)&0x87)==0x06) shutdown=true;
+    check(shutdown && !device->enabled);
+    // The NG comes back on by itself; centring shuts it down again instead of refusing.
+    auto shutdowns=[&] {std::size_t n=0;for (const auto& w:run.writes) if ((w[7]|(w[8]<<8))==0x6040 && (le(w,10,2)&0x87)==0x06) ++n;return n;};
+    const auto before=shutdowns();
+    device->enabled=true;
+    check(wait_for([&] {return run.reader.snapshot().cycles>0;}));
+    check(run.reader.request_reference_test());
+    check(wait_for([&] {return run.reader.snapshot().reference_active || shutdowns()>before;}));
+    check(wait_for([&] {return shutdowns()>before;}));
+    check(run.reader.snapshot().loading_result.find("requires disabled")==std::string::npos);
+    run.reader.stop();
+}
+// A model that does not idle enabled is still refused when found enabled at a centring.
+void a_model_that_idles_off_is_still_refused_when_enabled() {
+    ScopedDrive restore(cls_e_drive());
+    ControllerFake* device=nullptr;
+    Run run({0x25bb,0x0081},[&](ControllerFake& f) {device=&f;f.tracks_state=true;f.surveyed_registers();});
+    run.reader.start();
+    check(wait_for([&] {return run.ready();}));
+    std::size_t writes_before=run.writes.size();
+    device->enabled=true;
+    check(run.reader.request_reference_test());
+    check(wait_for([&] {return run.reader.snapshot().loading_result.find("requires disabled")!=std::string::npos;}));
+    run.reader.stop();
+    check(run.writes.size()==writes_before);                // refused untouched: nothing written
+    // The preset's own flag, not the model's name, decides.
+    check(!builtin_cls_e().idle_enabled && builtin_cls_e_ng().idle_enabled);
+    check(builtin_cls_e().spring_mode==0x0205 && builtin_cls_e_ng().spring_mode==0x0605 && builtin_cls_e_ng().status_stopped==0x0421);
+    auto bad=builtin_cls_e_ng();bad.spring_mode=0x2605;bool refused=false;
+    try {validate_preset(bad);} catch (const PresetError&) {refused=true;}
+    check(refused);
+}
 void the_new_config_keys() {
     const std::string base="schema_version=2\nroll_spring_percent=35\npitch_spring_percent=40\npitch_trim_counts=0\nauto_start=1\nreference_airspeed_knots=316\nminimum_spring_percent=20\nmaximum_trim_counts=6000\n";
     {std::istringstream in(base);const auto c=parse_configuration(in);check(c.flight.read_only_roll_reverse==0 && c.flight.read_only_pitch_reverse==0);}
@@ -448,6 +513,8 @@ int main() {
         unverified_model_is_read_only_and_never_written();
         an_acknowledged_model_starts_with_a_no_change_write();
         a_refused_test_write_ends_the_session();
+        an_idle_enabled_model_is_shut_down_and_its_own_mode_accepted();
+        a_model_that_idles_off_is_still_refused_when_enabled();
         a_verified_model_on_other_firmware_is_noted_not_gated();
         presets_decide_the_ids_and_the_gate();
         mixed_firmware_is_the_models_rule();
