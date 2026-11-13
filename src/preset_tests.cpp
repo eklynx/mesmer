@@ -62,6 +62,7 @@ void the_example_file_is_the_built_in() {
     check(a.roll_ceiling_units==b.roll_ceiling_units && a.pitch_ceiling_units==b.pitch_ceiling_units && a.target_torque==b.target_torque);
     check(std::fabs(a.margin_fraction-b.margin_fraction)<1e-3);   // the file's 0.1111 against 500/4500
     check(a.status_ready_mask==b.status_ready_mask && a.status_stopped==b.status_stopped && a.status_acquired_mask==b.status_acquired_mask);
+    check(a.spring_mode==b.spring_mode && a.idle_enabled==b.idle_enabled);
     check(a.roll_encoder_sign==b.roll_encoder_sign && a.pitch_encoder_sign==b.pitch_encoder_sign);
     check(a.roll_input_reverse==b.roll_input_reverse && a.pitch_input_reverse==b.pitch_input_reverse);
     check(a.pitch_units_per_lb==b.pitch_units_per_lb && a.roll_units_per_nm==b.roll_units_per_nm);

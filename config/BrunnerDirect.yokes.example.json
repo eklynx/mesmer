@@ -15,11 +15,14 @@
       "pitch_ceiling_units": 9500,
       "margin_fraction": 0.1111,
       "target_torque": 25,
+      "status_stopped": 1057,
       "status_ready_mask": 4103,
+      "spring_mode": 1541,
+      "idle_enabled": true,
       "roll_encoder_sign": -1,
-      "pitch_encoder_sign": -1,
+      "pitch_encoder_sign": 1,
       "roll_input_reverse": true,
-      "pitch_input_reverse": false
+      "pitch_input_reverse": true
     }
   ]
 }
