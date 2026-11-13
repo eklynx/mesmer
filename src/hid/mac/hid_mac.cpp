@@ -49,6 +49,9 @@ bool number_property(IOHIDDeviceRef device,CFStringRef key,int& out) {
 Ref<CFMutableArrayRef> matching_ids(const std::vector<UsbId>& ids,const std::vector<std::uint16_t>& unknown_vendors) {
     Ref<CFMutableArrayRef> list(CFArrayCreateMutable(kCFAllocatorDefault,0,&kCFTypeArrayCallBacks));
     for (const auto& id:ids) {
+        // A vendor-wide match below already covers this id. Overlapping dictionaries make IOKit report
+        // the same device once per dictionary, which select_bridge would count as several bridges.
+        if (vendor_listed(unknown_vendors,id.vendor)) continue;
         Ref<CFMutableDictionaryRef> match(CFDictionaryCreateMutable(kCFAllocatorDefault,0,&kCFTypeDictionaryKeyCallBacks,&kCFTypeDictionaryValueCallBacks));
         const int vendor=id.vendor,product=id.product;
         Ref<CFNumberRef> vendor_number(CFNumberCreate(kCFAllocatorDefault,kCFNumberIntType,&vendor));
