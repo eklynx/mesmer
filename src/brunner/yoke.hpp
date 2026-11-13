@@ -59,6 +59,14 @@ struct YokeDecision {
 inline constexpr char centring_text[]="Yoke centring - hands off";
 inline constexpr char usb_off_text[]="Yoke's USB is off in Windows - click here to turn it on";
 inline constexpr char usb_turning_on_text[]="Yoke's USB turning on - wait a moment";
+// Whether pitch and roll are reaching X-Plane, for YokeInputs::input_ready. Read-write mode: the
+// plugin feeds them (both overrides at 1), so only while it owns the axes and the yoke's position
+// is usable; another plugin holding the overrides makes this false. Read-only mode: the plugin
+// leaves both overrides at 0 and X-Plane reads the yoke's own USB joystick, so there is nothing of
+// ours to lose; the plugin cannot see whether X-Plane has those axes assigned, and says nothing.
+inline bool axes_reaching_xplane(bool read_only,bool plugin_owns_axes,bool input_ready) {
+    return read_only?true:plugin_owns_axes && input_ready;
+}
 inline constexpr char input_lost_text[]="Yoke not reaching X-Plane - another add-on may control pitch and roll";
 class YokeSupervisor {
 public:

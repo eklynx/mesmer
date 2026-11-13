@@ -6,6 +6,11 @@ provenance attestation.
 
 ## Unreleased
 
+- **Read-only mode leaves pitch and roll to X-Plane.** A yoke in read-only mode no longer has the
+  plugin override X-Plane's pitch and roll: both override datarefs are set to 0 and X-Plane reads
+  the yoke's own USB joystick (the CLS-E NG's shows X and Y). A driven (read-write) yoke is
+  unchanged: both overrides at 1 and the plugin feeds pitch and roll. The read-only status line
+  still reports how far the learned travel has come.
 - **Merged upstream alpha.3.** The yoke's buttons through vJoy, the look-down commands, the
   disabled-USB offer and the HUD changes are in. The Windows-only parts sit in this layout:
   `xplane/look.hpp` and the disabled-bridge check in `hid/win/hid_win.cpp`. The plugin no

@@ -509,6 +509,12 @@ void refusal_cleared_by_switching_off_and_on_is_named() {
     require(sim.run_until_action(3000)==YokeAction::reference,"Then a single centring");
     std::cout<<"refusal cleared by switching off and on is named: ok\n";
 }
+void axes_rule() {
+    require(axes_reaching_xplane(false,true,true),"Read-write: owned axes and a usable position reach X-Plane");
+    require(!axes_reaching_xplane(false,false,true) && !axes_reaching_xplane(false,true,false),"Read-write needs both");
+    require(axes_reaching_xplane(true,false,false) && axes_reaching_xplane(true,true,true),"Read-only leaves the axes to X-Plane");
+    std::cout<<"axes rule: ok\n";
+}
 void input_not_reaching_xplane() {
     Sim sim;
     sim.connect(0x0431);sim.in.input_ready=false; // another add-on owns pitch and roll
@@ -576,6 +582,7 @@ int main() {
         power_off_during_force_feel_self_heals();
         unavailable_reasons();
         input_not_reaching_xplane();
+        axes_rule();
         refused_force_feel_keeps_the_controls();
         refusal_cleared_by_switching_off_and_on_is_named();
         return 0;

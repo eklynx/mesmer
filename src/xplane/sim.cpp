@@ -57,7 +57,8 @@ void Sim::identify_aircraft() {
     default_cessna_=aircraft_path_.size()>=suffix.size() && aircraft_path_.compare(aircraft_path_.size()-suffix.size(),suffix.size(),suffix)==0;
 }
 
-bool Sim::controls_available() const {
+bool Sim::controls_available(bool feeding) const {
+    if (!feeding) return pitch_override_ && roll_override_ && pitch_value_ && roll_value_;
     return pitch_override_ && roll_override_ && pitch_value_ && roll_value_
         && XPLMCanWriteDataRef(ref(pitch_override_)) && XPLMCanWriteDataRef(ref(roll_override_))
         && XPLMCanWriteDataRef(ref(pitch_value_)) && XPLMCanWriteDataRef(ref(roll_value_))
@@ -76,7 +77,12 @@ void Sim::release_axes() {
     XPLMSetDataf(ref(pitch_value_),0);XPLMSetDataf(ref(roll_value_),0);
     XPLMSetDatai(ref(pitch_override_),0);XPLMSetDatai(ref(roll_override_),0);owns_axes_=false;
 }
-// Every aircraft gets pitch and roll from the yoke whenever its position is valid.
+void Sim::leave_axes() {
+    if (!owns_axes_) return;
+    XPLMSetDataf(ref(pitch_value_),0);XPLMSetDataf(ref(roll_value_),0);
+    XPLMSetDatai(ref(pitch_override_),0);XPLMSetDatai(ref(roll_override_),0);owns_axes_=false;
+}
+// Read-only mode: every aircraft gets pitch and roll from the yoke whenever its position is valid.
 std::string Sim::apply_input(const FlightInput& input) {
     bind_controls();
     if (!pitch_override_ || !roll_override_ || !pitch_value_ || !roll_value_) return "Waiting for simulator controls";

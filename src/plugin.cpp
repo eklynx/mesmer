@@ -673,9 +673,13 @@ float update(float,float,int,void*) {
     write_survey(s);
     if (s.model!=last_yoke_model) {last_yoke_model=s.model;if (!s.model.empty()) log("Yoke model: "+s.model_title+" (USB "+brunner::status_hex(s.usb_vendor)+":"+brunner::status_hex(s.usb_product)+")");}
     if (s.yoke_note!=last_yoke_note) {last_yoke_note=s.yoke_note;if (!s.yoke_note.empty()) log("Yoke firmware note: "+s.yoke_note);}
-    last_input_status=sim.apply_input(input);
+    // Read-write: the plugin feeds pitch and roll (both overrides at 1). Read-only: both overrides at 0,
+    // so X-Plane reads the yoke's own USB joystick.
+    if (s.read_only) {sim.leave_axes();last_input_status=input.reason;}
+    else last_input_status=sim.apply_input(input);
+    const bool axes_ready=brunner::axes_reaching_xplane(s.read_only,sim.owns_axes(),input.ready);
     const bool is_paused=sim.paused();
-    const bool input_running=sim.pause_known() && !is_paused && sim.controls_available();
+    const bool input_running=sim.pause_known() && !is_paused && sim.controls_available(s.read_only);
     // The model's inputs: trim, the tail's pressure (X-Plane's over the
     // profile's own sections, else airspeed's), the load factor, and the
     // tail's angle and stall with its sections' pressure.
@@ -730,7 +734,7 @@ float update(float,float,int,void*) {
     const bool lab_active=diagnostic_trim.active(enabled && !s.connected,now);
     brunner::YokeInputs inputs;
     inputs.snapshot=s;inputs.enabled=enabled;inputs.reader_running=reader.running();inputs.sim_steady=settled;
-    inputs.paused=is_paused;inputs.input_ready=sim.owns_axes() && input.ready;inputs.force_feel=force_feel && !blocked;inputs.lab_lease=lab_active;inputs.now=now;
+    inputs.paused=is_paused;inputs.input_ready=axes_ready;inputs.force_feel=force_feel && !blocked;inputs.lab_lease=lab_active;inputs.now=now;
     if (s.connected) usb_turning_on_until={};
     inputs.usb_turning_on=now<usb_turning_on_until;
     decision=yoke.step(inputs);
@@ -743,7 +747,7 @@ float update(float,float,int,void*) {
     // only X-Plane's synthetic pitch trim, leaving its trim command and every
     // other control binding intact. Own/release this flag with the live axes,
     // on every aircraft: each one's rest carries its trim.
-    if (running && sim.owns_axes() && input.ready && s.flight_session && s.loading_active && s.tuning_valid) sim.claim_trim();
+    if (running && axes_ready && s.flight_session && s.loading_active && s.tuning_valid) sim.claim_trim();
     else sim.release_trim();
     // The pilot may hide routine status; a movement warning, a Retry offer or
     // the USB switched off in Windows is always shown.
@@ -770,7 +774,7 @@ float update(float,float,int,void*) {
         std::snprintf(text,sizeof(text),"cycle=%llu roll=%ld/%04X pitch=%ld/%04X input=%s %.4f/%.4f",
             static_cast<unsigned long long>(s.cycles),static_cast<long>(s.axes[0].encoder),s.axes[0].status,
             static_cast<long>(s.axes[1].encoder),s.axes[1].status,
-            sim.owns_axes()?"active":"unavailable",input.roll,input.pitch);
+            axes_ready?"active":"unavailable",input.roll,input.pitch);
         log(text); last_log=now;
     }
     // Apply after physical joystick processing, on the simulator thread. A
@@ -778,7 +782,7 @@ float update(float,float,int,void*) {
     if (lab_active) sim.set_sim_trim(static_cast<float>(diagnostic_trim.target())/1000.0f);
     auto frame=brunner::monitor::make_frame(s,reader.requested_tuning(),flight_output,flight_settings,
         flight_sample,target.has_value(),calibration(),now);
-    frame.owns_axes=sim.owns_axes();frame.owns_trim=sim.owns_trim();
+    frame.owns_axes=axes_ready;frame.owns_trim=sim.owns_trim();
     recorder.observe(frame);
     const auto recording_state=recorder.state();const auto recording_dropped=recorder.dropped();
     force_monitor.observe(frame,recording_state,recording_dropped);

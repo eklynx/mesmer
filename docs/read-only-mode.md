@@ -52,8 +52,11 @@ changes nothing.
    `0x1000`) is not homing and will not finish by itself: the line says to power-cycle it, or to turn on
    the Developer toggle and use **Reset yoke** and **Re-centre**. A yoke still starting up (`0x0021`,
    `0x0027`) reads *homing; wait*.
-2. **Feeds X-Plane's pitch and roll** from the live encoder, mapped by a
-   travel it learns (below). Experimental.
+2. **Leaves pitch and roll to X-Plane.** Both override datarefs
+   (`sim/operation/override/override_joystick_pitch` and `..._roll`) are set to 0, so X-Plane reads the
+   yoke's own USB joystick (assign its axes in X-Plane's Joystick screen). The plugin still learns the
+   travel (below) from the live encoder, but does not send it. A read-write (driven) yoke is the other
+   way round: both overrides at 1 and the plugin feeds pitch and roll.
 3. **Surveys the controllers** on request (Developer menu, *Survey yoke
    registers*): live firmware, status, encoder and position, and every
    register the allowlist can read, with SDO uploads only. A register the

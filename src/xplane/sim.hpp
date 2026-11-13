@@ -54,7 +54,9 @@ class Sim {
     // ---- The pilot's axes and pitch trim.
     // True when pitch and roll can be taken: all four datarefs exist and are writable, and
     // nobody else holds the overrides (unless this plugin does).
-    bool controls_available() const;
+    // With feeding=false (read-only mode: X-Plane reads the yoke's own joystick) only the four
+    // datarefs need to exist; another plugin's override is no concern of ours.
+    bool controls_available(bool feeding=true) const;
     bool trim_available() const; // likewise the pitch-trim override
     // Gives X-Plane the yoke's position. Returns the reason to show: input.reason when the yoke
     // is (or is not) usable, or why the controls cannot be taken ("Waiting for simulator controls",
@@ -62,6 +64,11 @@ class Sim {
     // is not ready releases the axes.
     std::string apply_input(const FlightInput& input);
     void release_axes();     // axes to zero, overrides off, trim released too; safe when not owned
+    // Read-only mode: both overrides to 0 so X-Plane takes pitch and roll from the yoke's own USB
+    // joystick (read-write mode sets them to 1 and feeds them, apply_input). Only if this plugin set them (the ratios are zeroed once); another plugin's
+    // override is left alone. Unlike release_axes it keeps the pitch-trim override, so it is safe
+    // to call every frame.
+    void leave_axes();
     bool owns_axes() const {return owns_axes_;}
     bool owns_trim() const {return owns_trim_;}
     void claim_trim();       // force feel counts the model's trim once: X-Plane's own is suppressed

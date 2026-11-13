@@ -54,7 +54,7 @@ starting `[BrunnerDirect]`.
 | **Force feel unavailable - switch the yoke off and on** | The drives' settings were not what the plugin expects (for example after another program changed them), so it changed nothing. | Switch the yoke off and on, then *Retry*. |
 | **Ready - force feel needs the aircraft profiles; see X-Plane's Log.txt** | `BrunnerDirect.profiles.json` is missing or was refused. Pitch and roll work; force feel waits. | Search `Log.txt` for `profile`. Fix or restore the file (the release's copy is in [`config/`](../config)); the plugin rereads it within two seconds. |
 | **Ready - force feel off: another plugin holds the pitch trim** | Another plugin owns X-Plane's pitch trim override, which force feel needs. Pitch and roll work. | Find the other add-on (often a control or trim add-on) and disable it, or fly without force feel. |
-| **Yoke not reaching X-Plane - another add-on may control pitch and roll** | The yoke is centred but X-Plane is not taking its pitch and roll, usually because another plugin holds X-Plane's joystick override. | Move CLS2Sim's `XPlane10Connector` and other control plugins out of `Resources\plugins`, then restart X-Plane. |
+| **Yoke not reaching X-Plane - another add-on may control pitch and roll** | The yoke is centred and being driven (read-write) but X-Plane is not taking its pitch and roll, usually because another plugin holds X-Plane's joystick override. | Move CLS2Sim's `XPlane10Connector` and other control plugins out of `Resources\plugins`, then restart X-Plane. |
 | **Yoke plugin is disabled** | The plugin is disabled in X-Plane's Plugin Admin. | Enable it in *Plugins > Plugin Admin*. |
 
 ### Developer statuses
