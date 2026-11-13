@@ -8,6 +8,7 @@
 #include "brunner/yoke.hpp"
 #include "ui/view/panel_win.hpp"
 #include "ui/menu/menu.hpp"
+#include "xplane/published.hpp"
 #include "xplane/sim.hpp"
 #include "ui/view/startup_notice.hpp"
 #include "brunner/loading.hpp"
@@ -37,7 +38,7 @@ brunner::Reader reader;
 brunner::monitor::Window force_monitor,force_hud{true};
 brunner::recording::Recorder recorder;
 XPLMCommandRef hud_command=nullptr,pin_command=nullptr,move_command=nullptr;
-struct HudDataref {const char* name;int* value;int low,high;XPLMDataRef handle=nullptr;};
+struct HudDataref {const char* name;int* value;int low,high;};
 HudDataref hud_datarefs[]{
     {"brunner_direct/hud/visible",&force_hud.settings.visible,0,1},
     {"brunner_direct/hud/opacity_percent",&force_hud.settings.opacity,35,95},
@@ -50,7 +51,7 @@ HudDataref hud_datarefs[]{
     {"brunner_direct/hud/right",&force_hud.settings.right,0,10000},
     {"brunner_direct/hud/top",&force_hud.settings.top,0,10000},
 };
-std::array<XPLMDataRef,3> recorder_datarefs{};
+brunner::xplane::PublishedDatarefs published; // the plugin's own datarefs (xplane/published.hpp)
 int read_hud(void* ref) {return *static_cast<HudDataref*>(ref)->value;}
 void write_hud(void* ref,int value) {
     const auto& r=*static_cast<HudDataref*>(ref);
@@ -153,7 +154,7 @@ enum class LiveField { roll_target,pitch_target,trim_target,roll_applied,pitch_a
     reference_airspeed,roll_units_per_nm,units_per_lb,gain_divisor,move_back,auto_start,flight_active,flight_suspended,loading_fault,
     bias_limited,airspeed_knots,flight_trim_target,owns_trim,lab_trim,lab_lease,lab_active,startup_notice,notice_draws,
     force_feel,status_line,retry_offered,bridge_present,stock_aircraft };
-struct LiveDataref {const char* name;LiveField field;bool writable=false;XPLMDataRef handle=nullptr;};
+struct LiveDataref {const char* name;LiveField field;bool writable=false;};
 LiveDataref live_datarefs[]{
     {"brunner_direct/config/roll_spring_percent",LiveField::roll_target,true},
     {"brunner_direct/config/pitch_spring_percent",LiveField::pitch_target,true},
@@ -202,7 +203,6 @@ LiveDataref live_datarefs[]{
     {"brunner_direct/state/bridge_present",LiveField::bridge_present},
     {"brunner_direct/state/stock_aircraft",LiveField::stock_aircraft}
 };
-XPLMDataRef status_dataref=nullptr;
 int last_write_accepted=1,rejected_writes=0;
 void log(const std::string& s);
 brunner::TuningField tuning_field(LiveField field) {
@@ -335,14 +335,6 @@ void write_live(void* refcon,int value) {
     if (!last_write_accepted && rejected_writes<std::numeric_limits<int>::max()) ++rejected_writes;
     if (entry.field!=LiveField::lab_lease || !last_write_accepted)
         log(std::string(last_write_accepted?"Calibration requested: ":"Calibration rejected: ")+entry.name+"="+std::to_string(value));
-}
-// The one status line. Everything that shows status reads decision.status.
-int read_status(void*,void* output,int offset,int maximum) {
-    const auto& text=decision.status;
-    if (!output) return static_cast<int>(text.size());
-    if (offset<0 || maximum<=0 || static_cast<std::size_t>(offset)>=text.size()) return 0;
-    const auto length=std::min(maximum,static_cast<int>(text.size())-offset);
-    std::memcpy(output,text.data()+offset,static_cast<std::size_t>(length));return length;
 }
 // Why force feel cannot run on this aircraft, or empty.
 constexpr char no_profile_text[]="Ready - force feel needs the aircraft profiles; see X-Plane's Log.txt";
@@ -1027,11 +1019,11 @@ PLUGIN_API int XPluginStart(char* name,char* signature,char* description) {
     pin_command=XPLMCreateCommand("brunner_direct/pin_hud","Keep the yoke feel card on screen, or show it only when useful");
     move_command=XPLMCreateCommand("brunner_direct/move_hud","Enable or finish dragging the HUD by its status strip");
     for (auto command:{hud_command,pin_command,move_command}) XPLMRegisterCommandHandler(command,hud_handler,1,nullptr);
-    for (auto& entry:hud_datarefs) entry.handle=XPLMRegisterDataAccessor(entry.name,xplmType_Int,1,read_hud,write_hud,
-        nullptr,nullptr,nullptr,nullptr,nullptr,nullptr,nullptr,nullptr,nullptr,nullptr,&entry,&entry);
+    for (auto& entry:hud_datarefs)
+        published.publish({entry.name,true,[&entry] {return read_hud(&entry);},[&entry](int value) {write_hud(&entry,value);}});
     const char* names[]{"brunner_direct/recording/state","brunner_direct/recording/dropped","brunner_direct/recording/written"};
-    for (std::size_t i=0;i<3;++i) recorder_datarefs[i]=XPLMRegisterDataAccessor(names[i],xplmType_Int,0,read_recorder,nullptr,
-        nullptr,nullptr,nullptr,nullptr,nullptr,nullptr,nullptr,nullptr,nullptr,nullptr,reinterpret_cast<void*>(i),nullptr);
+    for (std::size_t i=0;i<3;++i)
+        published.publish({names[i],false,[i] {return read_recorder(reinterpret_cast<void*>(i));},nullptr});
     monitor_command=XPLMCreateCommand("brunner_direct/toggle_monitor","Show or hide read-only force command history and provenance");
     XPLMRegisterCommandHandler(monitor_command,monitor_handler,1,nullptr);
     reference_command=XPLMCreateCommand("brunner_direct/reference_test","Supervised reference and centering test: moves yoke, then disables motors");
@@ -1064,10 +1056,10 @@ PLUGIN_API int XPluginStart(char* name,char* signature,char* description) {
     compare_feel_command=XPLMCreateCommand("brunner_direct/compare_feel","Feel tuning: switch between Kept and Trying");
     for (auto command:{mark_feel_command,compare_feel_command}) XPLMRegisterCommandHandler(command,feel_handler,1,nullptr);
     for (auto& entry:live_datarefs)
-        entry.handle=XPLMRegisterDataAccessor(entry.name,xplmType_Int,entry.writable?1:0,read_live,entry.writable?write_live:nullptr,
-            nullptr,nullptr,nullptr,nullptr,nullptr,nullptr,nullptr,nullptr,nullptr,nullptr,&entry,&entry);
-    status_dataref=XPLMRegisterDataAccessor("brunner_direct/state/status",xplmType_Data,0,
-        nullptr,nullptr,nullptr,nullptr,nullptr,nullptr,nullptr,nullptr,nullptr,nullptr,read_status,nullptr,nullptr,nullptr);
+        published.publish({entry.name,entry.writable,[&entry] {return read_live(&entry);},
+            entry.writable?std::function<void(int)>([&entry](int value) {write_live(&entry,value);}):std::function<void(int)>{}});
+    // The one status line. Everything that shows status reads decision.status.
+    published.publish_text("brunner_direct/state/status",[] {return decision.status;});
     const std::array<const char*,3> trim_names{{"brunner_direct/trim_positive","brunner_direct/trim_negative","brunner_direct/trim_center"}};
     for (unsigned i=0;i<3;++i) {
         trim_commands[i]=XPLMCreateCommand(trim_names[i],"During the light spring test, slowly shift pitch neutral by up to 600 counts; direction is under test");
@@ -1127,8 +1119,7 @@ PLUGIN_API void XPluginDisable() {
 PLUGIN_API void XPluginStop() {
     XPluginDisable();
     for (auto command:{hud_command,pin_command,move_command}) if (command) XPLMUnregisterCommandHandler(command,hud_handler,1,nullptr);
-    for (auto& entry:hud_datarefs) if (entry.handle) {XPLMUnregisterDataAccessor(entry.handle);entry.handle=nullptr;}
-    for (auto& ref:recorder_datarefs) if (ref) {XPLMUnregisterDataAccessor(ref);ref=nullptr;}
+    published.unpublish_all();
     if (monitor_command) XPLMUnregisterCommandHandler(monitor_command,monitor_handler,1,nullptr);
     if (reference_command) XPLMUnregisterCommandHandler(reference_command,reference_handler,1,nullptr);
     if (stop_command) XPLMUnregisterCommandHandler(stop_command,stop_handler,1,nullptr);
@@ -1143,8 +1134,6 @@ PLUGIN_API void XPluginStop() {
     for (auto command:{force_feel_toggle,force_feel_on,force_feel_off}) if (command) XPLMUnregisterCommandHandler(command,force_feel_handler,1,nullptr);
     if (status_line_command) XPLMUnregisterCommandHandler(status_line_command,status_line_handler,1,nullptr);
     for (auto command:{mark_feel_command,compare_feel_command}) if (command) XPLMUnregisterCommandHandler(command,feel_handler,1,nullptr);
-    for (auto& entry:live_datarefs) if (entry.handle) {XPLMUnregisterDataAccessor(entry.handle);entry.handle=nullptr;}
-    if (status_dataref) {XPLMUnregisterDataAccessor(status_dataref);status_dataref=nullptr;}
     for (unsigned i=0;i<3;++i) if (trim_commands[i]) XPLMUnregisterCommandHandler(trim_commands[i],trim_handler,1,&trim_steps[i]);
     yoke_menu.destroy();
 }
