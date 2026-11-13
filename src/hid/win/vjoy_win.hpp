@@ -1,5 +1,5 @@
 #pragma once
-#include "brunner/buttons.hpp"
+#include "hid/win/buttons.hpp"
 #ifndef NOMINMAX
 #define NOMINMAX // buttons.hpp and its includes call std::min
 #endif

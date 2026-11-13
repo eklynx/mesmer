@@ -11,8 +11,9 @@
 namespace brunner {
 // The yoke's buttons reach X-Plane as a joystick's (decision 9): Brunner's
 // signed vJoy driver holds one device of 32 buttons, and the plugin presses
-// the device's button n for the yoke's slot n. What is here is portable; the
-// Windows feeder is hid/win/vjoy_win.hpp.
+// the device's button n for the yoke's slot n. Windows only (the Mac has no vJoy):
+// the plugin reaches all of it through YokeButtons (hid/yoke_buttons.hpp). The logic
+// is plain C++, checked by hid/win/buttons_tests.cpp; the feeder is vjoy_win.hpp.
 
 // The yoke's buttons in a sampling cycle: node 2's 0x60fd, read in every
 // cycle of every loop, so a press shorter than one cycle can still fall
@@ -20,7 +21,7 @@ namespace brunner {
 // refusal, or an answer that makes no sense) leaves the buttons unread, with
 // why, and is tried again from 5 s later: the buttons never stop pitch, roll
 // or force feel. The link failing, or the reader stopping, ends the cycle as
-// for any read. Link is reader_win.cpp's bridge, or a test's.
+// for any read. Link is the reader's bridge (brunner/bridge.hpp), or a test's.
 constexpr std::chrono::seconds button_retry_after{5};
 template<class Link> void sample_buttons(Link& link,Snapshot& s,const std::atomic<bool>& stop,Clock::time_point now) {
     if (!s.button_refusal.empty() && now<s.button_retry) return;

@@ -1,5 +1,6 @@
 // Platform-independent bridge selection. Contract: hid/hid_device.hpp.
 #include "hid/hid_device.hpp"
+#include "hid/yoke_buttons.hpp"
 #include "hid/usb_ids.hpp"
 
 namespace brunner {
@@ -32,5 +33,12 @@ std::size_t select_bridge(const std::vector<HidCandidate>& candidates,const std:
 // reader has them: a Mac has nothing to switch the bridge back on with.
 bool bridge_disabled_in_windows() {return false;}
 std::string turn_bridge_on_in_windows() {return "Turning the yoke's USB on is a Windows feature";}
+// No virtual joystick off Windows: every call does nothing (hid/yoke_buttons.hpp).
+struct YokeButtons::Impl {};
+YokeButtons::YokeButtons() {}
+YokeButtons::~YokeButtons()=default;
+void YokeButtons::update(const Snapshot&,Clock::time_point,const Log&) {}
+void YokeButtons::close() {}
+void YokeButtons::unload() {}
 #endif
 }

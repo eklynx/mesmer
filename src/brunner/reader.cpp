@@ -8,7 +8,7 @@
 #include "brunner/reference.hpp"
 #include "brunner/loading.hpp"
 #include "brunner/readonly.hpp"
-#include "brunner/buttons.hpp"
+#include "hid/yoke_buttons.hpp"
 #include <functional>
 #include <cstdlib>
 #include <sstream>

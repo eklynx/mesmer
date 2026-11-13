@@ -8,10 +8,13 @@ provenance attestation.
 
 - **Merged upstream alpha.3.** The yoke's buttons through vJoy, the look-down commands, the
   disabled-USB offer and the HUD changes are in. The Windows-only parts sit in this layout:
-  `brunner/buttons.hpp`, `hid/win/vjoy_win.hpp`, `xplane/look.hpp`, and the disabled-bridge
-  check in `hid/win/hid_win.cpp`. On macOS the buttons are read but not sent (no vJoy), and
-  the plugin no longer reads the drives' control position (0x2106), as upstream. Windows
-  parts not built here.
+  `xplane/look.hpp` and the disabled-bridge check in `hid/win/hid_win.cpp`. The plugin no
+  longer reads the drives' control position (0x2106), as upstream. Windows parts not built here.
+- **The virtual joystick is Windows-only code.** Everything that presses the yoke's buttons on
+  vJoy (`buttons.hpp`, `vjoy_win.hpp`, the new `yoke_buttons.cpp`, and its tests, a Windows-only
+  `brunner_buttons_test`) is in `src/hid/win/`, reached through `hid/yoke_buttons.hpp`; the Mac
+  build has no button code and no longer reads the button word each cycle. The NG's own
+  joystick (6 buttons, hat, X/Y) is X-Plane's and never went through vJoy.
 - **Yoke models are shipped files.** `config/yokes/cls-e.json` (the original, exactly what was
   compiled in before) and `cls-e-ng.json` are packaged in the plugin's `yokes/` folder and loaded
   at start, one complete file per model. `BrunnerDirect.yokes.json` stays as the optional

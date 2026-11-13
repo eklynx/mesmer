@@ -14,13 +14,8 @@
 #include "brunner/loading.hpp"
 #include "force/slew.hpp"
 #include "ui/workbench/workbench_server.hpp"
-#include "brunner/buttons.hpp"
 #include "xplane/look.hpp"
-#ifdef _WIN32
-#include "hid/win/vjoy_win.hpp"
-#else
-#include "hid/mac/vjoy_none.hpp"
-#endif
+#include "hid/yoke_buttons.hpp"
 #include "XPLMPlugin.h"
 #include "XPLMProcessing.h"
 #include "XPLMUtilities.h"
@@ -44,11 +39,8 @@ namespace wb=brunner::workbench;
 brunner::Reader reader;
 brunner::monitor::Window force_monitor,force_hud{true};
 brunner::recording::Recorder recorder;
-// The yoke's buttons on vJoy's joystick (decision 9), pressed on this thread.
-brunner::VJoy vjoy;
-brunner::ButtonPresser button_presser;
-brunner::ButtonLog button_log;
-std::string told_button_refusal;
+// The yoke's buttons on a virtual joystick (Windows only; hid/yoke_buttons.hpp), pressed on this thread.
+brunner::YokeButtons yoke_buttons;
 XPLMCommandRef hud_command=nullptr,pin_command=nullptr,move_command=nullptr;
 struct HudDataref {const char* name;int* value;int low,high;};
 HudDataref hud_datarefs[]{
@@ -674,16 +666,7 @@ float update(float,float,int,void*) {
     retry_workbench(now);
     poll_profiles(now,false);
     const auto s=reader.snapshot();
-    // The yoke's buttons, pressed on vJoy's joystick: all up whenever they
-    // are unknown (decision 9). Each change is logged, quick taps included.
-    const auto yoke_buttons=brunner::live_buttons(s,now);
-    for (const auto& line:button_presser.update(vjoy,yoke_buttons,now)) log(line);
-    if (const auto told=button_log.update(yoke_buttons,now);!told.empty()) log(told);
-    if (s.button_refusal!=told_button_refusal) {
-        if (!s.button_refusal.empty()) log("Yoke buttons not read: "+s.button_refusal+"; trying again every 5 seconds");
-        else if (s.buttons) log("Yoke buttons read again");
-        told_button_refusal=s.button_refusal;
-    }
+    yoke_buttons.update(s,now,log);
     if (!s.loading_result.empty() && s.loading_result!=last_loading) {log(s.loading_result);last_loading=s.loading_result;}
     if (!s.loading_inspection.empty() && s.loading_inspection!=last_inspection) {log("Loading inspection: "+s.loading_inspection);last_inspection=s.loading_inspection;}
     const auto input=current_input(s,now);
@@ -1209,7 +1192,7 @@ PLUGIN_API void XPluginDisable() {
     diagnostic_trim.renew(0,false,brunner::Clock::now());
     yoke.stop();startup_readiness.reset();
     sim.release_axes();
-    button_presser.close(vjoy);button_log=brunner::ButtonLog{};told_button_refusal.clear();
+    yoke_buttons.close();
     if (enabled) XPLMUnregisterFlightLoopCallback(update,nullptr);
     enabled=false;simulator_ready_for_start=false;reader.stop();last_status.clear();
     recorder.event("Plugin disabled; reader stopped");recorder.stop();
@@ -1220,7 +1203,7 @@ PLUGIN_API void XPluginDisable() {
 }
 PLUGIN_API void XPluginStop() {
     XPluginDisable();
-    vjoy.unload();
+    yoke_buttons.unload();
     for (auto command:{hud_command,pin_command,move_command}) if (command) XPLMUnregisterCommandHandler(command,hud_handler,1,nullptr);
     published.unpublish_all();
     if (monitor_command) XPLMUnregisterCommandHandler(monitor_command,monitor_handler,1,nullptr);
