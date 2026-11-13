@@ -34,7 +34,7 @@ void the_built_ins() {
     // The NG: its measured travel, spec ceilings, own torque; not yet verified.
     const auto& n=named(presets,"cls-e-ng");
     check(!n.verified && n.verified_firmware.empty());
-    check(n.roll_travel_counts==7642 && n.pitch_travel_counts==5468 && n.wheel_deg==90 && n.pitch_travel_mm==160);
+    check(n.roll_travel_counts==7350 && n.pitch_travel_counts==5300 && n.wheel_deg==90 && n.pitch_travel_mm==160);
     check(n.roll_ceiling_units==11000 && n.pitch_ceiling_units==9500);   // 11 N.m / 0.001, 190 N / 0.02
     check(n.target_torque==25 && n.pitch_units_per_lb==222 && n.roll_units_per_nm==1000);
     check(n.usb_ids.size()==1 && n.usb_ids[0].vendor==0x25bb && n.usb_ids[0].product==0x008b);
@@ -72,7 +72,7 @@ void an_edit_of_a_built_in() {
     check(merged.size()==2);
     const auto& n=named(merged,"cls-e-ng");
     check(n.roll_travel_counts==7800 && n.verified && n.verified_firmware==(std::vector<std::uint16_t>{642,643}));
-    check(n.pitch_travel_counts==5468 && n.target_torque==25 && n.roll_ceiling_units==11000 && n.usb_ids[0].product==0x008b); // the rest is kept
+    check(n.pitch_travel_counts==5300 && n.target_torque==25 && n.roll_ceiling_units==11000 && n.usb_ids[0].product==0x008b); // the rest is kept
     check(named(merged,"cls-e").roll_travel_counts==13000);                  // the other model is untouched
     // An empty list of yokes is the built-ins.
     check(parse_yoke_presets(R"({"schema":1,"yokes":[]})",builtin_yoke_presets()).size()==2);

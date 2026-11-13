@@ -89,7 +89,12 @@ inline YokePreset builtin_cls_e_ng() {
     p.name="cls-e-ng";p.title="Brunner CLS-E NG";
     p.usb_ids={{0x25bb,0x008b}};
     p.verified=false;
-    p.roll_travel_counts=7642;p.pitch_travel_counts=5468;
+    // Travel is the range the controller accepts for the resting point (0x2116), which bounds where the
+    // force models may put the centre. Pitch clamps at +-5300 (measured 2026-11-13: a write of 5468 or 5369
+    // read back 5300). Roll is inferred: the NG's own homing sweep stopped at roll -7412 and pitch -5320
+    // (pitch's clamp plus a 20 count overshoot), so roll's clamp is about 7392; 7350 stays under it. The
+    // controller's end-stop flag is further out (roll +-7640, pitch +-5460). Edit in BrunnerDirect.yokes.json.
+    p.roll_travel_counts=7350;p.pitch_travel_counts=5300;
     p.wheel_deg=90;p.pitch_travel_mm=160;
     p.roll_ceiling_units=11000;p.pitch_ceiling_units=9500;
     p.target_torque=25;

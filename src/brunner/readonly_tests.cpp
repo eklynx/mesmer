@@ -200,7 +200,7 @@ void an_acknowledged_model_starts_with_a_no_change_write() {
     check(s.model=="cls-e-ng" && !s.read_only && s.yoke_note.find("642")!=std::string::npos);
     // The active drive is the NG's, built from its live limit registers (2150 / 2250) and the preset.
     check(active_drive().model=="cls-e-ng" && active_drive().roll_limit_register==2150 && active_drive().pitch_limit_register==2250);
-    check(active_drive().limit_units==2150 && active_drive().roll_travel_counts==7642 && active_drive().target_torque==25);
+    check(active_drive().limit_units==2150 && active_drive().roll_travel_counts==7350 && active_drive().target_torque==25);
     run.reader.stop();
     check(run.writes.size()==2);
     for (unsigned i=0;i<2;++i) {

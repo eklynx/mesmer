@@ -36,17 +36,17 @@ void the_cls_e_drive_is_the_original_constants() {
 }
 void the_ng_drive() {
     const auto d=ng_drive();
-    check(d.model=="cls-e-ng" && d.roll_travel_counts==7642 && d.pitch_travel_counts==5468 && d.wheel_deg==90 && d.target_torque==25);
+    check(d.model=="cls-e-ng" && d.roll_travel_counts==7350 && d.pitch_travel_counts==5300 && d.wheel_deg==90 && d.target_torque==25);
     // The lower of the preset's ceiling (spec: 11000 / 9500) and the register (2150 / 2250) per axis,
     // then one budget from the lower axis, less the margin (the CLS-E's 500 of 4500).
     check(d.roll_ceiling_units==2150 && d.pitch_ceiling_units==2250 && d.limit_units==2150);
     check(d.margin_units==239 && d.roll_limit_register==2150 && d.pitch_limit_register==2250);
     ScopedDrive scope(d);
-    check(roll_travel_bound()==7642 && pitch_travel_bound()==5468 && protection_limit_units()==2150);
+    check(roll_travel_bound()==7350 && pitch_travel_bound()==5300 && protection_limit_units()==2150);
     check(drive_margin_units()==1911 && strongest_spring_percent()==191 && max_pitch_bias()==1075);
     check(max_drive_reserve_units()==1911-(400+1075) && valid_drive_reserve(max_drive_reserve_units()) && !valid_drive_reserve(max_drive_reserve_units()+1));
     check(fixed_target_torque()==25 && expected_protection_limit(1)==2150 && expected_protection_limit(2)==2250);
-    check(roll_travel_counts()==7642 && full_travel_counts()==5468);
+    check(roll_travel_counts()==7350 && full_travel_counts()==5300);
     // The spring's law (10 units per percent at full travel) holds at the NG's travel.
     check(near(roll_units_per_count_percent()*roll_travel_counts()*100,1000));
     check(near(curve_units_per_count_percent()*full_travel_counts()*100,1000));
@@ -81,10 +81,10 @@ void the_models_scale_with_travel() {
     ScopedDrive scope(ng);
     const auto ng_pitch=solve_pitch(c172,air,0,222);
     const auto ng_roll=solve_roll(ailerons,wings,0,1000,true);
-    check(near(ng_pitch.centre_counts/5468,cls_pitch.centre_counts/12000,1e-9));
-    check(near(ng_pitch.rest_counts/5468,cls_pitch.rest_counts/12000,1e-9));
-    check(near(ng_roll.rest_counts/7642,cls_roll.rest_counts/13000,1e-9));
-    check(near(std::fabs(ng_pitch.centre_counts),std::fabs(cls_pitch.centre_counts)*5468/12000,1e-6));
+    check(near(ng_pitch.centre_counts/5300,cls_pitch.centre_counts/12000,1e-9));
+    check(near(ng_pitch.rest_counts/5300,cls_pitch.rest_counts/12000,1e-9));
+    check(near(ng_roll.rest_counts/7350,cls_roll.rest_counts/13000,1e-9));
+    check(near(std::fabs(ng_pitch.centre_counts),std::fabs(cls_pitch.centre_counts)*5300/12000,1e-6));
 }
 // Whatever the models ask, what is sent stays inside the ceiling, and a request over it saturates.
 void forces_stop_at_the_ceiling() {
@@ -98,20 +98,29 @@ void forces_stop_at_the_ceiling() {
     int ng_strongest=0;
     for (const double pa:{0.0,100.0,1000.0,5000.0,20000.0,100000.0})
         for (const double frac:{-0.9,0.0,0.9}) {
-            const auto p=solve_pitch(c172,{0.1,pa,1},frac*5468,222);
+            const auto p=solve_pitch(c172,{0.1,pa,1},frac*5300,222);
             check(p.strength>=softest_spring_percent && p.strength<=strongest_spring_percent());
             check(within_margin(p.strength,p.centre,p.bias,pitch_travel_bound()));                 // never past the budget anywhere in the travel
             check(std::abs(p.centre)<=pitch_travel_bound() && std::abs(p.bias)<=max_pitch_bias()); // and the registers stay in range
-            const auto r=solve_roll(ailerons,{{pa,0,0},{pa,0,0}},frac*7642,1000,true);
+            const auto r=solve_roll(ailerons,{{pa,0,0},{pa,0,0}},frac*7350,1000,true);
             check(r.strength>=softest_spring_percent && r.strength<=strongest_spring_percent());
             check(within_margin(r.strength,r.centre,0,roll_travel_bound()) && std::abs(r.centre)<=roll_travel_bound());
             ng_strongest=std::max(ng_strongest,std::max(p.strength,r.strength));
         }
     check(ng_strongest<=191);
+    // The NG holds a resting point only up to +-5300 on pitch (a write of 5468 read back 5300 and faulted
+    // force feel, 2026-11-13) and, from its homing sweep, about +-7392 on roll: nothing the models ask
+    // for may be past that, even from a yoke beyond its stops.
+    check(pitch_travel_bound()<=5300 && roll_travel_bound()<=7392);
+    for (const double pa:{0.0,5000.0,100000.0})
+        for (const double x:{-9999.0,-5300.0,5300.0,9999.0}) {
+            check(std::abs(solve_pitch(c172,{0.1,pa,1},x,222).centre)<=5300);
+            check(std::abs(solve_roll(ailerons,{{pa,0,0},{pa,0,0}},x*7350/5300,1000,true).centre)<=7392);
+        }
     check(cls_strongest>191);   // the CLS-E reaches strengths the NG's ceiling does not allow: the NG saturates, it is not refused
     // A tuning past the budget is not valid on the NG, and the same one is on the CLS-E.
     check(!valid_tuning(Tuning{192,40,0,0,0}) && valid_tuning(Tuning{191,40,0,0,0}));
-    check(!valid_tuning(Tuning{40,40,5469,0,0}) && !valid_tuning(Tuning{40,40,0,0,7643}));
+    check(!valid_tuning(Tuning{40,40,5301,0,0}) && !valid_tuning(Tuning{40,40,0,0,7351}));
 }
 // The writes: bounds follow the active drive, per node.
 void the_writes_follow_the_drive() {
@@ -123,8 +132,8 @@ void the_writes_follow_the_drive() {
     check(write_ok(2,manual_force_bias,encode_bias(2250)) && !write_ok(2,manual_force_bias,encode_bias(2251)));
     {
         ScopedDrive scope(ng_drive());
-        check(write_ok(1,trim_position,signed_bits(7642)) && !write_ok(1,trim_position,signed_bits(7643)));      // roll's travel
-        check(write_ok(2,trim_position,signed_bits(-5468)) && !write_ok(2,trim_position,signed_bits(-5469)));    // pitch's travel
+        check(write_ok(1,trim_position,signed_bits(7350)) && !write_ok(1,trim_position,signed_bits(7351)));      // roll's travel
+        check(write_ok(2,trim_position,signed_bits(-5300)) && !write_ok(2,trim_position,signed_bits(-5301)));    // pitch's travel
         check(write_ok(1,target_torque,25) && write_ok(2,target_torque,25) && !write_ok(1,target_torque,50));   // the NG's own torque
         check(write_ok(1,force_scale,191) && !write_ok(1,force_scale,192) && write_ok(2,force_scale,20) && !write_ok(2,force_scale,19));
         check(write_ok(2,manual_force_bias,encode_bias(1075)) && write_ok(2,manual_force_bias,encode_bias(-1075)));

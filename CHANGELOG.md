@@ -6,6 +6,11 @@ provenance attestation.
 
 ## Unreleased
 
+- **CLS-E NG: pitch no longer refuses to rest.** Force feel started and then faulted with
+  `Readback mismatch ... register=2116:0 expected=5468 actual=5300`: the NG holds
+  a resting point only up to 5300 counts on pitch, and the preset's travel (5468, its end-stop
+  flag) asked for more. The NG's travel is now the range it holds (pitch 5300, roll 7350, the
+  latter inferred from its homing sweep), editable in `BrunnerDirect.yokes.json`.
 - **Source layout.** `src/` is grouped by idea: `brunner/` (the yoke),
   `force/` (the simulation's force models), `hid/` (with `win/` and `mac/`),
   `xplane/` (datarefs), and `ui/` (`menu/`, `view/`, `workbench/`). `plugin.cpp`

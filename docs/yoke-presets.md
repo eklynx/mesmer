@@ -24,7 +24,7 @@ Built in: `cls-e` (USB `25BB:0081`, verified on firmware 367) and `cls-e-ng`
 | `name`, `title` | `name` is lower case, digits and `-`; `title` is what the pilot sees |
 | `usb` | the bridges that identify the model: `[{"vendor":9659,"product":139}]` (decimal) |
 | `verified`, `verified_firmware` | see Gates |
-| `roll_travel_counts`, `pitch_travel_counts` | travel either way from centre, in encoder counts (1000 to 30000) |
+| `roll_travel_counts`, `pitch_travel_counts` | travel either way from centre, in encoder counts (1000 to 30000): **the range the controller holds a resting point in**, not necessarily its end stops. The force models never put the centre past it, and a write the controller would clamp is a read-back fault. The NG's are 5300 (pitch, measured: it clamps there) and 7350 (roll, inferred from its homing sweep) |
 | `wheel_deg`, `pitch_travel_mm` | wheel travel each way; pitch travel (information only) |
 | `pitch_units_per_lb`, `roll_units_per_nm` | drive force units per physical unit (the same on both models so far) |
 | `roll_ceiling_units`, `pitch_ceiling_units` | the most force the model's spec allows, in drive force units |
