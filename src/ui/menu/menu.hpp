@@ -6,7 +6,7 @@
 // Item order is part of the interface (users know where things are): status,
 // Stop yoke motors, Re-centre, Force feel, Show yoke status, Keep yoke feel, Feel
 // tuning, Developer > (monitor, HUD, move HUD, roll, pitch, reference, light
-// spring, flight, stop, reconnect, survey, Allow unverified yoke). New items go at
+// spring, flight, stop, reconnect, survey, Allow unverified yoke, Reset yoke). New items go at
 // the end of their menu so no position moves.
 //
 // Thread: every call, and every callback, runs on X-Plane's thread.
@@ -19,7 +19,7 @@ namespace brunner::ui {
 // What a click asks for. The values are the menu items' refcons.
 enum class MenuItem:std::intptr_t {
     reconnect=1,reference=2,stop=3,loading=4,flight=5,monitor=6,hud=7,pin=8,move=9,recenter=10,
-    force_feel=11,status_line=12,stop_motors=13,survey=14,unverified=15
+    force_feel=11,status_line=12,stop_motors=13,survey=14,unverified=15,reset_yoke=16
 };
 
 // What the menu shows. The plugin builds one per update.

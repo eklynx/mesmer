@@ -114,6 +114,20 @@ void reference_test(Bridge& bridge,Snapshot& s,const std::atomic<bool>& stop,con
     s.reference_result=error.empty()?"Reference and centering passed; motors disabled":error+"; motors disabled";
     publish(s);
 }
+// "Reset yoke": the standard stop of both motors (confirmed, or the yoke must be switched off), then the
+// model's resting settings and force mode written and read back, and any fault cleared with the motors off
+// (recover_controllers). Nothing is enabled and nothing moves; the reference is gone until the next centring.
+void reset_yoke(Bridge& bridge,Snapshot& s,const std::atomic<bool>& stop) {
+    sample(bridge,s,stop);
+    std::array<std::uint16_t,2> words{},modes{};
+    for (unsigned i=0;i<2;++i) {
+        words[i]=static_cast<std::uint16_t>(bridge.ref_read(i+1,controlword,stop));
+        modes[i]=static_cast<std::uint16_t>(bridge.ref_read(i+1,force_mode,stop));
+    }
+    clear_pitch_force(bridge);
+    if (!stop_reference(bridge,words,modes)) throw StopUnconfirmed("STOP NOT CONFIRMED: switch off yoke power");
+    recover_controllers(bridge,stop);
+}
 void loading_test(Bridge& bridge,Snapshot& s,const std::atomic<bool>& stop,
     const std::function<void(const Snapshot&)>& publish,const std::function<void()>& check_alive,std::atomic<bool>& gap,
     const std::function<SessionTarget()>& requested,bool flight,std::atomic<bool>& end,const PitchSetup& pitch={},
@@ -271,13 +285,13 @@ void loading_test(Bridge& bridge,Snapshot& s,const std::atomic<bool>& stop,
         if (reason.text.empty()) reason={"Force feel stopped: "+error+".","Details in X-Plane's Log.txt",true};
         s.stop_reason=reason.text;s.stop_reason_short=reason.short_text;s.retry_helps=reason.retry_helps;
     }
-    s.applied_tuning={resting_scale,resting_scale,0};s.tuning_valid=true;s.loading_seconds_remaining=0;
+    s.applied_tuning={rest_scale(1),rest_scale(2),0};s.tuning_valid=true;s.loading_seconds_remaining=0;
     s.force_bias={0,0};s.force_bias_valid=true;s.pitch_solved=false;s.pitch_engaged=false;s.roll_solved=false;s.update_hz=0;
     s.loading_result=(error.empty()?(flight?"Flight loading stopped":"Light spring test ended"):error)+std::string("; motors disabled, resting settings in place");publish(s);
 }
 }
 void Reader::start() {
-    stop(); stop_=false;reference_requested_=false;inspection_requested_=false;loading_requested_=false;recovery_requested_=false;gap_requested_=false;
+    stop(); stop_=false;reference_requested_=false;inspection_requested_=false;loading_requested_=false;recovery_requested_=false;reset_requested_=false;gap_requested_=false;
     busy_=false;flight_requested_=false;end_requested_=false;
     Snapshot initial; initial.message="Opening yoke"; publish(initial);
     thread_=std::thread(&Reader::run,this);
@@ -355,6 +369,16 @@ void Reader::session(Snapshot& s) {
         read_only_session(read_only,s,*why);
         return;
     }
+    // A preset with no resting settings: read what a rest would write, from the yoke as it is (reads only),
+    // and write exactly that back at every rest, so the yoke is left as it was found. Settings that could not
+    // be written back refuse the session before anything is written.
+    if (preset->rest.captured) {
+        const auto captured=capture_rest(bridge,stop_);
+        YokePreset checked=*preset;checked.rest=captured;
+        try {validate_preset(checked);}
+        catch (const PresetError& e) {throw SettingsRefused(std::string("The yoke's current settings cannot be restored by the plugin: ")+e.what());}
+        Drive d=active_drive();d.rest=captured;set_active_drive(d);
+    }
     // The first writes to a model nobody has verified: write one setting back to the value it
     // already has and read it back, before anything else is sent. A write that is refused, or
     // does not take, ends the session here with the reason.
@@ -429,8 +453,15 @@ void Reader::session(Snapshot& s) {
     while (!stop_) {
         if (recovery_requested_.exchange(false)) serve("Recovery",[&]{
             recover_controllers(bridge,stop_);
-            s.applied_tuning={resting_scale,resting_scale,0};s.tuning_valid=true;s.power_cycle_needed=false;
+            s.applied_tuning={rest_scale(1),rest_scale(2),0};s.tuning_valid=true;s.power_cycle_needed=false;
             s.loading_result="Resting settings in place and faults cleared with both motors disabled";
+        });
+        if (reset_requested_.exchange(false)) serve("Reset yoke",[&]{
+            reset_yoke(bridge,s,stop_);
+            s.applied_tuning={rest_scale(1),rest_scale(2),0};s.tuning_valid=true;s.power_cycle_needed=false;s.loading_fault=false;
+            s.session_reference=false;s.reference_active=false;s.loading_active=false;s.flight_session=false;
+            s.reference_result="Yoke needs centring";
+            s.loading_result="Yoke reset: both motors off, "+active_drive().rest_summary()+" written and read back";
         });
         if (inspection_requested_.exchange(false)) serve("Inspection",[&]{s.loading_inspection=inspect_loading(bridge,stop_);});
         if (reference_requested_.exchange(false)) serve("Centring",[&]{
@@ -464,7 +495,7 @@ void Reader::read_only_session(ReadOnlyBridge& bridge,Snapshot& s,const std::str
     s.message=why;
     publish(s);
     while (!stop_) {
-        reference_requested_=false;inspection_requested_=false;loading_requested_=false;recovery_requested_=false;
+        reference_requested_=false;inspection_requested_=false;loading_requested_=false;recovery_requested_=false;reset_requested_=false;
         gap_requested_=false;flight_requested_=false;end_requested_=false;busy_=false;
         if (survey_requested_.exchange(false)) {
             s.survey=survey_controllers(bridge,stop_);++s.surveys;publish(s);
@@ -500,7 +531,7 @@ void Reader::run() {
         // A request made while the link was failing must not run, unannounced,
         // against the next session: the supervisor asks again when it is safe.
         busy_=false;reference_requested_=false;inspection_requested_=false;loading_requested_=false;
-        recovery_requested_=false;gap_requested_=false;flight_requested_=false;end_requested_=false;
+        recovery_requested_=false;reset_requested_=false;gap_requested_=false;flight_requested_=false;end_requested_=false;
         s=Snapshot{};
         wait_before_retry(stop_,std::chrono::milliseconds(1000));
     }

@@ -17,6 +17,7 @@
 #include "json.hpp"
 #include "hid/usb_ids.hpp"
 #include <algorithm>
+#include <array>
 #include <cmath>
 #include <cstdint>
 #include <optional>
@@ -28,6 +29,25 @@
 namespace brunner {
 inline constexpr char yokes_file[]="BrunnerDirect.yokes.json";
 struct PresetError : std::runtime_error {using std::runtime_error::runtime_error;};
+
+// What the plugin leaves the controllers at between sessions (after force feel stops, before a centring,
+// in recovery and in "Reset yoke"): the model's own resting settings, so a model is left as it was found.
+// The defaults are the CLS-E's. `mode` and `pitch_cutoff` of 0 mean "not written". `captured` means the
+// preset gives none: the plugin reads these registers when a session starts and writes exactly that back.
+// The NG's come from its register survey of 2026-11-12 (the state it rests in at power-on).
+struct RestSettings {
+    std::array<std::uint16_t,9> roll_curve{{100,350,400,450,500,600,750,900,1000}},pitch_curve{{100,350,400,450,500,600,750,900,1000}};
+    int roll_spring_percent=100,pitch_spring_percent=100;   // 0x2114
+    int pitch_gain_denominator=6,pitch_move_back=180;       // pitch's drag gains
+    int pitch_cutoff=0;                                     // 0x211f, pitch only; 0: not written
+    int mode=0;                                             // 0x2101:01 left at rest, bit 13 (reference at power-on) included; 0: not written
+    bool captured=false;
+    bool operator==(const RestSettings& o) const {
+        return roll_curve==o.roll_curve && pitch_curve==o.pitch_curve && roll_spring_percent==o.roll_spring_percent
+            && pitch_spring_percent==o.pitch_spring_percent && pitch_gain_denominator==o.pitch_gain_denominator
+            && pitch_move_back==o.pitch_move_back && pitch_cutoff==o.pitch_cutoff && mode==o.mode && captured==o.captured;
+    }
+};
 
 struct YokePreset {
     std::string name;                       // "cls-e-ng": lower case, digits, '-'
@@ -70,6 +90,7 @@ struct YokePreset {
     // running, status bit 0x0004 set). Centring then disables them first, with the standard
     // shutdown, instead of refusing; the CLS-E, which idles disabled, keeps the refusal.
     bool idle_enabled=false;
+    RestSettings rest;
 };
 
 // ---- Built-in models ----
@@ -107,6 +128,13 @@ inline YokePreset builtin_cls_e_ng() {
     p.status_stopped=0x0421;
     p.spring_mode=0x0605;
     p.idle_enabled=true;
+    // Its settings at rest, from the survey of 2026-11-12 (curve 50..950, spring 180 roll / 160 pitch, pitch
+    // drag 1/3, move-back 200, cut-off 40, mode 0x2605). Writing the CLS-E's instead overwrote these, and the
+    // NG kept them (with bit 13 cleared it no longer referenced itself at power-on).
+    p.rest.roll_curve=p.rest.pitch_curve={{50,150,250,350,450,550,650,800,950}};
+    p.rest.roll_spring_percent=180;p.rest.pitch_spring_percent=160;
+    p.rest.pitch_gain_denominator=3;p.rest.pitch_move_back=200;p.rest.pitch_cutoff=40;
+    p.rest.mode=0x2605;
     return p;
 }
 inline std::vector<YokePreset> builtin_yoke_presets() {return {builtin_cls_e(),builtin_cls_e_ng()};}
@@ -133,6 +161,18 @@ inline void validate_preset(const YokePreset& p) {
     if (!in(p.margin_fraction,0.02,0.5)) fail("margin_fraction must be 0.02 to 0.5");
     if (p.target_torque<1 || p.target_torque>1000) fail("target_torque must be 1 to 1000");
     for (const int w:{p.status_stopped,p.status_ready_mask,p.status_acquired_mask}) if (w<1 || w>0xffff) fail("status words must be 1 to 65535");
+    {
+        const auto& r=p.rest;
+        for (const auto v:r.roll_curve) if (v<5 || v>1000) fail("rest curve points must be 5 to 1000");
+        for (const auto v:r.pitch_curve) if (v<5 || v>1000) fail("rest curve points must be 5 to 1000");
+        if (r.roll_spring_percent<1 || r.roll_spring_percent>1000 || r.pitch_spring_percent<1 || r.pitch_spring_percent>1000) fail("rest spring percents must be 1 to 1000");
+        if (r.pitch_gain_denominator<1 || r.pitch_gain_denominator>6) fail("rest pitch_gain_denominator must be 1 to 6");
+        if (r.pitch_move_back<180 || r.pitch_move_back>720) fail("rest pitch_move_back must be 180 to 720");
+        if (r.pitch_cutoff<0 || r.pitch_cutoff>101) fail("rest pitch_cutoff must be 0 (not written) or up to 101");
+        const int flow_bits=(1<<13)|(1<<11)|(1<<6)|(1<<5);
+        if (r.mode!=0 && (r.mode<1 || r.mode>0xffff || (r.mode&~flow_bits)!=p.spring_mode))
+            fail("rest mode must be 0 (not written) or the spring_mode with only the flow's bits 13, 11, 6 and 5 added");
+    }
     if (p.spring_mode<1 || p.spring_mode>0xffff || (p.spring_mode&((1<<13)|(1<<11)|(1<<6)|(1<<5)))!=0)
         fail("spring_mode must be 1 to 65535 with bits 13, 11, 6 and 5 clear (they are the flow's, not the resting mode's)");
 }
@@ -158,7 +198,9 @@ inline void validate_presets(const std::vector<YokePreset>& presets) {
 // verified_firmware [..], roll_travel_counts, pitch_travel_counts, wheel_deg,
 // pitch_travel_mm, pitch_units_per_lb, roll_units_per_nm, roll_ceiling_units,
 // pitch_ceiling_units, margin_fraction, target_torque, status_stopped,
-// status_ready_mask, status_acquired_mask, spring_mode, idle_enabled, roll_encoder_sign,
+// status_ready_mask, status_acquired_mask, spring_mode, idle_enabled, rest {roll_curve, pitch_curve,
+// roll_spring_percent, pitch_spring_percent, pitch_gain_denominator, pitch_move_back, pitch_cutoff, mode},
+// roll_encoder_sign,
 // pitch_encoder_sign, roll_input_reverse, pitch_input_reverse. Unknown fields are refused.
 namespace preset_detail {
 inline double number(const Json& j,const std::string& what) {
@@ -199,6 +241,7 @@ inline std::vector<YokePreset> parse_yoke_presets(std::string_view text,const st
         const std::string at="yoke \""+name->text+"\": ";
         static const char* required[]={"usb","roll_travel_counts","pitch_travel_counts","roll_ceiling_units","pitch_ceiling_units","target_torque"};
         if (is_new) for (const char* key:required) if (!entry.get(key)) throw PresetError(at+"a new model must give \""+key+"\"");
+        bool has_rest=false;
         for (const auto& m:entry.members) {
             const auto& key=m.first;const auto& v=m.second;const auto what=at+key;
             if (key=="name") continue;
@@ -240,12 +283,36 @@ inline std::vector<YokePreset> parse_yoke_presets(std::string_view text,const st
             else if (key=="status_acquired_mask") p.status_acquired_mask=whole(v,what);
             else if (key=="spring_mode") p.spring_mode=whole(v,what);
             else if (key=="idle_enabled") p.idle_enabled=flag(v,what);
+            else if (key=="rest") {
+                if (v.kind!=Json::Kind::object) throw PresetError(what+" must be an object");
+                has_rest=true;p.rest.captured=false;
+                const auto curve=[&](const Json& j,const std::string& w) {
+                    if (j.kind!=Json::Kind::array || j.items.size()!=9) throw PresetError(w+" must be a list of 9 numbers");
+                    std::array<std::uint16_t,9> out{};
+                    for (std::size_t i=0;i<9;++i) {const int n=whole(j.items[i],w);if (n<0 || n>0xffff) throw PresetError(w+" entries must be 0 to 65535");out[i]=static_cast<std::uint16_t>(n);}
+                    return out;
+                };
+                for (const auto& r:v.members) {
+                    const auto& rk=r.first;const auto& rv=r.second;const auto rw=what+"."+rk;
+                    if (rk=="roll_curve") p.rest.roll_curve=curve(rv,rw);
+                    else if (rk=="pitch_curve") p.rest.pitch_curve=curve(rv,rw);
+                    else if (rk=="roll_spring_percent") p.rest.roll_spring_percent=whole(rv,rw);
+                    else if (rk=="pitch_spring_percent") p.rest.pitch_spring_percent=whole(rv,rw);
+                    else if (rk=="pitch_gain_denominator") p.rest.pitch_gain_denominator=whole(rv,rw);
+                    else if (rk=="pitch_move_back") p.rest.pitch_move_back=whole(rv,rw);
+                    else if (rk=="pitch_cutoff") p.rest.pitch_cutoff=whole(rv,rw);
+                    else if (rk=="mode") p.rest.mode=whole(rv,rw);
+                    else throw PresetError(at+"unknown field \""+key+"."+rk+"\"");
+                }
+            }
             else if (key=="roll_encoder_sign") p.roll_encoder_sign=whole(v,what);
             else if (key=="pitch_encoder_sign") p.pitch_encoder_sign=whole(v,what);
             else if (key=="roll_input_reverse") p.roll_input_reverse=flag(v,what);
             else if (key=="pitch_input_reverse") p.pitch_input_reverse=flag(v,what);
             else throw PresetError(at+"unknown field \""+key+"\"");
         }
+        // A new model that gives no resting settings has the plugin read them from the yoke and put them back.
+        if (is_new && !has_rest) p.rest.captured=true;
         if (is_new) result.push_back(std::move(p)); else *found=std::move(p);
     }
     validate_presets(result);

@@ -102,7 +102,15 @@ inline ReadOnlyResult read_only_flight_input(const Snapshot& s,Travel& travel,co
     // Homing, a fault or an unreferenced controller: the position is the machine's, not
     // the pilot's. Learn nothing from it and forward nothing.
     for (const auto& axis:s.axes) if (axis.status&(status_fault|status_homing_error)) return unavailable("Controller fault");
-    for (const auto& axis:s.axes) if (!axis_usable(axis.status)) return unavailable("Read-only: the yoke is homing; wait for it to finish");
+    for (const auto& axis:s.axes) if (!axis_usable(axis.status)) {
+        // Motors off and quiet (bit 0x0004 clear, "target reached" 0x0400 set, as 0x0421) is a yoke that has been
+        // stopped and is not referenced: it is not going to finish anything by itself. Otherwise it is on its way
+        // (the power-on self-test passes through 0x0021 and 0x0027).
+        const bool stopped=(axis.status&0x0004)==0 && (axis.status&0x0400)!=0;
+        return unavailable(stopped
+            ?"Read-only: the yoke is stopped, not referenced. Power-cycle it, or turn on Developer > Allow unverified yoke models, then Reset yoke and Re-centre"
+            :"Read-only: the yoke is homing; wait for it to finish");
+    }
     for (unsigned i=0;i<2;++i) result.widened=travel[i].observe(s.axes[i].encoder) || result.widened;
     if (!travel[0].ready() || !travel[1].ready())
         return unavailable("Read-only: move the yoke to all four stops (roll "+std::to_string(travel[0].percent())+"%, pitch "+std::to_string(travel[1].percent())+"%)");

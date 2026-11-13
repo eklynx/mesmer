@@ -50,6 +50,7 @@ void YokeMenu::create(Callbacks callbacks,const std::string& feel_text) {
     XPLMAppendMenuItem(developer,"Reconnect reader",refcon(MenuItem::reconnect),0);
     XPLMAppendMenuItem(developer,"Survey yoke registers (read-only firmware)",refcon(MenuItem::survey),0);
     XPLMAppendMenuItem(developer,"Allow unverified yoke models (writes to untested hardware)",refcon(MenuItem::unverified),0); // developer_unverified
+    XPLMAppendMenuItem(developer,"Reset yoke: motors off, the model's resting settings",refcon(MenuItem::reset_yoke),0);
 }
 
 void YokeMenu::refresh(const MenuModel& m) noexcept {

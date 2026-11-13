@@ -23,6 +23,7 @@
 #include <atomic>
 #include <cmath>
 #include <cstdint>
+#include <cstdio>
 #include <deque>
 #include <mutex>
 #include <string>
@@ -36,6 +37,7 @@ struct Drive {
     std::uint16_t status_stopped=0x0431,status_ready_mask=0x1017,status_acquired_mask=0x1004; // see YokePreset
     std::uint16_t spring_mode=0x0205;                      // the resting force mode, see YokePreset
     bool idle_enabled=false;                               // idles with motors enabled, see YokePreset
+    RestSettings rest;                                     // what a rest leaves, see YokePreset
     int roll_encoder_sign=-1,pitch_encoder_sign=-1;       // spring frame = sign * encoder
     bool roll_input_reverse=true,pitch_input_reverse=false;
     // What each controller's limit register read when this drive was made. The
@@ -45,10 +47,16 @@ struct Drive {
     int roll_ceiling_units=4500,pitch_ceiling_units=4500;
     // The one budget for both axes: the lower ceiling, and the headroom kept under it.
     int limit_units=4500,margin_units=500;
+    // For the log: what a rest writes.
+    std::string rest_summary() const {
+        std::string text="the model's resting settings (spring "+std::to_string(rest.roll_spring_percent)+"/"+std::to_string(rest.pitch_spring_percent)+" %";
+        if (rest.mode) text+=", force mode 0x"+[&] {char b[8];std::snprintf(b,sizeof(b),"%04x",static_cast<unsigned>(rest.mode));return std::string(b);}();
+        return text+")";
+    }
     bool operator==(const Drive& o) const {
         return model==o.model && roll_travel_counts==o.roll_travel_counts && pitch_travel_counts==o.pitch_travel_counts
             && wheel_deg==o.wheel_deg && target_torque==o.target_torque && roll_encoder_sign==o.roll_encoder_sign && status_stopped==o.status_stopped
-            && spring_mode==o.spring_mode && idle_enabled==o.idle_enabled
+            && spring_mode==o.spring_mode && idle_enabled==o.idle_enabled && rest==o.rest
             && status_ready_mask==o.status_ready_mask && status_acquired_mask==o.status_acquired_mask
             && pitch_encoder_sign==o.pitch_encoder_sign && roll_input_reverse==o.roll_input_reverse && pitch_input_reverse==o.pitch_input_reverse && roll_limit_register==o.roll_limit_register
             && pitch_limit_register==o.pitch_limit_register && roll_ceiling_units==o.roll_ceiling_units
@@ -69,7 +77,7 @@ inline Drive make_drive(const YokePreset& p,std::uint32_t roll_limit_register,st
     d.wheel_deg=p.wheel_deg;d.target_torque=static_cast<std::uint32_t>(p.target_torque);
     d.status_stopped=static_cast<std::uint16_t>(p.status_stopped);d.status_ready_mask=static_cast<std::uint16_t>(p.status_ready_mask);
     d.status_acquired_mask=static_cast<std::uint16_t>(p.status_acquired_mask);
-    d.spring_mode=static_cast<std::uint16_t>(p.spring_mode);d.idle_enabled=p.idle_enabled;
+    d.spring_mode=static_cast<std::uint16_t>(p.spring_mode);d.idle_enabled=p.idle_enabled;d.rest=p.rest;
     d.roll_encoder_sign=p.roll_encoder_sign;d.pitch_encoder_sign=p.pitch_encoder_sign;
     d.roll_input_reverse=p.roll_input_reverse;d.pitch_input_reverse=p.pitch_input_reverse;
     d.roll_limit_register=roll_limit_register;d.pitch_limit_register=pitch_limit_register;

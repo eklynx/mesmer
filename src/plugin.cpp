@@ -111,6 +111,7 @@ std::optional<wb::Notice> corner_notice;
 constexpr std::chrono::seconds corner_notice_time{6};
 wb::SessionNotices session_notices; // force feel on and off, said in the workbench's notices
 bool simulator_ready_for_start=false;
+bool reset_pending=false; // Developer > Reset yoke: asked once force feel and any test have ended
 brunner::FlightSample flight_sample;
 // X-Plane's stalled shares as the models take them (force/slew.hpp); flight_sample keeps the raw ones.
 brunner::StallSlews stall_slews;
@@ -727,6 +728,10 @@ float update(float,float,int,void*) {
     startup_notice.set_visible((decision.show_notice && (show_status_line || must_show)) || corner_notice);
     if (decision.status!=last_status) {log(decision.status);last_status=decision.status;}
     refresh_menu(s);
+    if (reset_pending && !s.loading_active && !s.reference_active) {
+        reset_pending=false;
+        if (!reader.request_reset()) log("Reset refused: the yoke is read-only or busy (a model that is not verified needs Developer > Allow unverified yoke models)");
+    }
     const auto solution=shown_pitch(s,input);
     publish_feel(s,input,solution,lab_active,fresh,now);
     force_hud.observe_pitch(pitch_card(s,input,solution));
@@ -977,6 +982,12 @@ void menu_action(brunner::ui::MenuItem item) {
         case MenuItem::force_feel:force_feel_handler(force_feel_toggle,xplm_CommandBegin,nullptr);break;
         case MenuItem::status_line:status_line_handler(nullptr,xplm_CommandBegin,nullptr);break;
         case MenuItem::unverified:unverified_toggle();break;
+        case MenuItem::reset_yoke:
+            // Forces off and the supervisor held (Re-centre resumes), then the reader resets once nothing is running.
+            set_force_feel(false,"Reset yoke");yoke.stop();
+            if (reader.snapshot().loading_active) reader.request_loading_end();
+            reset_pending=true;log("Resetting the yoke: both motors off and the model's resting settings written; Re-centre afterwards");
+            break;
         case MenuItem::survey:log(reader.request_survey()?"Survey requested: reading registers only; the file appears in Output/BrunnerDirect":"Survey refused: it is only for a yoke that is read-only");break;
         default:break;
         }

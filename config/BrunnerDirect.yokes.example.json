@@ -19,6 +19,16 @@
       "status_ready_mask": 4103,
       "spring_mode": 1541,
       "idle_enabled": true,
+      "rest": {
+        "roll_curve": [50, 150, 250, 350, 450, 550, 650, 800, 950],
+        "pitch_curve": [50, 150, 250, 350, 450, 550, 650, 800, 950],
+        "roll_spring_percent": 180,
+        "pitch_spring_percent": 160,
+        "pitch_gain_denominator": 3,
+        "pitch_move_back": 200,
+        "pitch_cutoff": 40,
+        "mode": 9733
+      },
       "roll_encoder_sign": -1,
       "pitch_encoder_sign": -1,
       "roll_input_reverse": true,

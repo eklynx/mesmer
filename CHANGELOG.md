@@ -6,6 +6,15 @@ provenance attestation.
 
 ## Unreleased
 
+- **A model is left as it was found.** The plugin wrote the CLS-E's resting settings (spring
+  curve, spring strength, pitch drag, and a force mode with the reference-at-power-on bit
+  cleared) to the CLS-E NG at every rest and stop, and the NG kept them: it stopped
+  referencing itself and read-only mode waited on it forever. Presets now carry the model's
+  own `rest` settings (the NG's are its factory values); a new model without them has them
+  read from the yoke and put back. **Developer > Reset yoke** (new, last item) stops the
+  motors and writes the model's resting settings, read back, without a power cycle; it needs
+  the Developer toggle like any write. Read-only now says *stopped, not referenced* (and what
+  to do) for a quiet unreferenced yoke instead of *homing*.
 - **CLS-E NG: pitch no longer refuses to rest.** Force feel started and then faulted with
   `Readback mismatch ... register=2116:0 expected=5468 actual=5300`: the NG holds
   a resting point only up to 5300 counts on pitch, and the preset's travel (5468, its end-stop

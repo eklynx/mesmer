@@ -62,7 +62,7 @@ void the_example_file_is_the_built_in() {
     check(a.roll_ceiling_units==b.roll_ceiling_units && a.pitch_ceiling_units==b.pitch_ceiling_units && a.target_torque==b.target_torque);
     check(std::fabs(a.margin_fraction-b.margin_fraction)<1e-3);   // the file's 0.1111 against 500/4500
     check(a.status_ready_mask==b.status_ready_mask && a.status_stopped==b.status_stopped && a.status_acquired_mask==b.status_acquired_mask);
-    check(a.spring_mode==b.spring_mode && a.idle_enabled==b.idle_enabled);
+    check(a.spring_mode==b.spring_mode && a.idle_enabled==b.idle_enabled && a.rest==b.rest);
     check(a.roll_encoder_sign==b.roll_encoder_sign && a.pitch_encoder_sign==b.pitch_encoder_sign);
     check(a.roll_input_reverse==b.roll_input_reverse && a.pitch_input_reverse==b.pitch_input_reverse);
     check(a.pitch_units_per_lb==b.pitch_units_per_lb && a.roll_units_per_nm==b.roll_units_per_nm);
@@ -88,6 +88,7 @@ void a_new_model() {
     check(m.pitch_units_per_lb==222 && m.roll_units_per_nm==1000 && m.wheel_deg==86 && std::fabs(m.margin_fraction-500.0/4500.0)<1e-12);
     check(find_yoke_preset(merged,{4660,22136})->name=="club-yoke");
     check(preset_usb_ids(merged).size()==3);                                            // its bridge is now opened too
+    check(m.rest.captured);                                                            // no resting settings given: read from the yoke, put back as found
     // A new model must give everything that cannot be assumed: leave out each required
     // member in turn (and check the complete entry is accepted, so the refusal is for the gap).
     const std::vector<std::pair<std::string,std::string>> members{
@@ -103,6 +104,32 @@ void a_new_model() {
     // Claiming a built-in's USB id is refused: the model must follow from the device.
     check(refused(R"({"schema":1,"yokes":[{"name":"clash","usb":[{"vendor":9659,"product":139}],
         "roll_travel_counts":9000,"pitch_travel_counts":7000,"roll_ceiling_units":3000,"pitch_ceiling_units":3500,"target_torque":30}]})"));
+}
+// Resting settings: the built-ins', a model that gives its own, and every bound they must meet.
+void resting_settings() {
+    const auto cls_e=builtin_cls_e().rest,ng=builtin_cls_e_ng().rest;
+    // The CLS-E's are the plugin's historical constants, unchanged; the NG's are its survey of 2026-11-12.
+    check(!cls_e.captured && cls_e.roll_spring_percent==100 && cls_e.pitch_spring_percent==100 && cls_e.pitch_gain_denominator==6
+        && cls_e.pitch_move_back==180 && cls_e.pitch_cutoff==0 && cls_e.mode==0 && cls_e.roll_curve[0]==100 && cls_e.roll_curve[8]==1000);
+    check(!ng.captured && ng.roll_spring_percent==180 && ng.pitch_spring_percent==160 && ng.pitch_gain_denominator==3
+        && ng.pitch_move_back==200 && ng.pitch_cutoff==40 && ng.mode==0x2605 && ng.roll_curve[0]==50 && ng.pitch_curve[8]==950);
+    // A new model that gives a rest block has it (and is not captured); it overrides field by field.
+    const std::string model=R"({"name":"club-yoke","usb":[{"vendor":4660,"product":22136}],"roll_travel_counts":9000,"pitch_travel_counts":7000,
+        "roll_ceiling_units":3000,"pitch_ceiling_units":3500,"target_torque":30,"rest":{"roll_spring_percent":50,"pitch_spring_percent":60}})";
+    const auto merged=parse_yoke_presets(R"({"schema":1,"yokes":[)"+model+"]}",builtin_yoke_presets());
+    const auto& m=named(merged,"club-yoke");
+    check(!m.rest.captured && m.rest.roll_spring_percent==50 && m.rest.pitch_spring_percent==60 && m.rest.roll_curve==cls_e.roll_curve);
+    const auto edited=parse_yoke_presets(R"({"schema":1,"yokes":[{"name":"cls-e-ng","rest":{"pitch_cutoff":0,"mode":0}}]})",builtin_yoke_presets());
+    check(named(edited,"cls-e-ng").rest.pitch_cutoff==0 && named(edited,"cls-e-ng").rest.mode==0 && named(edited,"cls-e-ng").rest.roll_spring_percent==180);
+    const auto in_ng=[](const std::string& rest) {return R"({"schema":1,"yokes":[{"name":"cls-e-ng","rest":{)"+rest+"}}]}";};
+    check(!refused(in_ng("\"pitch_move_back\":180")) && !refused(in_ng("\"pitch_move_back\":720")) && !refused(in_ng("\"mode\":9733")) && !refused(in_ng("\"mode\":1541")));
+    for (const auto* bad:{"\"roll_spring_percent\":0","\"pitch_spring_percent\":1001","\"pitch_gain_denominator\":0","\"pitch_gain_denominator\":7",
+            "\"pitch_move_back\":179","\"pitch_move_back\":721","\"pitch_cutoff\":102","\"pitch_cutoff\":-1",
+            "\"mode\":1537","\"mode\":70000","\"mode\":9732",                       // not the spring mode plus the flow's bits
+            "\"roll_curve\":[100]","\"roll_curve\":[1,350,400,450,500,600,750,900,1000]","\"pitch_curve\":[100,350,400,450,500,600,750,900,1001]",
+            "\"roll_curve\":\"x\"","\"mystery\":1","\"mode\":1.5"})
+        check(refused(in_ng(bad)));
+    check(refused(R"({"schema":1,"yokes":[{"name":"cls-e-ng","rest":5}]})"));
 }
 void bounds_and_malformed_files() {
     const auto edit=[](const std::string& fields) {return R"({"schema":1,"yokes":[{"name":"cls-e-ng",)"+fields+"}]}";};
@@ -144,6 +171,7 @@ int main() {
         the_example_file_is_the_built_in();
         an_edit_of_a_built_in();
         a_new_model();
+        resting_settings();
         bounds_and_malformed_files();
         std::cout<<"preset tests passed\n";
         return 0;

@@ -76,6 +76,26 @@ struct ControllerFake : HidDevice {
             regs[key(node,0x211f,0)]=40;regs[key(node,0x6071,0)]=25;
         }
     }
+    // The NG as the old plugin left it (the survey of 2026-11-13): the CLS-E's resting curve, spring 100, pitch
+    // drag 1/6, move-back 180, cut-off 101, and the force mode with the reference-at-power-on bit cleared.
+    void left_by_the_cls_e_rest() {
+        static const unsigned bench[9]={100,350,400,450,500,600,750,900,1000};
+        for (unsigned node=1;node<=2;++node) {
+            for (unsigned i=1;i<=9;++i) regs[key(node,0x2113,i)]=bench[i-1];
+            regs[key(node,0x2114,0)]=100;regs[key(node,0x2101,1)]=0x0605;
+        }
+        regs[key(2,0x2100,2)]=6;regs[key(2,0x2102,0)]=180;regs[key(2,0x211f,0)]=101;
+    }
+    // Whether the registers a rest writes hold the NG's own values (its survey of 2026-11-12).
+    bool is_factory_ng() const {
+        static const unsigned factory[9]={50,150,250,350,450,550,650,800,950};
+        const auto at=[&](unsigned node,unsigned index,unsigned sub) {const auto f=regs.find(key(node,index,sub));return f==regs.end()?~0u:f->second;};
+        for (unsigned node=1;node<=2;++node) {
+            for (unsigned i=1;i<=9;++i) if (at(node,0x2113,i)!=factory[i-1]) return false;
+            if (at(node,0x2114,0)!=(node==1?180u:160u) || at(node,0x2101,1)!=0x2605u) return false;
+        }
+        return at(2,0x2100,2)==3u && at(2,0x2102,0)==200u && at(2,0x211f,0)==40u;
+    }
     UsbId id() const override {return usb;}
     static unsigned width_of(unsigned index) {
         switch (index) {case 0x20a1:case 0x2102:case 0x2115:case 0x2116:case 0x2117:case 0x6064:case 0x2106:return 4;default:return 2;}
@@ -367,6 +387,10 @@ void homing_is_neither_learned_nor_forwarded() {
     auto homing=read_only_flight_input(with_status(7985,5712,0x0027,0x0027),travel,forward,now);
     check(!homing.input.ready && !homing.widened && !travel[0].seen && !travel[1].seen);
     check(homing.input.reason.find("homing")!=std::string::npos);
+    // Stopped and not referenced (0x0421, what a yoke left by a stop reads) is not "homing": it says what to do.
+    auto idle=read_only_flight_input(with_status(0,0,0x0421,0x0421),travel,forward,now);
+    check(!idle.input.ready && idle.input.reason.find("stopped, not referenced")!=std::string::npos && idle.input.reason.find("Reset yoke")!=std::string::npos);
+    check(read_only_flight_input(with_status(0,0,0x0021,0x0021),travel,forward,now).input.reason.find("homing")!=std::string::npos);   // still starting up
     // The capture: the hand sweeps to the controller's limits (flag 0x0800)...
     for (const auto& p:{std::pair<int,int>{-7637,-5458},{7647,5478},{0,0}})
         read_only_flight_input(with_status(p.first,p.second,0x1c27,0x1c27),travel,forward,now);
@@ -552,6 +576,70 @@ void firmware_never_changes_the_mode() {
     check(!s.read_only && s.model=="cls-e" && s.yoke_note.find("999")!=std::string::npos);   // driven; the note says so
     run.reader.stop();
 }
+// The NG kept the CLS-E's resting settings the old plugin wrote to it, and with the reference bit cleared it
+// no longer referenced itself. A rest now writes the NG's own: a driven session puts them back.
+void a_rest_leaves_the_ng_as_it_was_found() {
+    ScopedDrive restore(cls_e_drive());
+    ControllerFake* device=nullptr;
+    Run run({0x25bb,0x008b},[&](ControllerFake& f) {device=&f;f.tracks_state=true;f.enabled=true;f.surveyed_registers();f.left_by_the_cls_e_rest();});
+    run.reader.set_allow_unverified(true);
+    run.reader.start();
+    check(wait_for([&] {return run.ready();}));
+    check(device->is_factory_ng());                 // curve, spring, drag, cut-off and mode are the NG's again (the device lives while the session does)
+    run.reader.stop();
+}
+// Developer > Reset yoke: motors off, the model's resting settings written and read back. Never read-only.
+void reset_yoke_restores_the_models_settings() {
+    ScopedDrive restore(cls_e_drive());
+    ControllerFake* device=nullptr;
+    Run run({0x25bb,0x008b},[&](ControllerFake& f) {device=&f;f.tracks_state=true;f.surveyed_registers();});
+    run.reader.set_allow_unverified(true);
+    run.reader.start();
+    check(wait_for([&] {return run.ready();}));
+    device->left_by_the_cls_e_rest();device->enabled=true;                    // as the old plugin left it, and idling enabled
+    check(!device->is_factory_ng());
+    check(run.reader.request_reset());
+    check(wait_for([&] {return run.reader.snapshot().loading_result.find("Yoke reset")==0;}));
+    check(device->is_factory_ng() && !device->enabled);
+    run.reader.stop();
+    // Refused in read-only: no request, no write.
+    Run ro({0x25bb,0x008b},[&](ControllerFake& f) {f.tracks_state=true;f.surveyed_registers();});
+    ro.reader.start();
+    check(wait_for([&] {const auto s=ro.reader.snapshot();return s.read_only && s.cycles>2;}));
+    check(!ro.reader.request_reset());
+    ro.reader.stop();
+    check(ro.writes.empty());
+}
+// A model with no resting settings in its preset: they are read from the yoke and put back as found.
+void a_model_without_rest_settings_is_left_as_found() {
+    ScopedDrive restore(cls_e_drive());
+    auto club=builtin_cls_e_ng();club.name="club";club.title="Club yoke";club.usb_ids={{0x25bb,0x00ff}};
+    club.rest=RestSettings{};club.rest.captured=true;
+    ControllerFake* device=nullptr;
+    Run run({0x25bb,0x00ff},[&](ControllerFake& f) {
+        device=&f;f.tracks_state=true;f.surveyed_registers();
+        for (unsigned node=1;node<=2;++node) {
+            for (unsigned i=1;i<=9;++i) f.regs[ControllerFake::key(node,0x2113,i)]=300+10*i;
+            f.regs[ControllerFake::key(node,0x2114,0)]=70+node;f.regs[ControllerFake::key(node,0x2101,1)]=0x2605;
+        }
+        f.regs[ControllerFake::key(2,0x2100,2)]=4;f.regs[ControllerFake::key(2,0x2102,0)]=210;f.regs[ControllerFake::key(2,0x211f,0)]=55;
+    });
+    run.reader.set_presets({builtin_cls_e(),club});
+    run.reader.set_allow_unverified(true);
+    run.reader.start();
+    check(wait_for([&] {return run.ready();}));
+    check(active_drive().rest.captured==false && active_drive().rest.pitch_curve[0]==310 && active_drive().rest.roll_spring_percent==71 && active_drive().rest.mode==0x2605);
+    device->enabled=true;
+    check(run.reader.request_reset());
+    check(wait_for([&] {return run.reader.snapshot().loading_result.find("Yoke reset")==0;}));
+    const auto at=[&](unsigned node,unsigned index,unsigned sub) {return device->regs.at(ControllerFake::key(node,index,sub));};
+    for (unsigned node=1;node<=2;++node) {
+        for (unsigned i=1;i<=9;++i) check(at(node,0x2113,i)==300+10*i);
+        check(at(node,0x2114,0)==70+node && at(node,0x2101,1)==0x2605);
+    }
+    check(at(2,0x2100,2)==4 && at(2,0x2102,0)==210 && at(2,0x211f,0)==55);                // exactly as found, not the CLS-E's
+    run.reader.stop();
+}
 void the_new_config_keys() {
     const std::string base="schema_version=2\nroll_spring_percent=35\npitch_spring_percent=40\npitch_trim_counts=0\nauto_start=1\nreference_airspeed_knots=316\nminimum_spring_percent=20\nmaximum_trim_counts=6000\n";
     {std::istringstream in(base);const auto c=parse_configuration(in);check(c.flight.read_only_roll_reverse==0 && c.flight.read_only_pitch_reverse==0);}
@@ -577,6 +665,9 @@ int main() {
         the_gate_rule();
         the_saved_owner_state();
         a_pause_is_not_a_lapse();
+        a_rest_leaves_the_ng_as_it_was_found();
+        reset_yoke_restores_the_models_settings();
+        a_model_without_rest_settings_is_left_as_found();
         an_unknown_brunner_id_is_read_only_and_never_written();
         firmware_never_changes_the_mode();
         the_toggle_restarts_the_reader_with_the_new_choice();

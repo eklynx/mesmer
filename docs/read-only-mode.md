@@ -48,6 +48,10 @@ changes nothing.
    read-only. Add it to BrunnerDirect.yokes.json to drive it*, or *Yoke model ... is not
    verified: read-only* with the menu item that turns it on, and, until the travel is
    learned, how far each axis has come.
+   A yoke that reports *stopped, not referenced* (status `0x0421`: motors off, target reached, no
+   `0x1000`) is not homing and will not finish by itself: the line says to power-cycle it, or to turn on
+   the Developer toggle and use **Reset yoke** and **Re-centre**. A yoke still starting up (`0x0021`,
+   `0x0027`) reads *homing; wait*.
 2. **Feeds X-Plane's pitch and roll** from the live encoder, mapped by a
    travel it learns (below). Experimental.
 3. **Surveys the controllers** on request (Developer menu, *Survey yoke

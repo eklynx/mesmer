@@ -64,6 +64,13 @@ public:
     }
     void request_loading_inspection() { if (!snapshot().read_only) inspection_requested_=true; }
     void request_loading_recovery() { if (!snapshot().read_only) recovery_requested_=true; }
+    // "Reset yoke": both motors off, the model's resting settings written and read back, faults cleared.
+    // False (and nothing happens) when the yoke is read-only: it never writes. The yoke is left stopped;
+    // Re-centre references it again as usual.
+    bool request_reset() {
+        if (snapshot().read_only || busy_) return false;
+        reset_requested_=true;return true;
+    }
     bool request_communication_gap() {
         if (!snapshot().loading_active) return false;
         gap_requested_=true;return true;
@@ -135,7 +142,7 @@ private:
     std::atomic<bool> reference_requested_{false};
     std::atomic<bool> inspection_requested_{false};
     std::atomic<bool> loading_requested_{false};
-    std::atomic<bool> recovery_requested_{false};
+    std::atomic<bool> recovery_requested_{false},reset_requested_{false};
     std::atomic<bool> gap_requested_{false};
     std::atomic<bool> busy_{false},flight_requested_{false},end_requested_{false};
     Tuning tuning_{}; // guarded by mutex_; writes never enable a motor

@@ -240,13 +240,62 @@ template<class Transport> void write_spring(Transport& bridge,unsigned node,std:
     }
     checked_loading_write(bridge,node,{force_scale,scale,0},stop);
 }
+// The model's resting settings (brunner/yoke_preset.hpp RestSettings): what a yoke is left at between
+// sessions, so it is left as it was found. The CLS-E's are the plugin's historical constants.
+inline PitchSetup rest_setup() {
+    const auto& r=active_drive().rest;
+    PitchSetup s;
+    s.curve=r.pitch_curve;s.roll_curve=r.roll_curve;
+    s.gain_denominator=static_cast<std::uint32_t>(r.pitch_gain_denominator);s.move_back=static_cast<std::uint32_t>(r.pitch_move_back);
+    return s;
+}
+inline std::uint16_t rest_scale(unsigned node) {
+    const auto& r=active_drive().rest;
+    return static_cast<std::uint16_t>(node==1?r.roll_spring_percent:r.pitch_spring_percent);
+}
+// One axis's resting spring, motors off.
+template<class Transport> void write_rest(Transport& bridge,unsigned node,const std::atomic<bool>& stop) {
+    write_spring(bridge,node,rest_scale(node),stop,rest_setup());
+}
+// The force mode a model rests in, when it has one (the NG's carries the reference-at-power-on bit), written
+// with the motors off and read back.
+template<class Transport> void write_rest_mode(Transport& bridge,const std::atomic<bool>& stop) {
+    const auto mode=active_drive().rest.mode;
+    if (mode==0) return;
+    for (unsigned node=1;node<=2;++node) {
+        bridge.ref_write(node,{force_mode,static_cast<std::uint32_t>(mode),0},stop);
+        if (bridge.ref_read(node,force_mode,stop)!=static_cast<std::uint32_t>(mode))
+            throw std::runtime_error("The resting force mode did not take (node "+std::to_string(node)+")");
+    }
+}
+// What a rest would write, read from the controllers as they are (reads only), for a preset that has no
+// resting settings of its own. An unreadable register throws before anything is written.
+template<class Transport> RestSettings capture_rest(Transport& bridge,const std::atomic<bool>& stop) {
+    RestSettings r;
+    for (unsigned node=1;node<=2;++node) {
+        auto& curve=node==1?r.roll_curve:r.pitch_curve;
+        for (unsigned sub=1;sub<=9;++sub)
+            curve[sub-1]=static_cast<std::uint16_t>(bridge.ref_read(node,Register{0x2113,static_cast<std::uint8_t>(sub),2},stop));
+        (node==1?r.roll_spring_percent:r.pitch_spring_percent)=static_cast<int>(bridge.ref_read(node,force_scale,stop));
+    }
+    r.pitch_gain_denominator=static_cast<int>(bridge.ref_read(2,force_gain_denominator,stop));
+    r.pitch_move_back=static_cast<int>(bridge.ref_read(2,move_back_gain,stop));
+    r.pitch_cutoff=static_cast<int>(bridge.ref_read(2,manual_offset_off,stop));
+    const auto mode=bridge.ref_read(1,force_mode,stop);
+    if (bridge.ref_read(2,force_mode,stop)!=mode) throw SettingsRefused("The controllers rest in different force modes");
+    r.mode=static_cast<int>(mode);
+    r.captured=false;
+    return r;
+}
 // The plugin's resting settings, motors off: before a centring, after force
 // feel stops and in recovery. After a model session, pitch's constant-force
-// cut-off goes back to what that session found.
+// cut-off goes back to what that session found (else the model's own, if it has one).
 template<class Transport> void rest_controllers(Transport& bridge,const std::atomic<bool>& stop,std::optional<std::uint32_t> offset_off={}) {
     check_controllers(bridge,stop,false);
-    for (unsigned node=1;node<=2;++node) write_spring(bridge,node,resting_scale,stop);
+    for (unsigned node=1;node<=2;++node) write_rest(bridge,node,stop);
     if (offset_off) ensure_pitch(bridge,manual_offset_off,*offset_off,stop);
+    else if (active_drive().rest.pitch_cutoff>0) ensure_pitch(bridge,manual_offset_off,static_cast<std::uint32_t>(active_drive().rest.pitch_cutoff),stop);
+    write_rest_mode(bridge,stop);
 }
 // Pitch's constant force cleared, best effort, never throwing: the first thing
 // at every end of a session, whatever the link, the stop or roll do next.
@@ -432,7 +481,9 @@ template<class Transport> void recover_controllers(Transport& bridge,const std::
     check_controllers(bridge,stop,false);
     const std::array<std::uint16_t,2> shutdown_words{{6,6}},shutdown_modes{{spring_mode(),spring_mode()}};
     if (!stop_reference(bridge,shutdown_words,shutdown_modes)) throw std::runtime_error("Recovery could not confirm both motors disabled");
-    for (unsigned node=1;node<=2;++node) write_spring(bridge,node,resting_scale,stop);
+    for (unsigned node=1;node<=2;++node) write_rest(bridge,node,stop);
+    if (active_drive().rest.pitch_cutoff>0) ensure_pitch(bridge,manual_offset_off,static_cast<std::uint32_t>(active_drive().rest.pitch_cutoff),stop);
+    write_rest_mode(bridge,stop);
     // Do not erase the error-history object or set the initialization bit.
     for (unsigned node=1;node<=2;++node) {
         constexpr std::uint16_t word=6;
