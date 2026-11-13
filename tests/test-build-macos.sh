@@ -24,6 +24,24 @@ check $code "--help exits 0"
 echo "$out" | grep -q -- "--sdk PATH"; check $? "--help documents --sdk"
 [ ! -d "$sandbox/build" ]; check $? "--help builds nothing"
 
+# Spec: it can be run from the repository root, src/ or src/scripts/ (or elsewhere); the work
+# is always at the root (build/ there, none beside the caller) and a relative --sdk is relative
+# to where it was run from.
+mkdir -p "$sandbox/elsewhere" "$sandbox/fakesdk/CHeaders"
+for where in "" src src/scripts elsewhere; do
+    rm -rf "$sandbox/build"
+    dir="$sandbox${where:+/$where}"
+    rel="$(python3 -c 'import os,sys;print(os.path.relpath(sys.argv[1],sys.argv[2]))' "$sandbox/notsdk" "$dir")"
+    mkdir -p "$sandbox/notsdk"
+    out="$(cd "$dir" && "$script" --sdk "$rel" 2>&1)"; code=$?
+    [ $code -ne 0 ] && echo "$out" | grep -q "not an X-Plane SDK directory" && echo "$out" | grep -q "notsdk" \
+        && [ -d "$sandbox/build" ] && { [ "$dir" = "$sandbox" ] || [ ! -d "$dir/build" ]; }
+    check $? "runs from ${where:-the root} and works at the root with a relative --sdk"
+done
+out="$(cd "$sandbox/src" && "$script" --sdk x 2>&1)"; echo "$out" | grep -q "Run from src/;"; check $? "says when run from src/"
+out="$(cd "$sandbox/src/scripts" && "$script" --sdk x 2>&1)"; echo "$out" | grep -q "Run from src/scripts/;"; check $? "says when run from src/scripts/"
+rm -rf "$sandbox/build" "$sandbox/fakesdk"
+
 # Spec: an unknown option fails and says which.
 out="$("$script" --bogus 2>&1)"; code=$?
 [ $code -ne 0 ] && echo "$out" | grep -q "unknown option: --bogus"; check $? "unknown option is rejected"

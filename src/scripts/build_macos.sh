@@ -16,7 +16,8 @@ SDK_SHA256="${MESMER_SDK_SHA256:-b9875ab27b593927b4f9b3e0ddfffe7401ee5dce6d86b50
 DEPLOYMENT_TARGET="11.0"
 ARCHS="arm64;x86_64"
 
-ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)" # the repository root: this script is src/scripts/build_macos.sh
+ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd -P)" # the repository root: this script is src/scripts/build_macos.sh
+START="$(pwd -P)" # where it was run from
 BUILD="$ROOT/build"
 sdk="${XPLANE_SDK:-}"
 clean=0
@@ -47,6 +48,18 @@ while [ $# -gt 0 ]; do
         *) usage >&2; die "unknown option: $1" ;;
     esac
 done
+
+# Run from the repository root, src/ or src/scripts/ (or anywhere else): everything happens at the
+# root, so build/ is always $ROOT/build. A relative --sdk or $XPLANE_SDK means relative to where it
+# was run from, so it is made absolute before the working directory changes.
+case "$sdk" in ""|/*) ;; *) sdk="$START/$sdk" ;; esac
+case "$START" in
+    "$ROOT") ;;
+    "$ROOT/src") echo "Run from src/; building from the repository root: $ROOT" ;;
+    "$ROOT/src/scripts") echo "Run from src/scripts/; building from the repository root: $ROOT" ;;
+    *) echo "Building from the repository root: $ROOT" ;;
+esac
+cd "$ROOT"
 
 [ "$(uname -s)" = "Darwin" ] || die "this script builds for macOS and must run on macOS"
 for tool in cmake lipo codesign curl shasum unzip; do

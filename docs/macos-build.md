@@ -26,6 +26,10 @@ with the files the Windows release ships (`BrunnerDirect.ini`,
 src/scripts/build_macos.sh [--sdk PATH] [--clean] [--no-test] [--help]
 ```
 
+Run it from the repository root, `src/` or `src/scripts/` (or from anywhere): it changes to the
+root itself, says so when it was started elsewhere, and treats a relative `--sdk` or `$XPLANE_SDK`
+as relative to where you ran it.
+
 | Option | Meaning |
 |---|---|
 | `--sdk PATH` | Unpacked X-Plane SDK (the directory holding `CHeaders/`). Wins over `XPLANE_SDK`. |
