@@ -141,6 +141,7 @@ and the X-Plane glue is portable C++17 with tests that run on macOS and Windows.
 | `profiles.hpp` | Parsing and matching `BrunnerDirect.profiles.json` |
 | `config.hpp` | Parsing `BrunnerDirect.ini` |
 | `core.hpp`, `reference.hpp` | The USB frames the plugin reads and writes, validated against an allowlist |
+| `readonly.hpp` | What happens on firmware the plugin does not drive: only reads, a learned travel for pitch and roll ([spec](read-only-mode.md)) |
 | `reader.cpp`, `bridge.hpp` | The reader thread and its request/reply layer; the same on every platform |
 | `hid_device.hpp`, `usb_ids.hpp`, `hid_select.cpp` | The seam to the operating system and the USB ids Mesmer opens ([spec](hid-bridge.md)) |
 | `hid_win.cpp`, `hid_mac.cpp` | The Windows and macOS HID access |

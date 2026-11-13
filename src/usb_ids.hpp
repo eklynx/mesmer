@@ -12,10 +12,10 @@ struct UsbId {
 };
 // Every bridge id Mesmer will open. Add an id only when its HID descriptor and
 // controller protocol are the same as the first one's; hid_device.hpp's
-// select_bridge and the v367 firmware check still refuse anything that differs.
+// select_bridge refuses a different descriptor, and any firmware but 367 is read-only (readonly.hpp).
 inline constexpr std::array<UsbId, 2> bridge_ids{{
     {0x25bb, 0x0081}, // original CLS USB Bridge
-    {0x25bb, 0x008b}, // CLS-E NG: same HID framing; reports firmware v642, so the v367 gate refuses it
+    {0x25bb, 0x008b}, // CLS-E NG: same HID framing; reports firmware v642, so it runs read-only
 }};
 constexpr bool is_bridge_id(std::uint16_t vendor, std::uint16_t product) {
     for (const auto& id : bridge_ids)

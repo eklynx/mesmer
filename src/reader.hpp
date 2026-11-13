@@ -2,25 +2,36 @@
 #include "core.hpp"
 #include "loading.hpp"
 #include "buffet.hpp"
+#include "hid_device.hpp"
 #include <atomic>
+#include <functional>
 #include <mutex>
 #include <thread>
 
 namespace brunner {
+class ReadOnlyBridge;
 class Reader {
 public:
     ~Reader() { stop(); }
     void start();
     void stop();
+    // For tests: where the bridge comes from (default: open_bridge(), the real device).
+    void set_device_factory(std::function<std::unique_ptr<HidDevice>()> factory) {device_factory_=std::move(factory);}
+    // Read-only mode (readonly.hpp): every request that could write to the yoke is
+    // refused here as well as ignored by the session. Only the survey is served.
+    bool request_survey() {
+        if (!snapshot().read_only) return false;
+        survey_requested_=true;return true;
+    }
     bool request_reference_test() {
         const auto s=snapshot();
-        if (!s.connected || s.reference_active || s.loading_active) return false;
+        if (!s.connected || s.read_only || s.reference_active || s.loading_active) return false;
         bool expected=false;
         if (!busy_.compare_exchange_strong(expected,true)) return false;
         reference_requested_=true;return true;
     }
-    void request_loading_inspection() { inspection_requested_=true; }
-    void request_loading_recovery() { recovery_requested_=true; }
+    void request_loading_inspection() { if (!snapshot().read_only) inspection_requested_=true; }
+    void request_loading_recovery() { if (!snapshot().read_only) recovery_requested_=true; }
     bool request_communication_gap() {
         if (!snapshot().loading_active) return false;
         gap_requested_=true;return true;
@@ -45,14 +56,14 @@ public:
     void set_buffet(const BuffetTarget& t) {std::lock_guard<std::mutex> lock(mutex_);buffet_target_=t;}
     bool request_loading_test() {
         const auto s=snapshot();
-        if (!s.connected || s.reference_active || s.loading_active) return false;
+        if (!s.connected || s.read_only || s.reference_active || s.loading_active) return false;
         bool expected=false;
         if (!busy_.compare_exchange_strong(expected,true)) return false;
         loading_requested_=true;return true;
     }
     bool request_flight() {
         const auto s=snapshot();
-        if (!s.connected || s.reference_active || s.loading_active) return false;
+        if (!s.connected || s.read_only || s.reference_active || s.loading_active) return false;
         bool expected=false;
         if (!busy_.compare_exchange_strong(expected,true)) return false;
         flight_requested_=true;return true;
@@ -82,6 +93,9 @@ public:
 private:
     void run();
     void session(Snapshot& s);
+    void read_only_session(ReadOnlyBridge& bridge,Snapshot& s);
+    std::function<std::unique_ptr<HidDevice>()> device_factory_=[] {return open_bridge();};
+    std::atomic<bool> survey_requested_{false};
     void publish(Snapshot state) { std::lock_guard<std::mutex> lock(mutex_); state_=std::move(state); }
     std::atomic<bool> stop_{true};
     std::atomic<bool> reference_requested_{false};

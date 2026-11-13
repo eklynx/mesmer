@@ -46,4 +46,15 @@ class Bridge {
         exchange(loading_write_request(node,op,counter_++),[=](const Report& r){return reference_reply(r,node,op.reg,true);},stop);
     }
 };
+// A Bridge that can only read: SDO uploads of the live objects (read) and of the
+// allowlisted registers (ref_read). Its type has no write members, so code that
+// is given one cannot write to the yoke, whatever it is asked to do. The
+// read-only session (reader.cpp) and the survey (reference.hpp) take this.
+class ReadOnlyBridge {
+    Bridge& bridge_;
+ public:
+    explicit ReadOnlyBridge(Bridge& bridge):bridge_(bridge) {}
+    std::uint32_t read(unsigned node,Object object,const std::atomic<bool>& stop) {return bridge_.read(node,object,stop);}
+    std::uint32_t ref_read(unsigned node,Register reg,const std::atomic<bool>& stop) {return bridge_.ref_read(node,reg,stop);}
+};
 }

@@ -11,11 +11,16 @@ provenance attestation.
   through IOKit, which has not been run on hardware yet, so it is not a
   release. See `docs/macos-build.md`.
 - **More than one USB bridge id.** The plugin now opens the bridges listed in
-  `src/usb_ids.hpp`: `25BB:0081` as before, and `25BB:008B` (the CLS-E NG). It is
-  found, but reports firmware 642, so the unchanged v367 check refuses it.
-  The log now says why a yoke was refused, and on macOS the plugin finds its
-  own folder (it was given classic `Volume:Folder:` paths). The reader
-  is split so the Windows and macOS HID access are small separate files; see
+  `src/usb_ids.hpp`: `25BB:0081` as before, and `25BB:008B` (the CLS-E NG).
+- **Read-only mode for firmware the plugin does not drive.** The NG reports
+  firmware 642, not the 367 the plugin drives, so it is **read-only** (see
+  `docs/read-only-mode.md`): nothing is ever written to it, the position feeds
+  X-Plane's pitch and roll through a travel learned as you move the yoke to its
+  stops (experimental), and a menu item surveys its registers. Force feel is
+  not available on it. The firmware 367 behaviour is unchanged.
+- **macOS and the log.** On macOS the plugin finds its own folder (it was given
+  classic `Volume:Folder:` paths), and `Log.txt` now says why a yoke was
+  refused. The reader is split so the Windows and macOS HID access are small separate files; see
   `docs/hid-bridge.md`.
 
 ## 0.1.0-alpha.2

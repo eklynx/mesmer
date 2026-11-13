@@ -7,6 +7,7 @@
 #include "bridge.hpp"
 #include "reference.hpp"
 #include "loading.hpp"
+#include "readonly.hpp"
 #include <functional>
 #include <cstdlib>
 #include <sstream>
@@ -17,7 +18,7 @@ namespace brunner {
 namespace {
 // A motor stop that could not be verified. Reported, never retried automatically.
 struct StopUnconfirmed : std::runtime_error {explicit StopUnconfirmed(const std::string& what):std::runtime_error(what) {}};
-void sample(Bridge& bridge,Snapshot& s,const std::atomic<bool>& stop) {
+template<class B> void sample(B& bridge,Snapshot& s,const std::atomic<bool>& stop) {
     s.sampled=Clock::now();
     for (unsigned i=0;i<2;++i) {
         auto& a=s.axes[i];
@@ -290,7 +291,7 @@ void wait_before_retry(const std::atomic<bool>& stop,std::chrono::milliseconds d
 // session continues; only transport errors end it. The outer loop in run()
 // keeps looking for the yoke for as long as the reader is running.
 void Reader::session(Snapshot& s) {
-    Bridge bridge;
+    Bridge bridge(device_factory_());
     s.bridge_present=true;s.message="Waiting for the yoke's controllers";publish(s);
     const auto check_alive=[this] {
         if (simulator_paused()) throw FlightPaused{};
@@ -298,9 +299,18 @@ void Reader::session(Snapshot& s) {
         if (!failure.empty()) throw FlightPaused(failure);
     };
     const auto publish_state=[this](const Snapshot& current) {publish(current);};
+    std::array<std::uint16_t,2> firmware{};
     for (unsigned i=0;i<2;++i) {
-        s.axes[i].firmware=static_cast<std::uint16_t>(bridge.read(i+1,Object::firmware,stop_));
-        if (s.axes[i].firmware!=367) throw std::runtime_error("Unsupported controller firmware v"+std::to_string(s.axes[i].firmware)+(i==0?" (roll)":" (pitch)")+"; expected v367");
+        firmware[i]=static_cast<std::uint16_t>(bridge.read(i+1,Object::firmware,stop_));
+        s.axes[i].firmware=firmware[i];
+    }
+    // Firmware the plugin does not drive: read the yoke and nothing else. The
+    // read-only session is given a ReadOnlyBridge, so it cannot write; every
+    // line below this one runs only for firmware 367 on both axes.
+    if (needs_read_only(firmware)) {
+        ReadOnlyBridge read_only(bridge);
+        read_only_session(read_only,s);
+        return;
     }
     // A link lost while buffet was on: what it set is cleared once both
     // motors are confirmed stopped (the stop comes first, never delayed), and
@@ -385,6 +395,25 @@ void Reader::session(Snapshot& s) {
             s.session_reference=false;
         }
         s.message="Receiving both axes"; publish(s);
+        std::this_thread::sleep_until(s.sampled+std::chrono::milliseconds(20));
+    }
+}
+// Firmware the plugin does not drive (readonly.hpp): sample both controllers,
+// serve the survey, and write nothing. Every request that could write is ignored
+// (and was refused when made); the supervisor, seeing read_only, asks for none.
+void Reader::read_only_session(ReadOnlyBridge& bridge,Snapshot& s) {
+    s.read_only=true;
+    s.message="Yoke firmware "+std::to_string(s.axes[0].firmware)+(s.axes[1].firmware!=s.axes[0].firmware?"/"+std::to_string(s.axes[1].firmware):"")
+        +" not supported: read-only, no force feel";
+    publish(s);
+    while (!stop_) {
+        reference_requested_=false;inspection_requested_=false;loading_requested_=false;recovery_requested_=false;
+        gap_requested_=false;flight_requested_=false;end_requested_=false;busy_=false;
+        if (survey_requested_.exchange(false)) {
+            s.survey=survey_controllers(bridge,stop_);++s.surveys;publish(s);
+        }
+        sample(bridge,s,stop_);
+        publish(s);
         std::this_thread::sleep_until(s.sampled+std::chrono::milliseconds(20));
     }
 }

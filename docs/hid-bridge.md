@@ -17,7 +17,7 @@ The bridge ids Mesmer will open are the list `bridge_ids` in `usb_ids.hpp`:
 | Vendor | Product | Notes |
 |---|---|---|
 | `0x25BB` | `0x0081` | The original CLS USB Bridge. |
-| `0x25BB` | `0x008B` | The CLS-E NG. Found and opened, and it answers the same read requests, but both controllers report firmware **642**, so the firmware check below refuses it. Seen on hardware 2026-11-12. |
+| `0x25BB` | `0x008B` | The CLS-E NG. Found and opened, and it answers the same read requests, but both controllers report firmware **642**, so the firmware check below makes it read-only (nothing is written). Seen on hardware 2026-11-12. |
 
 An id in the list is necessary, never sufficient. A device is the bridge only
 if **all** of these hold (`select_bridge`):
@@ -27,7 +27,8 @@ if **all** of these hold (`select_bridge`):
 - its input and output reports are 64 bytes (report ID included).
 
 Then `reader.cpp` still refuses to go further unless both controllers answer
-with firmware **v367**, before anything that moves a motor is sent.
+with firmware **v367**, before anything that moves a motor is sent. On any other
+firmware the yoke is [read-only](read-only-mode.md): read, never written.
 
 To support another bridge, add its id to the list only when its descriptor and
 protocol are the same; the checks above and the firmware check keep a

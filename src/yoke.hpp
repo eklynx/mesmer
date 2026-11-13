@@ -92,6 +92,12 @@ public:
             if (!in.reader_running) d.action=YokeAction::start_reader;
             return finish(d,unavailable_text(s),true);
         }
+        if (s.read_only) {
+            // Firmware the plugin does not drive (readonly.hpp): it only reads the yoke.
+            // Never centre, recover or load, and never offer Retry for something that cannot happen.
+            still_.reset();requested_at_={};healthy_since_={};input_missing_since_={};developer_test_=false;test_seen_=false;
+            return finish(d,s.message,true);
+        }
         if (developer_test_ && (s.reference_active || s.loading_active)) test_seen_=true;
         if (s.reference_active) {
             // A centring in progress is the recovery itself: a fault hold ends with it.

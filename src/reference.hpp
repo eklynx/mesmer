@@ -93,6 +93,41 @@ template<class Transport> std::string inspect_loading(Transport& bridge,const st
     }
     return report.str();
 }
+// The read-only survey of a controller this plugin does not drive: the live
+// objects and every register the allowlist can read, as JSON. A register the
+// controller lacks (an SDO abort) is recorded for that register and does not end
+// the survey. SDO uploads only; nothing is written.
+template<class Transport> std::string survey_controllers(Transport& bridge,const std::atomic<bool>& stop) {
+    std::ostringstream out;
+    const auto hex=[](std::uint32_t v) {std::ostringstream h;h<<"0x"<<std::hex<<v;return h.str();};
+    out<<'{';
+    for (unsigned node=1;node<=2;++node) {
+        out<<(node>1?",":"")<<"\"node"<<node<<"\":{\"live\":{";
+        out<<"\"firmware\":"<<bridge.read(node,Object::firmware,stop)<<",\"status\":"<<bridge.read(node,Object::status,stop)
+           <<",\"encoder\":"<<signed32(bridge.read(node,Object::encoder,stop))<<",\"position\":"<<signed32(bridge.read(node,Object::position,stop))<<"},\"registers\":{";
+        bool first=true;
+        const auto read_register=[&](Register reg) {
+            out<<(first?"":",")<<"\""<<hex(reg.index)<<"."<<static_cast<unsigned>(reg.sub)<<"\":";
+            first=false;
+            try {
+                const auto value=bridge.ref_read(node,reg,stop);
+                if (reg.bytes==4) out<<signed32(value);
+                else if (reg.index==0x211a) out<<(value>=0x8000?static_cast<int>(value)-0x10000:static_cast<int>(value));
+                else out<<value;
+            } catch (const SdoAbort& e) {out<<"\"unsupported "<<hex(e.code)<<"\"";}
+        };
+        for (unsigned sub=1;sub<=18;++sub) read_register({0x2113,static_cast<std::uint8_t>(sub),2});
+        for (unsigned sub=1;sub<=18;++sub) read_register({0x20a1,static_cast<std::uint8_t>(sub),4});
+        for (const auto reg:{Register{0x2114,0,2},Register{0x211a,0,2},Register{0x211b,0,2},Register{0x211f,0,2},Register{0x6071,0,2},Register{0x6072,0,2},
+                             Register{0x2100,1,2},Register{0x2100,2,2},Register{0x2102,0,4},Register{0x2115,0,4},Register{0x2116,0,4},
+                             Register{0x2108,0,2},Register{0x2109,0,2},Register{0x2099,0,2},Register{0x209a,0,2},
+                             controlword,force_mode,center_mode,center_position})
+            read_register(reg);
+        out<<"}}";
+    }
+    out<<'}';
+    return out.str();
+}
 inline std::uint16_t stopped_controlword(std::uint16_t word) {
     return static_cast<std::uint16_t>((word & ~0x81u) | 0x06u);
 }

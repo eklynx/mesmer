@@ -84,6 +84,11 @@ struct Snapshot {
     bool flight_suspended=false;
     bool loading_fault=false;
     bool power_cycle_needed=false;
+    // Firmware other than the one the plugin drives: the reader only reads the
+    // yoke (readonly.hpp) and writes nothing. `survey` is the last survey's JSON.
+    bool read_only=false;
+    std::string survey;
+    unsigned surveys=0; // how many surveys have been taken; a change means a new `survey`
     // Requests that failed in this USB session; a change marks a new failure
     // even while the displayed fault reads the same.
     unsigned failures=0; // a refusal that switching the yoke off and on clears

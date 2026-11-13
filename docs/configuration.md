@@ -35,6 +35,8 @@ that `auto_start` is 0 and the feel page is off.
 | `pitch_move_back_gain` | 180 | 180 to 720 | The drive's move-back gain on pitch. 180 is its own; higher values are untested. |
 | `buffet` | 0 | 0 or 1 | A shake at the stall through the drive's vibration generator. Untested with the motors on. Optional. |
 | `buffet_percent` | 10 | 0 to 100 | Buffet's strength, as a share of the plugin's own ceiling for it. Optional. |
+| `read_only_roll_reverse` | 0 | 0 or 1 | Read-only mode only ([spec](read-only-mode.md)): 1 flips the roll direction of the learned travel. Optional. |
+| `read_only_pitch_reverse` | 0 | 0 or 1 | Likewise for pitch. Optional. |
 | `buffet_period` | 80 | 10 to 140 | The vibration generator's raw time setting; its frequency is not confirmed. Optional. |
 | `pitch_trim_counts` | 0 | −600 to 600 | A bench-test offset of pitch's neutral, used only by the developer spring test. Leave at 0. Required. |
 | `reference_airspeed_knots` | 316 | 40 to 400 | Kept for older files; not used by the surface models. Required. |

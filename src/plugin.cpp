@@ -1,6 +1,7 @@
 #define WIN32_LEAN_AND_MEAN
 #define NOMINMAX
 #include "reader.hpp"
+#include "readonly.hpp"
 #include "config.hpp"
 #include "lab.hpp"
 #include "yoke.hpp"
@@ -17,6 +18,9 @@
 #include "XPLMDisplay.h"
 #include "XPLMGraphics.h"
 #include <cstdio>
+#include <ctime>
+#include <sstream>
+#include <system_error>
 #include <cstring>
 #include <limits>
 #include <filesystem>
@@ -156,6 +160,13 @@ bool owns_axes=false;
 bool owns_trim=false;
 bool default_cessna=false; // selects the flight-dependent loading model and trim ownership only
 std::string last_input_status;
+// Read-only mode (readonly.hpp): the learned travel, where it is kept, and the surveys written.
+brunner::Travel read_only_travel;
+std::array<std::uint16_t,2> travel_firmware{};
+bool travel_dirty=false;
+brunner::Clock::time_point travel_saved{};
+unsigned surveys_written=0;
+std::filesystem::path output_folder; // Output/BrunnerDirect, set when the plugin is enabled
 enum class LiveField { roll_target,pitch_target,trim_target,roll_applied,pitch_applied,trim_applied,
     connected,reference_active,referenced,loading_active,tuning_valid,remaining,sample_age,
     roll_encoder,pitch_encoder,roll_status,pitch_status,last_write_accepted,rejected_writes,
@@ -286,6 +297,7 @@ int read_live(void* refcon) {
     }
 }
 void set_force_feel(bool on,const char* source) {
+    if (on && reader.snapshot().read_only) {log(std::string("Force feel refused (")+source+"): this firmware is read-only");return;}
     if (force_feel==on) return;
     force_feel=on;log(std::string("Force feel switched ")+(on?"on":"off")+" from "+source);
     if (on) yoke.force_feel_switched_on();
@@ -611,6 +623,57 @@ void publish_feel(const brunner::Snapshot& s,const brunner::FlightInput& input,c
     for (std::size_t i=0;i<live.pitch_curve.size();++i) live.pitch_curve[i]=shape[i];
     bench->publish(now,live);
 }
+std::filesystem::path travel_file() {return output_folder/"read-only-travel.json";}
+// Written atomically (temp file, then rename), at most every 5 s and only when the range widened.
+void save_travel(brunner::Clock::time_point now,bool force) {
+    if (!travel_dirty || output_folder.empty()) return;
+    if (!force && now-travel_saved<std::chrono::seconds(5)) return;
+    const auto path=travel_file();
+    const std::filesystem::path temp=path.string()+".tmp";
+    {
+        std::ofstream out(temp,std::ios::binary|std::ios::trunc);
+        out<<brunner::serialize_travel(travel_firmware,read_only_travel);
+        if (!out) {log("Could not save the read-only travel range");travel_saved=now;return;}
+    }
+    std::error_code ec;
+    std::filesystem::rename(temp,path,ec);
+    if (ec) {log("Could not save the read-only travel range: "+ec.message());travel_saved=now;return;}
+    travel_dirty=false;travel_saved=now;
+}
+void load_travel(const std::array<std::uint16_t,2>& firmware) {
+    travel_firmware=firmware;read_only_travel={};
+    if (output_folder.empty()) return;
+    std::ifstream in(travel_file(),std::ios::binary);
+    if (!in) return;
+    std::stringstream text;text<<in.rdbuf();
+    if (const auto saved=brunner::parse_travel(text.str(),firmware)) {read_only_travel=*saved;log("Read-only travel range restored from "+travel_file().string());}
+    else log("Ignored read-only-travel.json: not for this yoke's firmware, or not valid");
+}
+// Position input: the CLS-E's own once centred (firmware 367), else, in read-only
+// mode, the learned travel. The learners watch every sample; the file follows them.
+brunner::FlightInput current_input(const brunner::Snapshot& s,brunner::Clock::time_point now) {
+    if (!s.read_only) return brunner::stopped_flight_input(s,calibration,now);
+    const std::array<std::uint16_t,2> firmware{s.axes[0].firmware,s.axes[1].firmware};
+    if (firmware!=travel_firmware) {save_travel(now,true);load_travel(firmware);}
+    const auto result=brunner::read_only_flight_input(s,read_only_travel,
+        std::array<bool,2>{{flight_settings.read_only_roll_reverse!=0,flight_settings.read_only_pitch_reverse!=0}},now);
+    if (result.widened) travel_dirty=true;
+    save_travel(now,false);
+    return result.input;
+}
+// A survey (read-only SDO uploads) arrives in the snapshot; keep it in a file.
+void write_survey(const brunner::Snapshot& s) {
+    if (s.surveys<surveys_written) surveys_written=s.surveys;
+    if (s.surveys==surveys_written || s.survey.empty() || output_folder.empty()) return;
+    surveys_written=s.surveys;
+    char stamp[32]{};
+    const std::time_t t=std::time(nullptr);
+    std::strftime(stamp,sizeof(stamp),"%Y%m%d-%H%M%S",std::localtime(&t));
+    const auto path=output_folder/(std::string("survey-")+stamp+".json");
+    std::ofstream out(path,std::ios::binary|std::ios::trunc);
+    out<<s.survey<<'\n';
+    log(out?"Survey written: "+path.string():"Could not write the survey to "+path.string());
+}
 float update(float,float,int,void*) {
     find_controls();
     run_feel_commands();
@@ -620,7 +683,8 @@ float update(float,float,int,void*) {
     const auto s=reader.snapshot();
     if (!s.loading_result.empty() && s.loading_result!=last_loading) {log(s.loading_result);last_loading=s.loading_result;}
     if (!s.loading_inspection.empty() && s.loading_inspection!=last_inspection) {log("Loading inspection: "+s.loading_inspection);last_inspection=s.loading_inspection;}
-    const auto input=brunner::stopped_flight_input(s,calibration,now);
+    const auto input=current_input(s,now);
+    write_survey(s);
     last_input_status=apply_input(input);
     const bool is_paused=paused && XPLMGetDatai(paused)!=0;
     const bool input_running=paused && !is_paused && controls_available();
@@ -680,6 +744,8 @@ float update(float,float,int,void*) {
     inputs.snapshot=s;inputs.enabled=enabled;inputs.reader_running=reader.running();inputs.sim_steady=settled;
     inputs.paused=is_paused;inputs.input_ready=owns_axes && input.ready;inputs.force_feel=force_feel && !blocked;inputs.lab_lease=lab_active;inputs.now=now;
     decision=yoke.step(inputs);
+    // Read-only mode: until both axes have moved far enough, the line says how far they are.
+    if (s.read_only && !input.ready) {decision.status=input.reason;decision.show_notice=true;}
     if (force_feel && blocked && decision.status=="Ready - force feel off") {decision.status=blocked;decision.show_notice=true;}
     corner_reason=decision.retry_offered?s.stop_reason_short:std::string();
     act(decision.action);
@@ -900,6 +966,7 @@ int trim_handler(XPLMCommandRef,XPLMCommandPhase phase,void* refcon) {
 int recenter_handler(XPLMCommandRef,XPLMCommandPhase phase,void*) {
     if (phase==xplm_CommandBegin && enabled) {
         const auto s=reader.snapshot();
+        if (s.read_only) {log("Re-centre refused: this firmware is read-only; nothing is ever written to the yoke");return 1;}
         if (s.reference_active || (s.loading_active && !s.flight_session)) {log("Re-centre refused: a yoke session is already active");return 1;}
         // Pitch and roll stay live: force feel is ended cleanly first, then the
         // yoke centres once the supervisor sees it still.
@@ -985,7 +1052,7 @@ void stop_workbench() {
     if (menu) XPLMSetMenuItemName(menu,menu_feel_tuning,feel_menu_text.c_str(),0);
 }
 enum MenuItem : std::intptr_t {item_reconnect=1,item_reference=2,item_stop=3,item_loading=4,item_flight=5,item_monitor=6,
-    item_hud=7,item_pin=8,item_move=9,item_recenter=10,item_force_feel=11,item_status_line=12,item_stop_motors=13};
+    item_hud=7,item_pin=8,item_move=9,item_recenter=10,item_force_feel=11,item_status_line=12,item_stop_motors=13,item_survey=14};
 void menu_click(void*,void* item) {
     try {
         switch (reinterpret_cast<std::intptr_t>(item)) {
@@ -1002,6 +1069,7 @@ void menu_click(void*,void* item) {
         case item_recenter:recenter_handler(nullptr,xplm_CommandBegin,nullptr);break;
         case item_force_feel:force_feel_handler(force_feel_toggle,xplm_CommandBegin,nullptr);break;
         case item_status_line:status_line_handler(nullptr,xplm_CommandBegin,nullptr);break;
+        case item_survey:log(reader.request_survey()?"Survey requested: reading registers only; the file appears in Output/BrunnerDirect":"Survey refused: it is only for a yoke on firmware the plugin does not drive");break;
         default:break;
         }
     } catch (const std::exception& e) {log(e.what());}
@@ -1059,6 +1127,7 @@ PLUGIN_API int XPluginStart(char* name,char* signature,char* description) {
     XPLMAppendMenuItem(developer_menu,"Start flight loading (force feel on)",reinterpret_cast<void*>(item_flight),0);
     XPLMAppendMenuItem(developer_menu,"Stop test and disconnect",reinterpret_cast<void*>(item_stop),0);
     XPLMAppendMenuItem(developer_menu,"Reconnect reader",reinterpret_cast<void*>(item_reconnect),0);
+    XPLMAppendMenuItem(developer_menu,"Survey yoke registers (read-only firmware)",reinterpret_cast<void*>(item_survey),0);
     hud_command=XPLMCreateCommand("brunner_direct/toggle_hud","Show or hide contextual HUD; recording continues");
     pin_command=XPLMCreateCommand("brunner_direct/pin_hud","Keep the yoke feel card on screen, or show it only when useful");
     move_command=XPLMCreateCommand("brunner_direct/move_hud","Enable or finish dragging the HUD by its status strip");
@@ -1120,7 +1189,8 @@ PLUGIN_API int XPluginStart(char* name,char* signature,char* description) {
 PLUGIN_API int XPluginEnable() {
     try {
         char system_path[1024]{};XPLMGetSystemPath(system_path);
-        recorder.start(std::filesystem::path(system_path)/"Output"/"BrunnerDirect");
+        output_folder=std::filesystem::path(system_path)/"Output"/"BrunnerDirect";
+        recorder.start(output_folder);
         recorder.event("Plugin enabled; force settings preserved; HUD telemetry schema 1");
         force_hud.show_hud();create_startup_notice();identify_aircraft();bind_surface_refs();
         session_drag.reset();poll_profiles(brunner::Clock::now(),true);log_feel_events();
@@ -1144,6 +1214,7 @@ PLUGIN_API int XPluginEnable() {
     }
 }
 PLUGIN_API void XPluginDisable() {
+    save_travel(brunner::Clock::now(),true); // the learned read-only travel, if it moved since the last save
     stop_workbench();
     session_notices.reset();corner_notice.reset(); // a re-enable starts with no session to have ended
     force_monitor.close();force_hud.close();
