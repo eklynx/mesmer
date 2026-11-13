@@ -10,10 +10,11 @@
 //
 // Happy path: both axes reach `read_only_min_span` counts of observed travel;
 // each position then maps to -1..1 around the midpoint of what was seen.
-// Not ready: no sample, a stale sample, or an axis that has not moved far enough
-// (the reason names how far each has come). Status bits are shown elsewhere but
-// never gate the input here: their meaning on this firmware is unknown, and
-// nothing is written whatever they say.
+// Not ready: no sample, a stale sample, an axis that is not referenced or is in
+// fault, or an axis that has not moved far enough (the reason names how far each
+// has come). The NG homes itself at power-on, sweeping past its own limits; that
+// sweep is neither learned nor forwarded (see axis_usable). Nothing is written
+// whatever the status says.
 #pragma once
 #include "core.hpp"
 #include "json.hpp"
@@ -28,6 +29,15 @@ inline constexpr std::uint16_t supported_firmware=367;
 // Any controller on another firmware makes the whole yoke read-only.
 inline bool needs_read_only(const std::array<std::uint16_t,2>& firmware) {
     return firmware[0]!=supported_firmware || firmware[1]!=supported_firmware;
+}
+// The status bits the CLS-E's own input gate uses (core.hpp flight_input). On the
+// NG, bit 0x1000 is absent exactly while it homes at power-on (captured
+// 2026-11-12) and present otherwise. The "internal limit" flag 0x0800 marks the
+// controller's own end stops and is deliberately allowed.
+inline constexpr std::uint16_t status_referenced=0x1000,status_fault=0x0008,status_homing_error=0x0100;
+// An axis whose position is a pilot's: referenced, and no fault.
+inline bool axis_usable(std::uint16_t status) {
+    return (status&status_referenced)!=0 && (status&(status_fault|status_homing_error))==0;
 }
 // Observed travel an axis needs before its input is used: about a third of the
 // original CLS-E's range, so a nudge cannot stretch to full deflection.
@@ -66,6 +76,10 @@ inline ReadOnlyResult read_only_flight_input(const Snapshot& s,Travel& travel,co
     const auto unavailable=[&](std::string reason) {result.input=FlightInput{false,0,0,std::move(reason)};return result;};
     if (!s.read_only || !s.connected || s.cycles==0) return unavailable("No complete yoke sample");
     if (now<s.sampled || now-s.sampled>std::chrono::milliseconds(250)) return unavailable("Yoke data stale");
+    // Homing, a fault or an unreferenced controller: the position is the machine's, not
+    // the pilot's. Learn nothing from it and forward nothing.
+    for (const auto& axis:s.axes) if (axis.status&(status_fault|status_homing_error)) return unavailable("Controller fault");
+    for (const auto& axis:s.axes) if (!axis_usable(axis.status)) return unavailable("Read-only: the yoke is homing; wait for it to finish");
     for (unsigned i=0;i<2;++i) result.widened=travel[i].observe(s.axes[i].encoder) || result.widened;
     if (!travel[0].ready() || !travel[1].ready())
         return unavailable("Read-only: move the yoke to all four stops (roll "+std::to_string(travel[0].percent())+"%, pitch "+std::to_string(travel[1].percent())+"%)");
@@ -75,16 +89,21 @@ inline ReadOnlyResult read_only_flight_input(const Snapshot& s,Travel& travel,co
 }
 
 // ---- The remembered range: Output/BrunnerDirect/read-only-travel.json ----
-// {"firmware":[642,642],"roll":{"low":-9000,"high":9100},"pitch":{"low":-7000,"high":7200}}
+// {"version":2,"firmware":[642,642],"roll":{"low":-9000,"high":9100},"pitch":{"low":-7000,"high":7200}}
+// Version 2 learns only from referenced samples. An unversioned file was written
+// while the NG's homing sweep was still being learned, so it is ignored.
+inline constexpr int travel_file_version=2;
 inline std::string serialize_travel(const std::array<std::uint16_t,2>& firmware,const Travel& travel) {
     const auto axis=[](const TravelLearner& t) {return "{\"low\":"+std::to_string(t.low)+",\"high\":"+std::to_string(t.high)+"}";};
-    return "{\"firmware\":["+std::to_string(firmware[0])+","+std::to_string(firmware[1])+"],\"roll\":"+axis(travel[0])+",\"pitch\":"+axis(travel[1])+"}\n";
+    return "{\"version\":"+std::to_string(travel_file_version)+",\"firmware\":["+std::to_string(firmware[0])+","+std::to_string(firmware[1])+"],\"roll\":"+axis(travel[0])+",\"pitch\":"+axis(travel[1])+"}\n";
 }
 // The saved range, only when it is well-formed and for the same firmware; anything
 // else (garbage, another yoke, an inverted range) is ignored, never trusted.
 inline std::optional<Travel> parse_travel(const std::string& text,const std::array<std::uint16_t,2>& firmware) {
     try {
         const auto root=parse_json(text);
+        const auto* version=root.get("version");
+        if (!version || version->kind!=Json::Kind::integer || version->integer!=travel_file_version) return std::nullopt;
         const auto* fw=root.get("firmware");
         if (!fw || fw->kind!=Json::Kind::array || fw->items.size()!=2) return std::nullopt;
         for (unsigned i=0;i<2;++i) if (fw->items[i].kind!=Json::Kind::integer || fw->items[i].integer!=firmware[i]) return std::nullopt;

@@ -167,6 +167,7 @@ void travel_learning() {
 Snapshot read_only_snapshot(Clock::time_point now,std::int32_t roll,std::int32_t pitch) {
     Snapshot s;s.connected=true;s.read_only=true;s.cycles=1;s.sampled=now;
     s.axes[0].firmware=642;s.axes[1].firmware=642;s.axes[0].encoder=roll;s.axes[1].encoder=pitch;
+    s.axes[0].status=s.axes[1].status=0x1427; // what the NG reports at rest, referenced
     return s;
 }
 void input_from_the_learned_travel() {
@@ -205,14 +206,66 @@ void the_remembered_travel() {
     const auto back=parse_travel(text,firmware);
     check(back && (*back)[0].low==-9000 && (*back)[0].high==9100 && (*back)[1].low==-7000 && (*back)[1].high==7200 && (*back)[0].seen && (*back)[1].seen);
     check(!parse_travel(text,{{642,367}}) && !parse_travel(text,{{367,367}}));   // another yoke's firmware: ignored
-    const std::string head="{\"firmware\":[642,642],";
+    // The version: only 2 is read. The stretched file written during the NG's homing sweep
+    // (no version) and any other version are ignored.
+    const std::string body="\"firmware\":[642,642],\"roll\":{\"low\":-7637,\"high\":7985},\"pitch\":{\"low\":-5458,\"high\":5712}}";
+    check(parse_travel("{\"version\":2,"+body,firmware).has_value());
+    for (const auto* version:{"","\"version\":1,","\"version\":3,","\"version\":\"2\",","\"version\":2.5,","\"version\":null,"})
+        check(!parse_travel(std::string("{")+version+body,firmware));
+    const std::string head="{\"version\":2,\"firmware\":[642,642],";
     for (const auto& garbage:{std::string(),std::string("x"),std::string("{}"),std::string("[]"),head+"\"roll\":{\"low\":0,\"high\":1}}",
             head+"\"roll\":{\"low\":5,\"high\":1},\"pitch\":{\"low\":0,\"high\":1}}",                      // inverted
             head+"\"roll\":{\"low\":\"a\",\"high\":1},\"pitch\":{\"low\":0,\"high\":1}}",                   // wrong type
             head+"\"roll\":{\"low\":-9999999999,\"high\":1},\"pitch\":{\"low\":0,\"high\":1}}",             // absurd
-            std::string("{\"firmware\":[\"642\",\"642\"],\"roll\":{\"low\":0,\"high\":1},\"pitch\":{\"low\":0,\"high\":1}}"),
-            std::string("{\"firmware\":[642],\"roll\":{\"low\":0,\"high\":1},\"pitch\":{\"low\":0,\"high\":1}}")})
+            std::string("{\"version\":2,\"firmware\":[\"642\",\"642\"],\"roll\":{\"low\":0,\"high\":1},\"pitch\":{\"low\":0,\"high\":1}}"),
+            std::string("{\"version\":2,\"firmware\":[642],\"roll\":{\"low\":0,\"high\":1},\"pitch\":{\"low\":0,\"high\":1}}")})
         check(!parse_travel(garbage,firmware));
+}
+// The NG homes itself at power-on, sweeping past its own limits with bit 0x1000 absent.
+// That sweep is the machine's, not the pilot's: never learned, never forwarded.
+void homing_is_neither_learned_nor_forwarded() {
+    const auto now=Clock::now();
+    const std::array<bool,2> forward{{false,false}};
+    const auto with_status=[&](std::int32_t roll,std::int32_t pitch,std::uint16_t roll_status,std::uint16_t pitch_status) {
+        auto s=read_only_snapshot(now,roll,pitch);s.axes[0].status=roll_status;s.axes[1].status=pitch_status;return s;
+    };
+    // Axis gate.
+    check(axis_usable(0x1427) && axis_usable(0x1c27));                 // at rest; at a limit (0x0800 allowed)
+    check(!axis_usable(0x0027) && !axis_usable(0x0021) && !axis_usable(0x0000));           // homing, switching on, off
+    check(!axis_usable(0x142f) && !axis_usable(0x1527));               // fault 0x0008, homing error 0x0100
+    // A homing sample on a fresh yoke teaches nothing.
+    Travel travel;
+    auto homing=read_only_flight_input(with_status(7985,5712,0x0027,0x0027),travel,forward,now);
+    check(!homing.input.ready && !homing.widened && !travel[0].seen && !travel[1].seen);
+    check(homing.input.reason.find("homing")!=std::string::npos);
+    // The capture: the hand sweeps to the controller's limits (flag 0x0800)...
+    for (const auto& p:{std::pair<int,int>{-7637,-5458},{7647,5478},{0,0}})
+        read_only_flight_input(with_status(p.first,p.second,0x1c27,0x1c27),travel,forward,now);
+    check(travel[0].low==-7637 && travel[0].high==7647 && travel[1].low==-5458 && travel[1].high==5478);
+    // ...then the self-test sweeps past them, unreferenced: the range does not move and nothing is forwarded.
+    for (const auto& p:{std::pair<int,int>{414,80},{7985,5712},{-7412,-5320},{-99,-87}}) {
+        auto r=read_only_flight_input(with_status(p.first,p.second,0x0027,0x0027),travel,forward,now);
+        check(!r.input.ready && !r.widened);
+    }
+    check(travel[0].low==-7637 && travel[0].high==7647 && travel[1].low==-5458 && travel[1].high==5478);
+    // Referenced again: the limit reads exactly +-1 and the middle is the middle.
+    auto top=read_only_flight_input(with_status(7647,5478,0x1c27,0x1c27),travel,forward,now);
+    auto bottom=read_only_flight_input(with_status(-7637,-5458,0x1c27,0x1c27),travel,forward,now);
+    auto rest=read_only_flight_input(with_status(5,10,0x1427,0x1427),travel,forward,now);
+    check(top.input.ready && near(top.input.roll,1.0f) && near(top.input.pitch,1.0f));
+    check(bottom.input.ready && near(bottom.input.roll,-1.0f) && near(bottom.input.pitch,-1.0f));
+    check(rest.input.ready && std::fabs(rest.input.roll)<0.001f && std::fabs(rest.input.pitch)<0.001f);
+    // Even with the range already learned, a homing sample is not forwarded.
+    check(!read_only_flight_input(with_status(0,0,0x0027,0x0027),travel,forward,now).input.ready);
+    // One axis unreferenced is enough to hold both back, and a limit flag alone is not a fault.
+    check(!read_only_flight_input(with_status(0,0,0x1427,0x0027),travel,forward,now).input.ready);
+    check(read_only_flight_input(with_status(0,0,0x1c27,0x1427),travel,forward,now).input.ready);
+    // Fault and homing-error bits.
+    Travel other;
+    for (const std::uint16_t bad:{0x142f,0x1527}) {
+        auto r=read_only_flight_input(with_status(100,100,bad,0x1427),other,forward,now);
+        check(!r.input.ready && !r.widened && !other[0].seen && r.input.reason=="Controller fault");
+    }
 }
 void the_supervisor_asks_for_nothing() {
     YokeSupervisor yoke;
@@ -251,6 +304,7 @@ int main() {
         travel_learning();
         input_from_the_learned_travel();
         the_remembered_travel();
+        homing_is_neither_learned_nor_forwarded();
         the_supervisor_asks_for_nothing();
         the_new_config_keys();
         std::cout<<"read-only tests passed\n";

@@ -17,7 +17,9 @@ provenance attestation.
   `docs/read-only-mode.md`): nothing is ever written to it, the position feeds
   X-Plane's pitch and roll through a travel learned as you move the yoke to its
   stops (experimental), and a menu item surveys its registers. Force feel is
-  not available on it. The firmware 367 behaviour is unchanged.
+  not available on it. The firmware 367 behaviour is unchanged. Read-only input and
+  learning use only referenced, fault-free samples, so the NG's power-on homing
+  sweep is neither learned nor sent to X-Plane.
 - **macOS and the log.** On macOS the plugin finds its own folder (it was given
   classic `Volume:Folder:` paths), and `Log.txt` now says why a yoke was
   refused. The reader is split so the Windows and macOS HID access are small separate files; see
