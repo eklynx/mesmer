@@ -5,6 +5,7 @@
 //                          [--page workbench.html] [--dir <folder>] [--seconds N] [--public]
 //                          [--profiles BrunnerDirect.profiles.json]
 //                          [--ias KT] [--yoke PERCENT] [--tail-alpha DEG] [--tail-stalled SHARE]
+//                          [--state FILE]
 // --page serves the file from disk on every request, so edits show on reload.
 // --public listens on every interface (for an iPad); the default is 127.0.0.1.
 // --profiles is the aircraft profiles file (scripts/brunner_profiles.py
@@ -14,8 +15,14 @@
 // angle and tail-plane stall, so the page can show a stalled tail or air from
 // behind (an angle beyond 90 degrees).
 // Without it pitch has no profile, as in the plugin: no model, no target.
+// --state follows a small JSON file instead of the circuit (demo_state.hpp):
+// airspeed, trim, the tail's air, angle and load factor, each wing's air, the
+// yoke and the wheel, and the scenario. The demo re-reads it whenever its text
+// changes and, once the page's next state carries it, writes FILE.ack with its
+// seq, so a capture script can step the page through a film's frames.
 #include "ui/workbench/workbench_server.hpp"
 #include "brunner/loading.hpp"
+#include "ui/workbench/demo_state.hpp"
 #include <csignal>
 #include <iostream>
 #include <optional>
@@ -53,7 +60,7 @@ std::string read_page(const std::filesystem::path& path) {
 int usage() {
     std::cerr<<"usage: brunner_workbench_demo [--port N] [--scenario ready|force_feel_off|yoke_off|fault|busy|baron]"
                " [--page file.html] [--dir folder] [--seconds N] [--public] [--profiles file.json]"
-               " [--ias KT] [--yoke PERCENT] [--tail-alpha DEG] [--tail-stalled SHARE]\n";
+               " [--ias KT] [--yoke PERCENT] [--tail-alpha DEG] [--tail-stalled SHARE] [--state FILE]\n";
     return 2;
 }
 }
@@ -61,7 +68,7 @@ int main(int argc,char** argv) {
     int port=8087,seconds=0;bool everywhere=false;
     std::optional<double> held_ias,held_yoke;double tail_alpha=0,tail_stalled=0;
     const Scenario* scenario=&scenarios[0];
-    std::filesystem::path page_path,profiles_path,dir=std::filesystem::temp_directory_path()/"brunner-workbench-demo";
+    std::filesystem::path page_path,profiles_path,state_path,dir=std::filesystem::temp_directory_path()/"brunner-workbench-demo";
     for (int i=1;i<argc;++i) {
         const std::string arg=argv[i];
         const auto value=[&]()->std::string {if (i+1>=argc) throw std::invalid_argument(arg+" needs a value");return argv[++i];};
@@ -71,6 +78,7 @@ int main(int argc,char** argv) {
             else if (arg=="--page") page_path=value();
             else if (arg=="--dir") dir=value();
             else if (arg=="--profiles") profiles_path=value();
+            else if (arg=="--state") state_path=value();
             else if (arg=="--public") everywhere=true;
             else if (arg=="--ias") held_ias=std::stod(value());
             else if (arg=="--yoke") held_yoke=std::stod(value());
@@ -116,8 +124,26 @@ int main(int argc,char** argv) {
             bench.profile_refused("");bench.set_profile(now,profile_for(set,scenario->path),new_flight);
         } catch (const std::exception& e) {bench.profile_refused(e.what());}
     };
+    // The followed state (--state): re-read when its text changes; a bad file keeps the last.
+    std::optional<DemoState> followed;std::string state_text;std::int64_t acked=-1;
+    const auto follow=[&]() {
+        if (state_path.empty()) return;
+        std::ifstream in(state_path,std::ios::binary);
+        if (!in) return;
+        std::ostringstream text;text<<in.rdbuf();
+        if (text.str()==state_text) return;
+        state_text=text.str();
+        try {
+            followed=parse_demo_state(state_text);
+            if (!followed->scenario.empty()) {
+                if (const auto* s=find(followed->scenario)) scenario=s;
+                else std::cerr<<"state: no scenario "<<followed->scenario<<'\n';
+            }
+        } catch (const std::exception& e) {std::cerr<<"state: "<<e.what()<<'\n';}
+    };
     while (!quit) {
         const auto now=Clock::now();
+        follow();
         const double t=std::chrono::duration<double>(now-start).count();
         if (seconds>0 && t>=seconds) break;
         for (const auto c:bench.take_commands()) {
@@ -127,14 +153,19 @@ int main(int argc,char** argv) {
         }
         poll(now);
         // A 60 s circuit: IAS climbs 0-110 kt and back; the propeller adds tail flow on the C172.
-        const double phase=std::fmod(t,60.0)/60.0,ias=held_ias?*held_ias:110*(1-std::abs(2*phase-1));
-        const auto tail=scenario->stock_c172?TailAir{double(pa_from_kt(static_cast<int>(std::lround(ias+12)))),TailSource::surface}:tail_air(-1,ias);
+        const double phase=std::fmod(t,60.0)/60.0,ias=followed?followed->ias:held_ias?*held_ias:110*(1-std::abs(2*phase-1));
+        auto tail=scenario->stock_c172?TailAir{double(pa_from_kt(static_cast<int>(std::lround(ias+12)))),TailSource::surface}:tail_air(-1,ias);
+        // Followed, the C172 reads its tail as X-Plane's panels give it; another aircraft, airspeed's.
+        if (followed && scenario->stock_c172) tail=std::isfinite(followed->tail_pa)?TailAir{followed->tail_pa,TailSource::surface}:tail_air(-1,ias);
         const double roll_pa=pa_from_kt(static_cast<int>(std::lround(ias)));
-        const double trim=.3,bank=20*std::sin(t/7),flaps=ias<65?10:0,vs=500*std::sin(t/11);
+        const double trim=followed?followed->trim:.3,bank=followed?followed->bank:20*std::sin(t/7);
+        const double flaps=followed?0:ias<65?10:0,vs=followed?0:500*std::sin(t/11);
         const bool session=std::string(scenario->name)=="ready" || std::string(scenario->name)=="baron";
         FrameInputs in;
         in.valid=true;in.force_feel=std::string(scenario->name)!="force_feel_off";in.connected=std::string(scenario->name)!="yoke_off";
         in.inputs={trim,tail.pa,1.0,tail_alpha,tail_stalled};
+        if (followed) in.inputs=tail.source==TailSource::surface?ElevatorInputs{trim,tail.pa,followed->load_factor,followed->tail_alpha,followed->tail_stalled}
+            :ElevatorInputs{trim,tail.pa,followed->load_factor,0,0};
         const auto applied=bench.frame(now,in);
         FlightSettings f;apply(applied.settings,f);
         Live live;
@@ -142,7 +173,7 @@ int main(int argc,char** argv) {
         live.aircraft=scenario->aircraft;live.aircraft_file=std::filesystem::path(scenario->path).filename().string();live.aileron_panels=scenario->stock_c172;
         live.ias_kt=ias;live.bank_deg=bank;live.flaps_deg=flaps;live.vertical_fpm=vs;
         // The pilot's hand moves the yoke about the model's rest.
-        const double yoke=held_yoke?*held_yoke:15*std::sin(t/3);
+        const double yoke=followed?followed->yoke:held_yoke?*held_yoke:15*std::sin(t/3);
         live.pitch.yoke_percent=yoke;live.pitch.inputs=in.inputs;live.pitch.tail_source=tail.source;
         if (applied.has_profile) {
             live.pitch.solution=solve_pitch(applied.figures,in.inputs,-yoke*counts_per_percent,applied.knobs.units_per_lb);
@@ -151,25 +182,38 @@ int main(int argc,char** argv) {
                 live.pitch.phase=t<0.5?"blending":"following";live.pitch.update_hz=6;
             }
         }
-        if (scenario->stock_c172) {live.pitch.aoa_deg=4-ias/40+std::sin(t/5);live.pitch.deflection_deg=-3*std::sin(t/3);live.pitch.stalled=ias>5 && ias<45?1:0;}
+        if (followed && scenario->stock_c172) {live.pitch.aoa_deg=in.inputs.tail_alpha_deg;live.pitch.stalled=in.inputs.tail_stalled_xp>=.5;}
+        else if (scenario->stock_c172) {live.pitch.aoa_deg=4-ias/40+std::sin(t/5);live.pitch.deflection_deg=-3*std::sin(t/3);live.pitch.stalled=ias>5 && ias<45?1:0;}
         // The wheel follows the hand about the aileron model's rest.
-        const double wheel=20*std::sin(t/4);
+        const double wheel=followed?followed->wheel:20*std::sin(t/4);
         live.roll.yoke_percent=wheel;
         if (applied.has_profile) {
             const AileronSide side{roll_pa,scenario->stock_c172?4-ias/40+std::sin(t/5):0,0};
             live.roll.inputs=AileronInputs{side,side};
+            if (followed) live.roll.inputs=scenario->stock_c172?demo_roll_inputs(*followed,roll_pa):AileronInputs{{roll_pa,0,0},{roll_pa,0,0}};
             live.roll.source=scenario->stock_c172?AileronSource::surface:AileronSource::airspeed;
             live.roll.solution=solve_roll(applied.ailerons,*live.roll.inputs,wheel*roll_travel_counts()/100,
                 applied.roll_knobs.units_per_nm,true);
             if (session) {live.roll.now_percent=live.roll.solution->strength;live.roll.phase=t<0.5?"blending":"following";}
         }
-        if (scenario->stock_c172) {
+        if (followed && scenario->stock_c172 && live.roll.inputs) {
+            const auto& w=*live.roll.inputs;
+            live.roll.airflow_pa=(w.left.pa+w.right.pa)/2;live.roll.aoa_deg=(w.left.alpha_deg+w.right.alpha_deg)/2;
+            live.roll.stalled=std::max(w.left.stalled,w.right.stalled)>=.5;
+        } else if (scenario->stock_c172) {
             live.roll.airflow_pa=roll_pa;
             live.roll.aoa_deg=4-ias/40+std::sin(t/5);live.roll.deflection_deg=4*std::sin(t/4);live.roll.stalled=ias>5 && ias<45?1:0;
         }
         const auto curve=pitch_setup_for(true,f.pitch_force_gain_divisor,f.pitch_move_back_gain).curve;
         for (std::size_t i=0;i<curve.size();++i) live.pitch_curve[i]=curve[i];
         bench.publish(now,live);
+        if (followed && followed->seq!=acked) {
+            acked=followed->seq;
+            // Published: the page's next poll carries it. Written whole, then renamed over the last.
+            const auto ack=state_path.string()+".ack",part=ack+".part";
+            {std::ofstream out(part,std::ios::binary|std::ios::trunc);out<<followed->seq<<'\n';}
+            std::error_code ec;std::filesystem::rename(part,ack,ec);
+        }
         for (const auto& e:bench.take_events()) std::cout<<e<<std::endl;
         next+=std::chrono::milliseconds(100);
         std::this_thread::sleep_until(next);

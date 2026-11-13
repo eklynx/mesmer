@@ -30,7 +30,7 @@ int main(int argc,char** argv) {
         if (recover && i==0) {std::cout<<"Recovering surveyed loading with motors disabled\n";reader.request_loading_recovery();}
         if (recover && !s.loading_result.empty()) {std::cout<<s.loading_result<<std::endl;reader.stop();return 0;}
         std::cout<<"cycles="<<s.cycles;
-        for (const auto& a:s.axes) std::cout<<" firmware="<<a.firmware<<" encoder="<<a.encoder<<" control="<<a.position<<" status="<<a.status;
+        for (const auto& a:s.axes) std::cout<<" firmware="<<a.firmware<<" encoder="<<a.encoder<<" status="<<a.status;
         std::cout<<std::endl;
     }
     reader.stop();

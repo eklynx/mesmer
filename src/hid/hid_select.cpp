@@ -27,4 +27,10 @@ std::size_t select_bridge(const std::vector<HidCandidate>& candidates,const std:
     }
     throw BridgeAbsent{};
 }
+#ifndef _WIN32
+// Windows-only notions (hid/hid_device.hpp), so every non-Windows build and test that links the
+// reader has them: a Mac has nothing to switch the bridge back on with.
+bool bridge_disabled_in_windows() {return false;}
+std::string turn_bridge_on_in_windows() {return "Turning the yoke's USB on is a Windows feature";}
+#endif
 }

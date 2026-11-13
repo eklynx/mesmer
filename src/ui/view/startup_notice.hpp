@@ -30,7 +30,7 @@ class StartupNotice {
         // draws nothing (and is not counted as a draw).
         std::function<NoticeFrame(int inner_width,const TextWidth& measure)> frame;
         // A click on the window. Called on mouse down; the plugin decides whether
-        // it means anything (it is Retry while Retry is offered).
+        // it means anything (it is Retry while Retry is offered, or turning the USB on).
         std::function<void()> clicked;
         // A line for X-Plane's Log.txt.
         std::function<void(const std::string&)> log;

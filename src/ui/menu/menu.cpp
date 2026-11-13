@@ -57,7 +57,7 @@ void YokeMenu::refresh(const MenuModel& m) noexcept {
     if (!menu_ || !developer_menu_) return;
     const auto check=[](bool on) {return on?xplm_Menu_Checked:xplm_Menu_Unchecked;};
     XPLMSetMenuItemName(id(menu_),menu_status,m.status.c_str(),0);
-    XPLMSetMenuItemName(id(menu_),menu_recenter,m.retry_offered?"Retry":"Re-centre yoke (hands off)",0);
+    XPLMSetMenuItemName(id(menu_),menu_recenter,m.retry_offered?"Retry":m.usb_on_offered?"Turn the yoke's USB on":"Re-centre yoke (hands off)",0);
     XPLMCheckMenuItem(id(menu_),menu_force_feel,check(m.force_feel));
     XPLMCheckMenuItem(id(menu_),menu_status_line,check(m.status_line));
     XPLMCheckMenuItem(id(menu_),menu_keep_feel,check(m.pinned));

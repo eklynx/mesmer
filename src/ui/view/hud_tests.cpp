@@ -1,4 +1,5 @@
 #include "ui/view/hud.hpp"
+#include "ui/view/preview_frames.hpp"
 #include <iostream>
 #include <memory>
 
@@ -79,6 +80,7 @@ int main() {
         // window's right. text_width's 0.55 em bold is wider than the measured
         // 0.48 em of X-Plane's bold font.
         for (const char* line:{"Yoke off or unplugged - check its power switch and USB cable","Yoke is in use by another program - close CLS2Sim and Simux",
+                "Yoke's USB is off in Windows - click here to turn it on","Yoke's USB turning on - wait a moment",
                 "Yoke not recognised - see X-Plane's Log.txt","Yoke fault - switch the yoke off and on, then Retry","Yoke fault - switch the yoke off, then Retry",
                 "Force feel unavailable - switch the yoke off and on","Yoke waiting - X-Plane is paused","Yoke centring - hands off"}) {
             const auto shown=hud::render(*model,state,s,recording::State::recording,0,12,line);
@@ -165,6 +167,29 @@ int main() {
                     if (tri) require((p.w-p.x)*(p.y3-p.y)-(p.h-p.y)*(p.x3-p.x)>=0,"Triangles are wound as rect is");
                 }
             }
+            {
+                // With the tail's angle (decision 17) the card's moments are the
+                // model's: in cruise at rest the float holds the elevator where
+                // the yoke rests, so the net the card draws is the force there,
+                // about 0 lb, not the 9.5 lb forward of weight and air alone.
+                const ElevatorFigures aoa{1.35,0.427,0.45,28,23,0.137,30,0.6,22,19,0.2,0.4,0.5,0,4,1};
+                tail::View c;c.figures=aoa;c.session=c.force_feel=true;c.inputs={.4,1987.96,1,-2,0};
+                const double rest=solve_pitch(aoa,c.inputs,std::numeric_limits<double>::quiet_NaN(),222).rest_counts;
+                c.yoke_counts=rest;c.solution=solve_pitch(aoa,c.inputs,rest,222);
+                const auto g=tail::geometry(c);
+                const double lb=newton_metres_per_inlb/aoa.gearing_rad_per_in;
+                require(std::abs(g.net/lb)<0.05,"In cruise at rest the card's net is the model's, about 0 lb");
+                require(std::abs(g.float_/lb-9.7)<0.05 && tail::float_words(c)=="floats 9.7 lb forward","The float is drawn, in the page's words");
+                monitor::Canvas drawn;tail::draw(drawn,c,135,84);
+                require(std::any_of(drawn.items.begin(),drawn.items.end(),[](const auto& p){return p.kind==monitor::Primitive::Kind::line && p.color.r<.3f && p.color.g>.7f && p.color.b<.4f;}),
+                    "The float's arrow is the page's green");
+                // Everywhere, stalled and with air from behind too, the held force is the solver's.
+                for (double alpha:{-2.0,8.0,25.0,170.0}) for (double stalled:{0.0,1.0}) for (double yoke:{-12000.0,-3000.0,0.0,6000.0,12000.0}) {
+                    tail::View t=c;t.inputs={.2,800,1,alpha,stalled};t.yoke_counts=yoke;t.solution=solve_pitch(aoa,t.inputs,yoke,222);
+                    require(std::abs(tail::geometry(t).net/lb-t.solution.force_lb)<1e-6,"The card's net is the solver's force with the float, the stall and air from behind");
+                }
+                c.inputs.tail_alpha_deg=0;require(tail::float_words(c).empty(),"No angle, no float words");
+            }
             tail::View held;held.figures=c172;held.inputs={0,0,1};held.yoke_counts=0;held.session=true;
             held.solution=solve_pitch(c172,held.inputs,0,222);
             require(tail::geometry(held).elevator==0 && tail::geometry(held).rest>0,"Held level while parked: the rest is below");
@@ -228,7 +253,7 @@ int main() {
                 const auto both=hud::render(*mm,pinned,cs,recording::State::recording,0,40,{},cruise);
                 require(has(both,"PITCH") && has(both,"ROLL") && has(both,dot("Wings 100 kt","rests 6\xC2\xB0 right").c_str())
                     // At each drive's own limit (decision 16): roll 372 % here, pitch 395 %.
-                    && has(both,dot("Saturated","wheel "+std::to_string(std::lround(mapped->shrink*100))+"% as stiff").c_str()) && mapped->shrink>0.2
+                    && has(both,dot("Saturated","yoke "+std::to_string(std::lround(mapped->shrink*100))+"% as stiff").c_str()) && mapped->shrink>0.2
                     && has(both,dot("Saturated","yoke 8% as stiff").c_str())
                     && has(both,dot("Tail 98 kt","trim 7% nose up").c_str()),"Kept on screen, the card shows both axes");
                 for (const auto& p:both.items) {
@@ -246,11 +271,11 @@ int main() {
                 r.model_lb=1;r.drive_lb=.6;require(hud::roll_status(r,on)==dot("Floored","0.4 lb lighter than model"),"Floored with the centre clamped: lighter");
                 r.model_lb=-1;r.drive_lb=-1.4;require(hud::roll_status(r,on)==dot("Floored","0.4 lb firmer than model"),"Floored, firmer by magnitude");
                 r={};r.saturated=true;require(hud::roll_status(r,on)==dot("Saturated","lighter than the model"),"Saturated, no ratio");
-                r.shrink=.004;require(hud::roll_status(r,on)==dot("Saturated","wheel under 1% as stiff"),"Saturated, under 1%");
+                r.shrink=.004;require(hud::roll_status(r,on)==dot("Saturated","yoke under 1% as stiff"),"Saturated, under 1%");
                 r.shrink=std::numeric_limits<double>::quiet_NaN();r.model_lb=2;r.drive_lb=.5;
-                require(hud::roll_status(r,on)==dot("Saturated","wheel 25% as stiff"),"Saturated, the ratio from the rim forces");
+                require(hud::roll_status(r,on)==dot("Saturated","yoke 25% as stiff"),"Saturated, the ratio from the rim forces");
                 require(hud::roll_status(hud::RollView{},on)=="Matches the model","Matches");
-                require(hud::roll_status(r,off)==dot("Force feel off","the wheel is free"),"Force feel off");
+                require(hud::roll_status(r,off)==dot("Force feel off","the yoke is free"),"Force feel off");
                 r={};require(hud::roll_note(r)==dot("Wings 0 kt","stays where left"),"No air: no rest");
                 r.left.kt=98;r.right.kt=112;r.rest=.3;require(hud::roll_note(r)==dot("Wings 98/112 kt","rests level"),"The wings' air differs");
                 r.rest=-6.3;r.right.kt=100;require(hud::roll_note(r)==dot("Wings 99 kt","rests 6\xC2\xB0 left"),"Rests left");
@@ -322,6 +347,48 @@ int main() {
             const auto line=recording::encode(r,1,1000,1);
             require(line.find("\"tail_model\":{\"alpha_deg\":-2.5,\"tail_stalled_xp\":0.5,\"elevator_stalled\":0.875,\"hinge_stalled\":0.875,\"reversed\":0}")!=std::string::npos,
                 "full aft the section sees -2.5 - 0.5*28 = -16.5°, 3.5° past its stall: the elevator's own 0.875 beats the tail-plane's 0.5");
+        }
+        {
+            // The promo's frames (preview_frames.hpp): X-Plane's stand-in turns
+            // the timeline's conditions into what the plugin reads exactly as
+            // the site's mirror does. The numbers are the site's own
+            // (elevator-model.js Flight and tailQ, the timeline's rollState),
+            // evaluated by node.
+            const auto near=[](double a,double b) {return std::abs(a-b)<=1e-7*std::max(1.0,std::abs(b));};
+            const ElevatorFigures e{1.35,0.427,0.45,28,23,0.137,30,0.6,22,19,0.2,0.4,0.5,0,4,1};
+            const AileronFigures a{0.85,0.28,0.30,0.15,20,15,86,0.15,0,0.4,1.0};
+            struct Case {preview::PitchConditions c;double q,alpha,n,rest;int strength;};
+            for (const auto& k:{Case{{100,false,110,75,40},1987.9612300009953,-1.9994437650940564,1,-1412.3053138204336,357},
+                                Case{{100,false,20,55,-30},191.4586751288134,2.043030837615243,0.7679191798030139,3150.3435225034627,316},
+                                Case{{100,true,0,100,0},551.25,-2.511584730838883,1,1290.326960162949,361},
+                                Case{{250,false,60,100,10},791.4911557636914,16.441391830523614,0.7970076451516992,-3300.083601347919,313}}) {
+                const auto in=preview::pitch_inputs(k.c);
+                require(near(in.tail_pa,k.q) && near(in.tail_alpha_deg,k.alpha) && near(in.load_factor,k.n) && in.trim==k.c.trim/100,
+                    "The stand-in's tail air, angle, load factor and trim are the site's (propwash, the flight chain, below 35 kt faded)");
+                const auto pitch_fit=solve_pitch(e,in,-1500,preview::units_per_lb);
+                require(near(pitch_fit.rest_counts,k.rest) && pitch_fit.strength==k.strength,"The plugin solves the site's rest and strength from them");
+            }
+            const auto in=preview::roll_inputs({100,75,3,60,4,15,20,50,10});
+            require(near(in.left.pa,1784.3042462547853) && near(in.left.alpha_deg,12.86410009254547) && in.left.stalled==0.2 &&
+                near(in.right.pa,1622.0947693225319) && near(in.right.alpha_deg,8.135899907454528) && in.right.stalled==0.5,
+                "Each wing's air and angle as the site's rollState: roll rate, sideslip, the left wing's gust and dq");
+            // A frame as frames.json has it: the yoke 1412 counts aft (the
+            // timeline's), the wheel 10° right, mid-gust.
+            const auto doc=parse_json(R"({"i":41,"t":1.3667,"seg":"s02","tablet":"ready-cruise",
+                "pitch":{"C":{"n":100,"ground":false,"kt":110,"throttle":75,"trim":40},"counts":-1412,"restFrac":-0.11769},
+                "roll":{"C":{"kt":100,"throttle":75,"aoa":3,"rollRate":60,"beta":4,"gust":15,"stallL":20,"stallR":50,"dq":10},"deg":10}})");
+            const auto film=preview::film_frame(doc);
+            require(film.i==41 && film.tablet=="ready-cruise" && film.pitch && film.roll && film.pitch_counts==-1412 && film.wheel_deg==10,"A film frame reads");
+            const auto cards=preview::solve_frame(e,a,film);
+            require(cards.pitch && cards.pitch->yoke_counts==-1412 && cards.pitch->session && cards.pitch->force_feel,"The pitch card is at the timeline's yoke, following the model");
+            require(std::lround(cards.pitch->solution.rest_counts/12)==std::lround(-0.11769*1000),"Its rest is the timeline's");
+            require(tail::context(*cards.pitch)=="Tail 111 kt \xC2\xB7 trim 40% nose up","The card prints the frame's tail air and the trim wheel's 40%");
+            require(cards.roll && cards.wheel_counts==std::round(10.0/86*13000),"The wheel's counts are the timeline's, rounded");
+            const auto rolled=preview::roll_frame(*cards.roll,cards.wheel_counts);
+            const auto view=hud::roll_view(rolled);
+            require(rolled.roll_solved && rolled.encoder[0]==-1512 && view && std::abs(view->rest-(-10.814094265490683))<1e-6 && std::abs(view->wheel-10)<0.01,
+                "The roll card rests where the site's model does, the wheel where the timeline put it");
+            require(hud::roll_note(*view)=="Wings 102 kt \xC2\xB7 rests 11\xC2\xB0 left","The roll card prints the wings' mean air (both sides do not fit) and the rest");
         }
         std::cout<<"HUD context and bounded session recorder passed\n";
     } catch (const std::exception& e) {std::cerr<<e.what()<<'\n';return 1;}

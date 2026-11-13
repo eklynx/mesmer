@@ -35,6 +35,8 @@ starting `[BrunnerDirect]`.
 | **Yoke waiting for X-Plane** | X-Plane is loading or not yet running steadily. | Wait. If it stays, make sure a flight is loaded and running. |
 | **Yoke waiting - X-Plane is paused** | The yoke needs to centre but X-Plane is paused. | Unpause. |
 | **Yoke off or unplugged - check its power switch and USB cable** | The plugin can't find the yoke's USB bridge. The yoke's power switch also switches the bridge off, so the plugin can't tell "off" from "unplugged". | Switch the yoke on and check the USB cable. The plugin looks again every second and carries on by itself. If your yoke is on and plugged in, it may use a USB bridge this version doesn't know: see [compatibility report](compatibility-report.md). |
+| **Yoke's USB is off in Windows - click here to turn it on** | The yoke is plugged in and on, but its USB bridge is switched off in Windows (Device Manager's *Disable device*). Windows keeps it off through unplugging, power cycles and restarts. | Click the line, or choose *Plugins > Yoke (Brunner) > Turn the yoke's USB on*. Windows may ask to allow its device tool, `pnputil`. By hand: Device Manager > *Human Interface Devices* > the yoke's *USB Input Device* > *Enable device*. |
+| **Yoke's USB turning on - wait a moment** | Windows is switching the yoke's USB back on after your click. | Wait. The yoke reconnects by itself in a few seconds. If it is still off after 15 seconds, the line above comes back. |
 | **Yoke is in use by another program - close CLS2Sim and Simux** | Another program has the yoke's USB bridge open. | Quit CLS2Sim, Simux or anything else that talks to the yoke. The plugin picks the yoke up by itself. |
 
 ### Something needs you
@@ -87,6 +89,23 @@ the yoke off loses its position reference, so it must find its centre again.
 
 **Pitch or roll are reversed.** Please report it with your yoke's model and
 firmware.
+
+### The yoke's buttons don't reach X-Plane
+
+Search `Log.txt` for `Yoke buttons`. While they work it reads
+`Yoke buttons: pressing vJoy device 1's 32 buttons`; otherwise
+`Yoke buttons off:` says why, and the plugin tries again every 5 seconds.
+
+| `Yoke buttons off:` ... | What to do |
+|---|---|
+| `vJoy is not installed` | Install Brunner's vJoy driver: [set it up](buttons.md#set-up-vjoy-once). |
+| `vJoy is installed but switched off` | In an administrator command prompt: `"C:\Program Files\vJoy\x64\vJoyConfig.exe" enable on`. |
+| `vJoy device 1 is not set up` or `has no buttons` | Set device 1 to 32 buttons and no axes: [step 2](buttons.md#set-up-vjoy-once). |
+| `vJoy device 1 is in use by another program` | Close the program that feeds vJoy, often CLS2Sim. |
+| anything else | Please [report it](https://github.com/antialias/mesmer/issues/new/choose) with `Log.txt`. |
+
+If the log says the buttons are being pressed but X-Plane does nothing, bind
+them: *Settings > Joystick*, `vJoy - Virtual Joystick`.
 
 ## Reporting a problem
 

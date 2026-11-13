@@ -104,7 +104,7 @@ template<class Transport> std::string survey_controllers(Transport& bridge,const
     for (unsigned node=1;node<=2;++node) {
         out<<(node>1?",":"")<<"\"node"<<node<<"\":{\"live\":{";
         out<<"\"firmware\":"<<bridge.read(node,Object::firmware,stop)<<",\"status\":"<<bridge.read(node,Object::status,stop)
-           <<",\"encoder\":"<<signed32(bridge.read(node,Object::encoder,stop))<<",\"position\":"<<signed32(bridge.read(node,Object::position,stop))<<"},\"registers\":{";
+           <<",\"encoder\":"<<signed32(bridge.read(node,Object::encoder,stop))<<"},\"registers\":{";
         bool first=true;
         const auto read_register=[&](Register reg) {
             out<<(first?"":",")<<"\""<<hex(reg.index)<<"."<<static_cast<unsigned>(reg.sub)<<"\":";

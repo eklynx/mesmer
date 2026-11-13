@@ -8,6 +8,7 @@
 #include "brunner/reference.hpp"
 #include "brunner/loading.hpp"
 #include "brunner/readonly.hpp"
+#include "brunner/buttons.hpp"
 #include <functional>
 #include <cstdlib>
 #include <sstream>
@@ -24,8 +25,8 @@ template<class B> void sample(B& bridge,Snapshot& s,const std::atomic<bool>& sto
         auto& a=s.axes[i];
         a.status=static_cast<std::uint16_t>(bridge.read(i+1,Object::status,stop));
         a.encoder=signed32(bridge.read(i+1,Object::encoder,stop));
-        a.position=signed32(bridge.read(i+1,Object::position,stop));
     }
+    sample_buttons(bridge,s,stop,s.sampled);
     s.connected=true;++s.cycles;
 }
 // Supervised one-shot test. Always stops both motors; never hands an enabled
@@ -516,7 +517,7 @@ void Reader::run() {
             // cleanup catches cancellation internally and still reports real faults.
             break;
         } catch (const BridgeAbsent& e) {
-            Snapshot absent;absent.message=e.what();publish(absent);
+            Snapshot absent;absent.message=e.what();absent.bridge_disabled=bridge_disabled_in_windows();publish(absent);
         } catch (const BridgeBusy& e) {
             Snapshot busy;busy.bridge_present=true;busy.bridge_busy=true;busy.message=e.what();publish(busy);
         } catch (const TransportError& e) {

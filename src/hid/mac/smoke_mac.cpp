@@ -19,7 +19,7 @@ int main(int argc,char**) {
         if (!s.connected || s.cycles<=last) {std::cerr<<s.message<<'\n';reader.stop();return 1;}
         last=s.cycles;
         std::cout<<"cycles="<<s.cycles;
-        for (const auto& a:s.axes) std::cout<<" firmware="<<a.firmware<<" encoder="<<a.encoder<<" control="<<a.position<<" status="<<a.status;
+        for (const auto& a:s.axes) std::cout<<" firmware="<<a.firmware<<" encoder="<<a.encoder<<" status="<<a.status;
         std::cout<<std::endl;
     }
     reader.stop();

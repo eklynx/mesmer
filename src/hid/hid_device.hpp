@@ -22,24 +22,26 @@
 #include <cstddef>
 #include <memory>
 #include <stdexcept>
+#include <string>
 #include <vector>
 
 namespace brunner {
-struct OperationCancelled : std::runtime_error {
-    OperationCancelled() : std::runtime_error("Reader stopped") {}
-};
-// USB-level failures: the link is gone or the controllers are silent. The
-// reader closes the bridge and keeps looking; nothing about the controllers'
-// state is concluded from them.
-struct TransportError : std::runtime_error {
-    explicit TransportError(const char* what) : std::runtime_error(what) {}
-};
+// OperationCancelled and TransportError (the USB link failing) are in brunner/core.hpp.
 struct BridgeAbsent : TransportError {
     BridgeAbsent() : TransportError("Expected one original CLS USB Bridge") {}
 };
 struct BridgeBusy : TransportError {
     BridgeBusy() : TransportError("Yoke busy or unavailable; close CLS2Sim and Simux") {}
 };
+
+// Windows keeps a disabled USB bridge off through unplugging, power cycles and restarts, and the
+// HID search cannot tell it from an unplugged one. bridge_disabled_in_windows() is true when a
+// Brunner USB device (vendor 0x25BB) is present with problem "disabled"; any failure reads as
+// false. turn_bridge_on_in_windows() runs Windows' pnputil with the administrator rights the pilot's
+// account holds: empty when started, else why not. On macOS the first is always false and the
+// second says it does not apply. Implemented in hid/win/hid_win.cpp; hid/hid_select.cpp has the non-Windows answers.
+bool bridge_disabled_in_windows();
+std::string turn_bridge_on_in_windows();
 
 // What an OS reports about one HID device it enumerated. The platform keeps its
 // own handle for each candidate, in the same order as the vector it passes in.

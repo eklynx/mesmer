@@ -186,15 +186,15 @@ inline std::string roll_note(const RollView& r,float width=note_width) {
 }
 // The pitch line's words, for the wheel. Session, force feel and blending are the yoke's, shared with pitch.
 inline std::string roll_status(const RollView& r,const tail::View& p) {
-    if (!p.session) return p.force_feel?"Force feel starting":"Force feel off \xC2\xB7 the wheel is free";
+    if (!p.session) return p.force_feel?"Force feel starting":"Force feel off \xC2\xB7 the yoke is free";
     if (p.blending) return "Blending to the new feel";
     if (!r.engaged) return "Force feel starting"; // roll not yet solved: the card is the preview solve's
     if (r.saturated) {
         double ratio=r.shrink*100;
         if (!std::isfinite(ratio) && std::abs(r.model_lb)>=0.1) ratio=std::abs(r.drive_lb/r.model_lb)*100;
         if (!std::isfinite(ratio)) return "Saturated \xC2\xB7 lighter than the model";
-        if (ratio<1) return "Saturated \xC2\xB7 wheel under 1% as stiff";
-        return "Saturated \xC2\xB7 wheel "+std::to_string(std::min(99L,std::lround(ratio)))+"% as stiff";
+        if (ratio<1) return "Saturated \xC2\xB7 yoke under 1% as stiff";
+        return "Saturated \xC2\xB7 yoke "+std::to_string(std::min(99L,std::lround(ratio)))+"% as stiff";
     }
     if (r.floored) {
         // Force-exact, the drive differs only where the centre is clamped, and is then lighter.
@@ -368,6 +368,7 @@ inline monitor::Canvas render(const monitor::Model& model,const State& state,con
             // Each axis: its header with the air and where it rests, the drawing, then the solver's words.
             c.text(note_x,11,13,fit(tail::context(*card),13,false,note_width),muted);
             tail::draw(c,*card,135,78);
+            if (const auto words=tail::float_words(*card);!words.empty()) c.text(175,91,11,words,rgb(0x3fb950));
             c.text(18,126,16,fit(state.moving?"Move HUD, then finish in menu":tail::status(*card),16,false,line_width),ink);
             c.line(16,roll_top,card_width-16,roll_top,rule);
             c.text(18,roll_top+8,13,"ROLL",ink,true);
@@ -378,6 +379,7 @@ inline monitor::Canvas render(const monitor::Model& model,const State& state,con
             c.text(18,roll_top+86,16,fit(roll_status(*wings,*card),16,false,line_width),ink);
         } else if (card) {
             tail::draw(c,*card,135,84);
+            if (const auto words=tail::float_words(*card);!words.empty()) c.text(175,97,11,words,rgb(0x3fb950));
             c.line(16,139,card_width-16,139,rule);
             c.text(18,148,16,fit(state.moving?"Move HUD, then finish in menu":tail::status(*card),16,false,line_width),ink);
             c.text(18,174,15,fit(tail::context(*card),15,false,line_width),muted);

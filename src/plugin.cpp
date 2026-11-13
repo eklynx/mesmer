@@ -14,6 +14,13 @@
 #include "brunner/loading.hpp"
 #include "force/slew.hpp"
 #include "ui/workbench/workbench_server.hpp"
+#include "brunner/buttons.hpp"
+#include "xplane/look.hpp"
+#ifdef _WIN32
+#include "hid/win/vjoy_win.hpp"
+#else
+#include "hid/mac/vjoy_none.hpp"
+#endif
 #include "XPLMPlugin.h"
 #include "XPLMProcessing.h"
 #include "XPLMUtilities.h"
@@ -37,6 +44,11 @@ namespace wb=brunner::workbench;
 brunner::Reader reader;
 brunner::monitor::Window force_monitor,force_hud{true};
 brunner::recording::Recorder recorder;
+// The yoke's buttons on vJoy's joystick (decision 9), pressed on this thread.
+brunner::VJoy vjoy;
+brunner::ButtonPresser button_presser;
+brunner::ButtonLog button_log;
+std::string told_button_refusal;
 XPLMCommandRef hud_command=nullptr,pin_command=nullptr,move_command=nullptr;
 struct HudDataref {const char* name;int* value;int low,high;};
 HudDataref hud_datarefs[]{
@@ -74,6 +86,10 @@ XPLMCommandRef recovery_command=nullptr;
 XPLMCommandRef gap_command=nullptr;
 XPLMCommandRef reconnect_command=nullptr;
 XPLMCommandRef flight_command=nullptr;
+XPLMCommandRef usb_on_command=nullptr; // brunner_direct/usb_on: the bridge switched off in Windows, turned back on
+// Until when the bridge, just turned on, is given to come back (15 s; it took
+// a few on 2026-11-11). Cleared once the yoke is connected.
+brunner::Clock::time_point usb_turning_on_until{};
 XPLMCommandRef recenter_command=nullptr,force_feel_toggle=nullptr,force_feel_on=nullptr,force_feel_off=nullptr,status_line_command=nullptr;
 brunner::FlightSettings flight_settings;
 // The feel workbench (docs/brunner/workbench): its state is shared with the
@@ -88,6 +104,11 @@ std::string feel_menu_text="Feel tuning: off";
 brunner::Clock::time_point workbench_retry_at{};
 bool workbench_failure_logged=false;
 XPLMCommandRef mark_feel_command=nullptr,compare_feel_command=nullptr;
+// The left rocker's look-down steps (look.hpp): its two commands, X-Plane's
+// three views in Look's order, and the one X-Plane was last sent to.
+XPLMCommandRef look_down_command=nullptr,look_up_command=nullptr;
+std::array<XPLMCommandRef,brunner::look_views> view_commands{};
+brunner::Look looking=brunner::Look::ahead;
 wb::FrameInputs bench_inputs;
 wb::Applied flown; // what the workbench said to fly this frame: settings, pitch's knobs, the profile's figures
 // The aircraft profiles (decision 5), BrunnerDirect.profiles.json beside the
@@ -218,7 +239,7 @@ brunner::TuningField tuning_field(LiveField field) {
 // 1 waiting, 2 centring (hands off), 3 needs the pilot.
 brunner::StartupNotice notice_code() {
     if (!decision.show_notice) return brunner::StartupNotice::hidden;
-    if (decision.retry_offered) return brunner::StartupNotice::unavailable;
+    if (decision.retry_offered || decision.usb_on_offered) return brunner::StartupNotice::unavailable;
     if (decision.status==brunner::centring_text) return brunner::StartupNotice::centering;
     return brunner::StartupNotice::waiting;
 }
@@ -364,13 +385,13 @@ void act(brunner::YokeAction action) {
 }
 void refresh_menu(const brunner::Snapshot& s) {
     brunner::ui::MenuModel model;
-    model.status=decision.status;model.retry_offered=decision.retry_offered;
+    model.status=decision.status;model.retry_offered=decision.retry_offered;model.usb_on_offered=decision.usb_on_offered;
     model.force_feel=force_feel;model.status_line=show_status_line;model.pinned=force_hud.pinned();model.unverified=allow_unverified_yoke;
     std::string* lines[2]={&model.roll_line,&model.pitch_line};
     for (unsigned i=0;i<2;++i) {
         char text[160];
-        if (s.connected) std::snprintf(text,sizeof(text),"%s: encoder %ld, control %ld, status %04X",
-            i==0?"Roll":"Pitch",static_cast<long>(s.axes[i].encoder),static_cast<long>(s.axes[i].position),s.axes[i].status);
+        if (s.connected) std::snprintf(text,sizeof(text),"%s: encoder %ld, status %04X",
+            i==0?"Roll":"Pitch",static_cast<long>(s.axes[i].encoder),s.axes[i].status);
         else std::snprintf(text,sizeof(text),"%s: unavailable",i==0?"Roll":"Pitch");
         *lines[i]=text;
     }
@@ -653,6 +674,16 @@ float update(float,float,int,void*) {
     retry_workbench(now);
     poll_profiles(now,false);
     const auto s=reader.snapshot();
+    // The yoke's buttons, pressed on vJoy's joystick: all up whenever they
+    // are unknown (decision 9). Each change is logged, quick taps included.
+    const auto yoke_buttons=brunner::live_buttons(s,now);
+    for (const auto& line:button_presser.update(vjoy,yoke_buttons,now)) log(line);
+    if (const auto told=button_log.update(yoke_buttons,now);!told.empty()) log(told);
+    if (s.button_refusal!=told_button_refusal) {
+        if (!s.button_refusal.empty()) log("Yoke buttons not read: "+s.button_refusal+"; trying again every 5 seconds");
+        else if (s.buttons) log("Yoke buttons read again");
+        told_button_refusal=s.button_refusal;
+    }
     if (!s.loading_result.empty() && s.loading_result!=last_loading) {log(s.loading_result);last_loading=s.loading_result;}
     if (!s.loading_inspection.empty() && s.loading_inspection!=last_inspection) {log("Loading inspection: "+s.loading_inspection);last_inspection=s.loading_inspection;}
     const auto input=current_input(s,now);
@@ -717,6 +748,8 @@ float update(float,float,int,void*) {
     brunner::YokeInputs inputs;
     inputs.snapshot=s;inputs.enabled=enabled;inputs.reader_running=reader.running();inputs.sim_steady=settled;
     inputs.paused=is_paused;inputs.input_ready=sim.owns_axes() && input.ready;inputs.force_feel=force_feel && !blocked;inputs.lab_lease=lab_active;inputs.now=now;
+    if (s.connected) usb_turning_on_until={};
+    inputs.usb_turning_on=now<usb_turning_on_until;
     decision=yoke.step(inputs);
     // Read-only mode: until both axes have moved far enough, the line says how far they are.
     if (s.read_only && !input.ready) {decision.status=input.reason;decision.show_notice=true;}
@@ -729,8 +762,10 @@ float update(float,float,int,void*) {
     // on every aircraft: each one's rest carries its trim.
     if (running && sim.owns_axes() && input.ready && s.flight_session && s.loading_active && s.tuning_valid) sim.claim_trim();
     else sim.release_trim();
-    // The pilot may hide routine status; a movement warning or a Retry offer is always shown.
-    const bool must_show=decision.status==brunner::centring_text || decision.retry_offered;
+    // The pilot may hide routine status; a movement warning, a Retry offer or
+    // the USB switched off in Windows is always shown.
+    const bool must_show=decision.status==brunner::centring_text || decision.retry_offered || decision.usb_on_offered
+        || decision.status==brunner::usb_turning_on_text;
     // A feel notice shows for a few seconds when the yoke's own status line
     // has nothing to say: it never takes the place of a link lost or a fault.
     startup_notice.set_visible((decision.show_notice && (show_status_line || must_show)) || corner_notice);
@@ -749,9 +784,9 @@ float update(float,float,int,void*) {
     static auto last_log=brunner::Clock::time_point{};
     if (s.connected && now-last_log>=std::chrono::seconds(1)) {
         char text[220];
-        std::snprintf(text,sizeof(text),"cycle=%llu roll=%ld/%ld/%04X pitch=%ld/%ld/%04X input=%s %.4f/%.4f",
-            static_cast<unsigned long long>(s.cycles),static_cast<long>(s.axes[0].encoder),static_cast<long>(s.axes[0].position),s.axes[0].status,
-            static_cast<long>(s.axes[1].encoder),static_cast<long>(s.axes[1].position),s.axes[1].status,
+        std::snprintf(text,sizeof(text),"cycle=%llu roll=%ld/%04X pitch=%ld/%04X input=%s %.4f/%.4f",
+            static_cast<unsigned long long>(s.cycles),static_cast<long>(s.axes[0].encoder),s.axes[0].status,
+            static_cast<long>(s.axes[1].encoder),s.axes[1].status,
             sim.owns_axes()?"active":"unavailable",input.roll,input.pitch);
         log(text); last_log=now;
     }
@@ -787,10 +822,12 @@ float observe_completed_frame(float,float,int,void*) {
     return -1.0f;
 }
 int recenter_handler(XPLMCommandRef,XPLMCommandPhase,void*);
+int usb_on_handler(XPLMCommandRef,XPLMCommandPhase,void*);
 // What the corner window shows: the yoke's status and a hint, or the feel page's
 // newest notice when the status line has nothing to say (ui/view/startup_notice.hpp).
 brunner::ui::NoticeFrame notice_frame(int inner_width,const brunner::ui::TextWidth& measure) {
-    const bool must_show=decision.show_notice && (decision.status==brunner::centring_text || decision.retry_offered);
+    const bool must_show=decision.show_notice && (decision.status==brunner::centring_text || decision.retry_offered || decision.usb_on_offered
+        || decision.status==brunner::usb_turning_on_text);
     const bool status_shown=decision.show_notice && (show_status_line || must_show);
     brunner::ui::NoticeFrame frame;
     frame.visible=status_shown || corner_notice.has_value();
@@ -804,13 +841,18 @@ brunner::ui::NoticeFrame notice_frame(int inner_width,const brunner::ui::TextWid
     // A stop's short reason replaces the bare retry hint: what failed, where
     // the pilot is looking. The page has the whole sentence.
     const std::string detail=decision.retry_offered?(corner_reason.empty()?"Click here to retry":corner_reason):
+        decision.usb_on_offered?"Or Plugins > Yoke (Brunner) > Turn the yoke's USB on":
+        decision.status==brunner::usb_turning_on_text?"The yoke reconnects by itself in a few seconds":
         decision.status==brunner::centring_text?"Keep your hands off the yoke until it settles":"Pitch and roll return automatically";
     frame.lines={decision.status,detail};
     return frame;
 }
 void create_startup_notice() {
     startup_notice.create({notice_frame,
-        [] {if (decision.retry_offered) recenter_handler(nullptr,xplm_CommandBegin,nullptr);},
+        [] {
+            if (decision.retry_offered) recenter_handler(nullptr,xplm_CommandBegin,nullptr);
+            else if (decision.usb_on_offered) usb_on_handler(nullptr,xplm_CommandBegin,nullptr);
+        },
         [](const std::string& line) {log(line);}});
 }
 // Developer tests: the supervisor stands back while they run and resumes
@@ -897,6 +939,18 @@ int recenter_handler(XPLMCommandRef,XPLMCommandPhase phase,void*) {
     }
     return 1;
 }
+// The bridge switched off in Windows, turned back on with the pilot's click,
+// the menu or brunner_direct/usb_on; the reader finds it within a second and
+// the yoke starts as at any reconnect. Nothing happens when it is not off.
+int usb_on_handler(XPLMCommandRef,XPLMCommandPhase phase,void*) {
+    if (phase==xplm_CommandBegin && enabled) {
+        if (!brunner::bridge_disabled_in_windows()) {log("The yoke's USB is not switched off in Windows; nothing to turn on");return 1;}
+        const auto failure=brunner::turn_bridge_on_in_windows();
+        log(failure.empty()?"Turning the yoke's USB back on in Windows":failure);
+        if (failure.empty()) usb_turning_on_until=brunner::Clock::now()+std::chrono::seconds(15);
+    }
+    return 1;
+}
 // Legacy Start flight: force feel on and automatic operation resumed.
 int flight_handler(XPLMCommandRef,XPLMCommandPhase phase,void*) {
     if (phase==xplm_CommandBegin && enabled) {
@@ -938,6 +992,22 @@ int feel_handler(XPLMCommandRef command,XPLMCommandPhase phase,void*) {
         else {bench->compare(now);sync_feel(now);}
         log_feel_events();
     }
+    return 1;
+}
+// brunner_direct/look_down and look_up: a step down or up through ahead,
+// half down and the panel, whatever the yoke is doing.
+int look_handler(XPLMCommandRef command,XPLMCommandPhase phase,void*) {
+    if (phase==xplm_CommandBegin) {
+        const auto to=command==look_down_command?brunner::look_down(looking):brunner::look_up(looking);
+        if (const auto view=view_commands[static_cast<std::size_t>(to)]) XPLMCommandOnce(view);
+        looking=to;
+    }
+    return 1;
+}
+// Sees X-Plane sent to one of the three views, from any button or key, and
+// lets X-Plane carry on.
+int view_seen(XPLMCommandRef,XPLMCommandPhase phase,void* refcon) {
+    if (phase==xplm_CommandBegin) looking=static_cast<brunner::Look>(reinterpret_cast<std::intptr_t>(refcon));
     return 1;
 }
 void start_workbench() {
@@ -986,7 +1056,10 @@ void menu_action(brunner::ui::MenuItem item) {
         case MenuItem::stop_motors:stop_motors_handler(nullptr,xplm_CommandBegin,nullptr);break;
         case MenuItem::loading:loading_handler(nullptr,xplm_CommandBegin,nullptr);break;
         case MenuItem::flight:flight_handler(nullptr,xplm_CommandBegin,nullptr);break;
-        case MenuItem::recenter:recenter_handler(nullptr,xplm_CommandBegin,nullptr);break;
+        case MenuItem::recenter:
+            if (decision.usb_on_offered) usb_on_handler(nullptr,xplm_CommandBegin,nullptr);
+            else recenter_handler(nullptr,xplm_CommandBegin,nullptr);
+            break;
         case MenuItem::force_feel:force_feel_handler(force_feel_toggle,xplm_CommandBegin,nullptr);break;
         case MenuItem::status_line:status_line_handler(nullptr,xplm_CommandBegin,nullptr);break;
         case MenuItem::unverified:unverified_toggle();break;
@@ -1065,6 +1138,8 @@ PLUGIN_API int XPluginStart(char* name,char* signature,char* description) {
     XPLMRegisterCommandHandler(flight_command,flight_handler,1,nullptr);
     recenter_command=XPLMCreateCommand("brunner_direct/recenter","Re-centre the yoke (hands off); also the Retry after a fault or Stop");
     XPLMRegisterCommandHandler(recenter_command,recenter_handler,1,nullptr);
+    usb_on_command=XPLMCreateCommand("brunner_direct/usb_on","Turn the yoke's USB back on when it is switched off in Windows");
+    XPLMRegisterCommandHandler(usb_on_command,usb_on_handler,1,nullptr);
     force_feel_toggle=XPLMCreateCommand("brunner_direct/toggle_force_feel","Switch yoke force feel on or off; pitch and roll keep working");
     force_feel_on=XPLMCreateCommand("brunner_direct/force_feel_on","Switch yoke force feel on");
     force_feel_off=XPLMCreateCommand("brunner_direct/force_feel_off","Switch yoke force feel off; motors stop, yoke keeps supplying pitch and roll");
@@ -1074,6 +1149,13 @@ PLUGIN_API int XPluginStart(char* name,char* signature,char* description) {
     mark_feel_command=XPLMCreateCommand("brunner_direct/mark_feel","Feel tuning: mark this moment with the settings being flown");
     compare_feel_command=XPLMCreateCommand("brunner_direct/compare_feel","Feel tuning: switch between Kept and Trying");
     for (auto command:{mark_feel_command,compare_feel_command}) XPLMRegisterCommandHandler(command,feel_handler,1,nullptr);
+    look_down_command=XPLMCreateCommand("brunner_direct/look_down","Look down a step: half down, then the panel (Quick Looks 2 and 1)");
+    look_up_command=XPLMCreateCommand("brunner_direct/look_up","Look up a step: half down, then ahead (the default view)");
+    for (auto command:{look_down_command,look_up_command}) XPLMRegisterCommandHandler(command,look_handler,1,nullptr);
+    for (std::size_t i=0;i<view_commands.size();++i) {
+        view_commands[i]=XPLMFindCommand(brunner::look_command(static_cast<brunner::Look>(i)));
+        if (view_commands[i]) XPLMRegisterCommandHandler(view_commands[i],view_seen,1,reinterpret_cast<void*>(static_cast<std::intptr_t>(i)));
+    }
     for (auto& entry:live_datarefs)
         published.publish({entry.name,entry.writable,[&entry] {return read_live(&entry);},
             entry.writable?std::function<void(int)>([&entry](int value) {write_live(&entry,value);}):std::function<void(int)>{}});
@@ -1127,6 +1209,7 @@ PLUGIN_API void XPluginDisable() {
     diagnostic_trim.renew(0,false,brunner::Clock::now());
     yoke.stop();startup_readiness.reset();
     sim.release_axes();
+    button_presser.close(vjoy);button_log=brunner::ButtonLog{};told_button_refusal.clear();
     if (enabled) XPLMUnregisterFlightLoopCallback(update,nullptr);
     enabled=false;simulator_ready_for_start=false;reader.stop();last_status.clear();
     recorder.event("Plugin disabled; reader stopped");recorder.stop();
@@ -1137,6 +1220,7 @@ PLUGIN_API void XPluginDisable() {
 }
 PLUGIN_API void XPluginStop() {
     XPluginDisable();
+    vjoy.unload();
     for (auto command:{hud_command,pin_command,move_command}) if (command) XPLMUnregisterCommandHandler(command,hud_handler,1,nullptr);
     published.unpublish_all();
     if (monitor_command) XPLMUnregisterCommandHandler(monitor_command,monitor_handler,1,nullptr);
@@ -1150,9 +1234,13 @@ PLUGIN_API void XPluginStop() {
     if (reconnect_command) XPLMUnregisterCommandHandler(reconnect_command,reconnect_handler,1,nullptr);
     if (flight_command) XPLMUnregisterCommandHandler(flight_command,flight_handler,1,nullptr);
     if (recenter_command) XPLMUnregisterCommandHandler(recenter_command,recenter_handler,1,nullptr);
+    if (usb_on_command) XPLMUnregisterCommandHandler(usb_on_command,usb_on_handler,1,nullptr);
     for (auto command:{force_feel_toggle,force_feel_on,force_feel_off}) if (command) XPLMUnregisterCommandHandler(command,force_feel_handler,1,nullptr);
     if (status_line_command) XPLMUnregisterCommandHandler(status_line_command,status_line_handler,1,nullptr);
     for (auto command:{mark_feel_command,compare_feel_command}) if (command) XPLMUnregisterCommandHandler(command,feel_handler,1,nullptr);
+    for (auto command:{look_down_command,look_up_command}) if (command) XPLMUnregisterCommandHandler(command,look_handler,1,nullptr);
+    for (std::size_t i=0;i<view_commands.size();++i) if (view_commands[i])
+        XPLMUnregisterCommandHandler(view_commands[i],view_seen,1,reinterpret_cast<void*>(static_cast<std::intptr_t>(i)));
     for (unsigned i=0;i<3;++i) if (trim_commands[i]) XPLMUnregisterCommandHandler(trim_commands[i],trim_handler,1,&trim_steps[i]);
     yoke_menu.destroy();
 }

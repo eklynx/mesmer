@@ -2,6 +2,7 @@
 // loopback round trip through the server. No hardware, no X-Plane.
 #include "ui/workbench/workbench_server.hpp"
 #include "config.hpp"
+#include "ui/workbench/demo_state.hpp"
 #include <algorithm>
 #include <clocale>
 #include <cstring>
@@ -1314,8 +1315,25 @@ void aileron_model_vectors() {
     require(std::isfinite(lost.model_nm) && std::isfinite(lost.drive_nm) && lost.strength>=softest_spring_percent,"missing panel values cannot reach the drive");
     std::cout<<"aileron model and solver against the page: "<<solved<<" solutions\n";
 }
+// The demo's followed state (demo_state.hpp): what a capture script writes
+// so the page steps through a film's frames.
+void demo_state() {
+    const auto s=parse_demo_state(R"({"seq":12,"scenario":"baron","ias":110,"trim":0.4,"tail_pa":1987.96,"load_factor":1.02,
+        "tail_alpha":-2,"tail_stalled":0.25,"yoke":11.75,"wheel":-17.5,"left":{"pa":1962,"alpha_deg":2,"stalled":0}})");
+    require(s.seq==12 && s.scenario=="baron" && s.ias==110 && s.trim==0.4 && s.tail_pa==1987.96 && s.load_factor==1.02,"The demo state reads the flight");
+    require(s.tail_alpha==-2 && s.tail_stalled==0.25 && s.yoke==11.75 && s.wheel==-17.5,"…the tail's angle and stall, the yoke and the wheel");
+    const auto both=demo_roll_inputs(s,100);
+    require(both.left.pa==1962 && both.right.pa==1962 && both.right.alpha_deg==2,"One wing given serves both");
+    const auto none=parse_demo_state(R"({"seq":1,"trim":3,"yoke":-250})");
+    require(none.scenario.empty() && std::isnan(none.tail_pa) && none.load_factor==1 && none.trim==1 && none.yoke==-100,
+        "Missing keys keep the demo's scenario and the airspeed's tail; trim and the yoke are held to their range");
+    const auto still=demo_roll_inputs(none,600);
+    require(still.left.pa==600 && still.right.pa==600 && still.left.alpha_deg==0,"No wings: the airspeed's air, level");
+    const auto bad=[](const char* t) {try {parse_demo_state(t);} catch (const JsonError&) {return true;}return false;};
+    require(bad("[1]") && bad(R"({"ias":"fast"})") && bad(R"({"left":3})") && bad("{"),"A bad state is refused, so the demo keeps the last");
+}
 int main() {
-    try {elevator_model_vectors();elevator_alpha_vectors();aileron_model_vectors();units();configuration();feel_files();json();profiles_parse();compare_and_edit();knobs();figures_in_flight();session_notices();
+    try {elevator_model_vectors();elevator_alpha_vectors();aileron_model_vectors();demo_state();units();configuration();feel_files();json();profiles_parse();compare_and_edit();knobs();figures_in_flight();session_notices();
         commands_and_start_up();marks_history_and_files();views();http();loopback();}
     catch (const std::exception& e) {std::cerr<<"FAILED with exception: "<<e.what()<<'\n';return 1;}
     if (failures) {std::cerr<<failures<<" check(s) failed\n";return 1;}

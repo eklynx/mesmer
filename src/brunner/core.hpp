@@ -14,11 +14,18 @@
 namespace brunner {
 using Clock = std::chrono::steady_clock;
 using Report = std::array<std::uint8_t, 64>;
-enum class Object : std::uint16_t { firmware=0x3018, status=0x6041, encoder=0x6064, position=0x2106 };
+// What a sampling cycle reads. The yoke's buttons are node 2's 0x60fd:00,
+// whose bits 16-31 are slots 1-16 (decision 9; CLS2Sim 5.9 MicroDriveDevice,
+// scripts/brunner_buttons.py). Two objects are deliberately not read. CLS2Sim's
+// slots 17-32, bits 0-15 of 0x2088:00, are empty on this yoke: its 13
+// controls are all in slots 1-14 (pressed one by one, 2026-11-10). The
+// drive's control position, 0x2106:00, freezes when the motors stop, so
+// position is the live encoder alone. Each read is about 4 ms of the cycle.
+enum class Object : std::uint16_t { firmware=0x3018, status=0x6041, encoder=0x6064, digital_inputs=0x60fd };
 inline unsigned width(Object object) {
     switch (object) {
     case Object::firmware: case Object::status: return 2;
-    case Object::encoder: case Object::position: return 4;
+    case Object::encoder: case Object::digital_inputs: return 4;
     }
     throw std::invalid_argument("Unsupported read object");
 }
@@ -29,11 +36,20 @@ inline std::uint32_t u32(const std::uint8_t* p) {
     return static_cast<std::uint32_t>(p[0]) | (static_cast<std::uint32_t>(p[1]) << 8)
         | (static_cast<std::uint32_t>(p[2]) << 16) | (static_cast<std::uint32_t>(p[3]) << 24);
 }
+// The yoke's button slots in node 2's 0x60fd (CLS2Sim's mapping, as
+// button_word in scripts/brunner_buttons.py): its low half is the drive's
+// own inputs, not buttons.
+inline std::uint16_t slots_1_to_16(std::uint32_t digital_inputs) {return static_cast<std::uint16_t>(digital_inputs>>16);}
 inline std::int32_t signed32(std::uint32_t value) {
     std::int32_t result;
     std::memcpy(&result, &value, sizeof(result));
     return result;
 }
+// The two errors that end a reader's cycle whatever it was reading: the
+// reader stopping, and the USB link failing (the link is gone or the
+// controllers are silent; nothing about their state is concluded from it).
+struct OperationCancelled : std::runtime_error {OperationCancelled():std::runtime_error("Reader stopped") {}};
+struct TransportError : std::runtime_error {explicit TransportError(const char* what):std::runtime_error(what) {}};
 // Deliberately only SDO uploads. No generic write or motor-command API.
 inline Report read_request(unsigned node, Object object, std::uint16_t counter) {
     if (node != 1 && node != 2) throw std::invalid_argument("Unsupported node");
@@ -69,10 +85,18 @@ inline std::optional<std::uint32_t> read_reply(const Report& r, unsigned node, O
 }
 struct Axis {
     std::uint16_t firmware=0, status=0;
-    std::int32_t encoder=0, position=0;
+    std::int32_t encoder=0;
 };
 struct Snapshot {
     std::array<Axis,2> axes{}; // roll, pitch
+    // The yoke's buttons, slots 1-16: bits 16-31 of node 2's 0x60fd, read in
+    // every sampling cycle (sample_buttons in buttons.hpp). Unset until the
+    // first read in this USB session, and from a read that failed (why, in
+    // button_refusal) until one succeeds, tried from button_retry on: the
+    // buttons never stop pitch, roll or force feel.
+    std::optional<std::uint16_t> buttons;
+    std::string button_refusal;
+    Clock::time_point button_retry{};
     Clock::time_point sampled{}; // beginning of the complete sampling cycle
     std::uint64_t cycles=0;
     bool connected=false;
@@ -80,6 +104,7 @@ struct Snapshot {
     std::string model,model_title,yoke_note;  // its preset, and a note when the firmware is outside what that preset was verified on
     bool bridge_present=false; // USB bridge enumerated; controllers may still be unpowered
     bool bridge_busy=false; // another program (CLS2Sim, Simux) holds the bridge open
+    bool bridge_disabled=false; // plugged in but switched off in Windows (Device Manager's Disable device)
     bool stop_unconfirmed=false; // a motor stop could not be verified; never retried automatically
     bool reference_active=false;
     bool session_reference=false;
@@ -137,21 +162,6 @@ inline float normalize(std::int32_t counts, const Calibration& cal) {
     const auto ratio=std::clamp(static_cast<double>(counts)/span, -1.0, 1.0);
     return static_cast<float>(cal.reverse ? -ratio : ratio);
 }
-inline FlightInput flight_input(const Snapshot& s, const std::array<Calibration,2>& c,
-                               bool centering_complete, Clock::time_point now) {
-    auto unavailable=[](const char* reason) { return FlightInput{false,0,0,reason}; };
-    if (!s.connected || s.cycles==0) return unavailable("No complete yoke sample");
-    if (now<s.sampled || now-s.sampled>std::chrono::milliseconds(250)) return unavailable("Yoke data stale");
-    for (const auto& a:s.axes) {
-        if (a.status&0x0008) return unavailable("Controller fault");
-        if (a.status&0x0100) return unavailable("Controller homing error");
-        if (!(a.status&0x1000)) return unavailable("Controller reference not initialized");
-    }
-    if (!centering_complete) return unavailable("Centering not verified");
-    for (const auto& cal:c) if (!cal.verified || cal.lower>=0 || cal.upper<=0)
-        return unavailable("Axis calibration not verified");
-    return {true,normalize(s.axes[0].position,c[0]),normalize(s.axes[1].position,c[1]),"Ready"};
-}
 // Bit 11 reports an internal limit, not loss of a completed reference. Keep
 // live position input at the end stop while still rejecting other state changes.
 inline bool referenced_stopped_status(std::uint16_t word) {return (word & ~0x0800u)==active_drive().status_stopped;}
@@ -161,8 +171,9 @@ inline std::string status_hex(std::uint16_t word) {
     char text[16];std::snprintf(text,sizeof(text),"0x%04x",static_cast<unsigned>(word));return text;
 }
 inline std::string status_words(const Snapshot& s) {return "status "+status_hex(s.axes[0].status)+"/"+status_hex(s.axes[1].status);}
-// Commissioning input with the motors disabled after a successful centering
-// test. 0x2106 freezes when stopped; use the observed live 0x6064 encoder.
+// Pitch and roll for X-Plane after a successful centring, motors on or off:
+// the live 0x6064 encoder (the drive's control position, 0x2106, freezes when
+// stopped and is not read).
 // The reference is valid only for this continuous reader session. A cold/reset
 // status, I/O failure or reconnect invalidates it; no reference is persisted.
 inline FlightInput stopped_flight_input(const Snapshot& s,const std::array<Calibration,2>& c,Clock::time_point now) {

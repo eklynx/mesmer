@@ -26,6 +26,7 @@ enum class MenuItem:std::intptr_t {
 struct MenuModel {
     std::string status;                       // the first line: the yoke's status text
     bool retry_offered=false;                 // the re-centre item reads "Retry"
+    bool usb_on_offered=false;                // ... or "Turn the yoke's USB on" (Windows: the bridge is switched off)
     bool force_feel=false,status_line=false,pinned=false,unverified=false; // check marks
     std::string roll_line,pitch_line;         // the Developer menu's two live axis lines
 };

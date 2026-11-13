@@ -523,11 +523,42 @@ void input_not_reaching_xplane() {
     std::cout<<"input not reaching X-Plane: ok\n";
 }
 }
+// The bridge switched off in Windows (Device Manager, Disable-PnpDevice) is
+// plugged in but gone from the HID search: told apart from unplugged, offered
+// as the pilot's one click, and gone once it is back (2026-11-11).
+void usb_switched_off_in_windows() {
+    Sim sim;
+    sim.connect(0x0031);require(sim.run_until_action(2000)==YokeAction::reference,"initial centring");
+    sim.reader_reference_pass();sim.set_input_ready();sim.frame();
+    sim.disconnect(false);sim.s().bridge_disabled=true;sim.in.input_ready=false;
+    auto d=sim.frame();
+    require(d.status==usb_off_text && d.show_notice && d.usb_on_offered && !d.retry_offered,"USB off in Windows is told and offered");
+    // Clicked: while Windows brings it up it is neither "off" nor "unplugged".
+    sim.in.usb_turning_on=true;
+    d=sim.frame();
+    require(d.status==usb_turning_on_text && d.show_notice && !d.usb_on_offered,"Turning on is told, with nothing more to click");
+    sim.s().bridge_disabled=false;
+    require(sim.frame().status==usb_turning_on_text,"Back in Windows but not yet found: still turning on");
+    sim.s().bridge_present=true;
+    require(sim.frame().status==usb_turning_on_text,"Bridge found, controllers not yet answering: still turning on");
+    // The window passed and the bridge never came back: offered again.
+    sim.in.usb_turning_on=false;sim.s().bridge_present=false;sim.s().bridge_disabled=true;
+    require(sim.frame().usb_on_offered,"Still off after the wait: the click is offered again");
+    sim.s().bridge_disabled=false;
+    d=sim.frame();
+    require(d.status=="Yoke off or unplugged - check its power switch and USB cable" && !d.usb_on_offered,"Unplugged offers nothing to click");
+    sim.in.usb_turning_on=true;
+    sim.connect(0x0431);sim.set_input_ready();
+    d=sim.frame();
+    require(d.status=="Ready - force feel off" && !d.usb_on_offered && !d.show_notice,"Back on, the yoke works and the offer is gone");
+    std::cout<<"USB switched off in Windows: ok\n";
+}
 int main() {
     try {
         cold_start_with_yoke_on();
         yoke_switched_on_after_xplane();
         usb_unplugged_and_replugged_powered();
+        usb_switched_off_in_windows();
         yoke_power_cycled_mid_flight();
         aircraft_change_and_back();
         pause_and_resume();

@@ -6,6 +6,8 @@
 #define NOMINMAX
 #include <windows.h>
 #include <setupapi.h>
+#include <cfgmgr32.h>
+#include <shellapi.h>
 extern "C" {
 #include <hidsdi.h>
 }
@@ -113,5 +115,44 @@ class WinHidDevice final : public HidDevice {
 }
 std::unique_ptr<HidDevice> open_bridge(const std::vector<UsbId>& ids,const std::vector<std::uint16_t>& unknown_vendors) {
     return std::make_unique<WinHidDevice>(find_bridge(ids,unknown_vendors),ids,unknown_vendors);
+}
+// The bridge's USB device when it is plugged in but switched off in Windows
+// (Device Manager's Disable device, or Disable-PnpDevice): still there, with
+// problem CM_PROB_DISABLED, and its HID collection gone. Empty when it is not;
+// any failure reads as not. Its id carries the bridge's serial number: never logged.
+static std::wstring disabled_bridge() {
+    wchar_t usb[]=L"USB";
+    ULONG size=0;
+    if (CM_Get_Device_ID_List_SizeW(&size,usb,CM_GETIDLIST_FILTER_ENUMERATOR|CM_GETIDLIST_FILTER_PRESENT)!=CR_SUCCESS || size==0) return {};
+    std::vector<wchar_t> ids(size);
+    if (CM_Get_Device_ID_ListW(usb,ids.data(),size,CM_GETIDLIST_FILTER_ENUMERATOR|CM_GETIDLIST_FILTER_PRESENT)!=CR_SUCCESS) return {};
+    static constexpr wchar_t prefix[]=L"USB\\VID_25BB&PID_"; // any Brunner device: the product id is gone with the HID collection
+    for (wchar_t* id=ids.data();*id;id+=wcslen(id)+1) {
+        if (_wcsnicmp(id,prefix,wcslen(prefix))!=0) continue;
+        DEVINST node=0;
+        ULONG status=0,problem=0;
+        if (CM_Locate_DevNodeW(&node,id,CM_LOCATE_DEVNODE_NORMAL)==CR_SUCCESS
+            && CM_Get_DevNode_Status(&status,&problem,node,0)==CR_SUCCESS
+            && (status&DN_HAS_PROBLEM) && problem==CM_PROB_DISABLED) return id;
+    }
+    return {};
+}
+bool bridge_disabled_in_windows() {return !disabled_bridge().empty();}
+// Windows' own pnputil from System32, elevated with the "runas" verb. pnputil is launched, not
+// waited for: the reader finds the bridge within a second of it coming back.
+std::string turn_bridge_on_in_windows() {
+    const auto id=disabled_bridge();
+    if (id.empty()) return "The yoke's USB is not switched off in Windows";
+    wchar_t system[MAX_PATH];
+    const auto length=GetSystemDirectoryW(system,MAX_PATH);
+    if (length==0 || length>=MAX_PATH) return "Cannot find Windows' system folder";
+    const std::wstring tool=std::wstring(system)+L"\\pnputil.exe";
+    const std::wstring parameters=L"/enable-device \""+id+L"\"";
+    SHELLEXECUTEINFOW info{};
+    info.cbSize=sizeof(info);info.fMask=SEE_MASK_NOASYNC|SEE_MASK_FLAG_NO_UI;
+    info.lpVerb=L"runas";info.lpFile=tool.c_str();info.lpParameters=parameters.c_str();info.nShow=SW_HIDE;
+    if (ShellExecuteExW(&info)) return {};
+    return GetLastError()==ERROR_CANCELLED?"Turning the yoke's USB on was declined in Windows' prompt"
+        :"Windows could not start pnputil to turn the yoke's USB on";
 }
 }

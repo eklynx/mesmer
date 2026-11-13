@@ -43,6 +43,7 @@ struct YokeInputs {
     bool input_ready=false; // pitch/roll currently reaching X-Plane
     bool force_feel=false;
     bool lab_lease=false; // headless developer lease: no automatic hardware action
+    bool usb_turning_on=false; // the pilot just asked Windows to turn the bridge back on
     Clock::time_point now{};
 };
 // recover: restore the surveyed baseline and clear controller faults with the
@@ -53,8 +54,11 @@ struct YokeDecision {
     std::string status; // the one plain-language line for menu, screen, HUD and monitor
     bool show_notice=false; // on-screen line: only while the yoke is not simply working
     bool retry_offered=false; // the pilot's single action is needed
+    bool usb_on_offered=false; // the bridge is switched off in Windows; the pilot's click turns it on
 };
 inline constexpr char centring_text[]="Yoke centring - hands off";
+inline constexpr char usb_off_text[]="Yoke's USB is off in Windows - click here to turn it on";
+inline constexpr char usb_turning_on_text[]="Yoke's USB turning on - wait a moment";
 inline constexpr char input_lost_text[]="Yoke not reaching X-Plane - another add-on may control pitch and roll";
 class YokeSupervisor {
 public:
@@ -90,7 +94,7 @@ public:
             if (hold_==Hold::fault) return finish(d,fault_text(s),true,true);
             if (in.lab_lease) return finish(d,"Yoke paused for a developer session",true);
             if (!in.reader_running) d.action=YokeAction::start_reader;
-            return finish(d,unavailable_text(s),true);
+            return finish(d,unavailable_text(s,in.usb_turning_on),true);
         }
         if (s.read_only) {
             // A yoke the plugin does not drive (brunner/readonly.hpp): it only reads the yoke.
@@ -236,16 +240,23 @@ private:
         return "Yoke fault - Retry";
     }
     // Why the reader has no yoke, with the remedy that actually applies.
-    static std::string unavailable_text(const Snapshot& s) {
+    static std::string unavailable_text(const Snapshot& s,bool usb_turning_on=false) {
         if (s.stop_unconfirmed) return fault_text(s);
         if (s.bridge_busy) return "Yoke is in use by another program - close CLS2Sim and Simux";
         if (s.loading_fault) return "Yoke not recognised - see X-Plane's Log.txt"; // hardware or settings the plugin refuses (never the firmware alone)
+        // Windows keeps a disabled device off through replugs, the yoke's power
+        // switch and X-Plane restarts, so only turning it on helps (2026-11-11).
+        // Turned on, it is gone for a moment while Windows brings it up: that
+        // is not "unplugged", and another click would do nothing.
+        if (usb_turning_on) return usb_turning_on_text;
+        if (s.bridge_disabled) return usb_off_text;
         // The yoke's power switch also removes its USB bridge, so the two cannot
         // be told apart, and the bridge appears a moment before the controllers.
         return "Yoke off or unplugged - check its power switch and USB cable";
     }
     static YokeDecision& finish(YokeDecision& d,std::string status,bool notice,bool retry=false) {
-        d.status=std::move(status);d.show_notice=notice;d.retry_offered=retry;return d;
+        d.status=std::move(status);d.show_notice=notice;d.retry_offered=retry;
+        d.usb_on_offered=d.status==usb_off_text;return d;
     }
 };
 }

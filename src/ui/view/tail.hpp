@@ -11,8 +11,11 @@ struct View {
     bool force_feel=false,session=false,blending=false;
 };
 // Radians, trailing edge down positive, and moments in N·m at the hinge,
-// trailing edge down positive: what the page draws, from the same model.
-struct Geometry {double up=0,down=0,elevator=0,rest=0,drive_rest=0,tab=0,weight=0,air=0,net=0;bool drive_differs=false;};
+// trailing edge down positive: what the page draws, from the same model. The
+// moments are the model's own at the elevator (elevator_moments): the air on
+// the deflection with the stalled share and air from behind, and the float
+// with the tail's angle, so the net is the force the yoke holds there.
+struct Geometry {double up=0,down=0,elevator=0,rest=0,drive_rest=0,tab=0,weight=0,air=0,float_=0,net=0;bool drive_differs=false;};
 inline Geometry geometry(const View& v) {
     const auto s=elevator_state(v.figures,v.inputs);
     const auto& p=v.solution;
@@ -24,8 +27,16 @@ inline Geometry geometry(const View& v) {
     g.drive_differs=v.session && std::isfinite(p.drive_rest_counts) && std::abs(p.drive_rest_counts-p.rest_counts)>=full_travel_counts()/200;
     const double t=std::isfinite(v.inputs.trim)?std::clamp(v.inputs.trim,-1.0,1.0):0.0;
     g.tab=(t>=0?t*v.figures.tab_down_deg:t*v.figures.tab_up_deg)*radians_per_degree;
-    g.weight=s.w*std::cos(g.elevator);g.air=-s.k*(g.elevator-s.trim_rad);g.net=g.weight+g.air;
+    const auto m=elevator_moments(s,g.elevator);
+    g.weight=m.weight;g.air=m.air;g.float_=m.float_;g.net=m.net;
     return g;
+}
+// "floats 9.7 lb forward": the float at the grip in the page's words (its
+// Tail angle row), empty under 0.05 lb, where the page says none.
+inline std::string float_words(const View& v) {
+    const double lb=geometry(v).float_/newton_metres_per_inlb*v.figures.gearing_rad_per_in;
+    if (!std::isfinite(lb) || std::abs(lb)<0.05) return {};
+    return "floats "+monitor::fixed(std::abs(lb),1)+" lb "+(lb>0?"forward":"back");
 }
 inline std::string pounds(double lb) {return monitor::fixed(lb,lb<9.95?1:0);}
 // "Saturated · yoke 2% as stiff": how close the yoke is to the model here.
@@ -126,6 +137,10 @@ inline void draw(monitor::Canvas& c,const View& v,float hx,float hy,float scale=
     const Point cp=turn(hx,hy,g.elevator,-elen*.45f,0);
     const float air=cap(g.air),nx=float(std::sin(g.elevator)),ny=float(std::cos(g.elevator));
     arrow(c,cp.x,cp.y,cp.x+nx*air,cp.y+ny*air,rgb(0x58a6ff),k);
+    // The float with the tail's angle, the page's green, at 0.7 of the elevator.
+    const Point fp=turn(hx,hy,g.elevator,-elen*.7f,0);
+    const float fl=cap(g.float_);
+    arrow(c,fp.x,fp.y,fp.x+nx*fl,fp.y+ny*fl,rgb(0x3fb950),k);
     // The force the pilot holds: the net moment, round the hinge.
     const double mag=std::min(1.6,std::abs(g.net)*px_per_nm/k/120);
     if (std::abs(g.net)>=0.05 && mag>=.04) {

@@ -86,7 +86,7 @@ This is a preview, so here is exactly where it stands.
 | **Yoke** | The original Brunner CLS-E yoke on USB, verified on controller firmware **v367**; on another firmware it is still driven, with a note in the log and the Force Monitor (firmware never changes the mode). A model that is not verified, such as the CLS-E NG (`25BB:008B`), is [read-only](docs/read-only-mode.md) until you turn on **Developer > Allow unverified yoke models** in the Yoke (Brunner) menu; see [yoke presets](docs/yoke-presets.md). A Brunner bridge no model names is opened read-only as an *Unknown yoke*; another vendor's device is never opened. A controller it cannot make sense of at all reads *Yoke not recognised - see X-Plane's Log.txt*. [Tell us about yours](docs/compatibility-report.md). |
 | **Tested on** | One yoke. |
 | **Pitch and roll** | Every aircraft. |
-| **The yoke's buttons and hat** | **Not supported yet.** The plugin does not read them, so they do not reach X-Plane through it. Use another device for buttons for now. |
+| **The yoke's buttons** | **Through vJoy.** With Brunner's vJoy driver set up once, the plugin presses a virtual joystick's buttons and you bind them in X-Plane's Joystick screen. Mapped on one yoke; leave the three panel buttons alone in flight. [Set it up](docs/buttons.md). |
 | **Trim, rudder, throttle** | Not the yoke's job here. Use your usual controls. The plugin reads X-Plane's pitch trim and never changes it. |
 | **Force feel** | **Off until you switch it on**, each time X-Plane starts ([First flight](#first-flight)). Every aircraft flies the Cessna 172's figures. The stock Cessna 172 SP gets the most detail (air over its tail and ailerons, propwash, the tail's angle and stall). Other aircraft get the 172's surfaces driven by indicated airspeed. |
 | **Force calibration** | How hard the yoke pushes per pound is worked out, not yet measured with a scale. |
@@ -117,7 +117,16 @@ bridge to itself.
 
    [install.ps1](install.ps1) takes `-XPlaneRoot` if X-Plane is somewhere
    it cannot find.
-4. **Plugin managers and the x-plane.org file library:** coming soon.
+4. **Kept current by [SkunkCrafts Updater](https://updater.skunkcrafts.com/)**
+   (version 4 or later). Once Mesmer is installed one of the ways above, the
+   updater finds it by the `skunkcrafts_updater.cfg` in its folder and
+   updates it from mesmer.haunt.house. It never overwrites your
+   `BrunnerDirect.ini`; the profiles file is replaced with each release. Run
+   updates with X-Plane closed. With X-Plane open, the update stops at the
+   plugin file and says so, leaving the old plugin working; close X-Plane and
+   run it again.
+
+The x-plane.org file library: coming soon.
 
 To remove it, close X-Plane and delete `Resources/plugins/BrunnerDirect`.
 CLS2Sim works again as soon as its connector is back in the plugins folder.
@@ -185,6 +194,7 @@ useful.
 
 - [Install](docs/install.md), [first flight](docs/first-flight.md),
   [troubleshooting](docs/troubleshooting.md)
+- [The yoke's buttons](docs/buttons.md): vJoy, which button is which, and the commands
 - [Configuration and aircraft profiles](docs/configuration.md)
 - [How it works](docs/how-it-works.md): the elevator and aileron models and
   the solver

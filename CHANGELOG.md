@@ -6,6 +6,12 @@ provenance attestation.
 
 ## Unreleased
 
+- **Merged upstream alpha.3.** The yoke's buttons through vJoy, the look-down commands, the
+  disabled-USB offer and the HUD changes are in. The Windows-only parts sit in this layout:
+  `brunner/buttons.hpp`, `hid/win/vjoy_win.hpp`, `xplane/look.hpp`, and the disabled-bridge
+  check in `hid/win/hid_win.cpp`. On macOS the buttons are read but not sent (no vJoy), and
+  the plugin no longer reads the drives' control position (0x2106), as upstream. Windows
+  parts not built here.
 - **Yoke models are shipped files.** `config/yokes/cls-e.json` (the original, exactly what was
   compiled in before) and `cls-e-ng.json` are packaged in the plugin's `yokes/` folder and loaded
   at start, one complete file per model. `BrunnerDirect.yokes.json` stays as the optional
@@ -67,6 +73,19 @@ provenance attestation.
   classic `Volume:Folder:` paths), and `Log.txt` now says why a yoke was
   refused. The reader is split so the Windows and macOS HID access are small separate files; see
   `docs/hid-bridge.md`.
+
+## 0.1.0-alpha.3
+
+The yoke's buttons now reach X-Plane through vJoy. When Windows has switched the yoke's USB off, the plugin now says so and turns it back on when you click.
+
+- **The yoke's buttons, through vJoy.** The plugin reads the yoke's buttons and presses the matching buttons of vJoy device 1. Bind them in *Settings > Joystick* under `vJoy - Virtual Joystick`. You need to install Brunner's vJoy 2.2.2.0 and set device 1 to 32 buttons and no axes, once. [The yoke's buttons](docs/buttons.md) has the steps and says which button is which. Without vJoy the yoke flies as before, and Log.txt gives the reason after `Yoke buttons off:` ([troubleshooting](docs/troubleshooting.md#the-yokes-buttons-dont-reach-x-plane)).
+- **Leave the three panel buttons alone in flight.** Panel buttons 12 to 14 also work the yoke's own menu. On the tested yoke, one press switched its motors on while the plugin was driving it, and the plugin stopped with a fault. Don't bind them.
+- **Look down from the yoke.** The new commands `brunner_direct/look_down` and `brunner_direct/look_up` step between ahead, half down and the panel. Ahead is X-Plane's default view. Half down and the panel are Quick Looks 2 and 1, which you save once per aircraft. [The yoke's buttons](docs/buttons.md#commands-worth-a-button) lists these with the plugin's other commands.
+- **The yoke's USB switched off in Windows.** Windows keeps a disabled USB bridge off through unplugging, power cycles and restarts. When the yoke's bridge is disabled, the status line now reads *Yoke's USB is off in Windows - click here to turn it on* instead of *Yoke off or unplugged*, even with routine status hidden. Click the line, choose *Plugins > Yoke (Brunner) > Turn the yoke's USB on*, or run `brunner_direct/usb_on`; Windows may ask to allow `pnputil`. While the USB comes back the line reads *Yoke's USB turning on - wait a moment*, and if it is still off after 15 seconds, the offer to turn it on comes back.
+- **The HUD's pitch card draws the float.** At rest in cruise, the card drew about 9.5 lb on the yoke where the model, the feel page and the yoke hold none. It now shows the elevator's float in the feel page's green, with words such as "floats 9.7 lb forward". Only the drawing changed; what the plugin sends the yoke did not.
+- **The HUD's roll card says yoke.** It used to say wheel. Its lines now read "Saturated · yoke 23% as stiff", "Saturated · yoke under 1% as stiff" and "Force feel off · the yoke is free", the same words as the pitch card.
+- **The README on SkunkCrafts Updater.** The updater (version 4 or later) keeps an installed Mesmer current and never overwrites `BrunnerDirect.ini`; the profiles file is replaced with each release. Run updates with X-Plane closed. With X-Plane open, the update stops at the plugin file and leaves the old plugin working; close X-Plane and run the update again.
+- **Building from source.** On Windows the plugin now also links cfgmgr32, shell32 and advapi32. You don't need vJoy to build: the plugin loads `vJoyInterface.dll` at run time from the folder vJoy's installer records. The reader reads the button word in every cycle and no longer reads the drives' control position, so the Developer menu's Roll and Pitch lines and the once-a-second Log.txt line no longer show it.
 
 ## 0.1.0-alpha.2
 

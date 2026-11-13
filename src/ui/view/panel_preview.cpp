@@ -1,6 +1,12 @@
 #include "ui/view/hud.hpp"
+#include "ui/view/preview_frames.hpp"
+#include "force/profiles.hpp"
+#include <filesystem>
+#include <fstream>
+#include <iomanip>
 #include <iostream>
 #include <memory>
+#include <sstream>
 
 using namespace brunner::monitor;
 static std::string escape(std::string s) {
@@ -45,7 +51,7 @@ static std::optional<brunner::tail::View> pitch_scene(const std::string& scene) 
 // no firmest since decision 16) with each side's air as that page's preset reports it, and
 // whose roll card is the session's solution at the wheel, as make_frame does.
 // Parked has the wheel left 12 degrees left.
-struct RollScene {brunner::RollModel model;double wheel_deg=0;};
+struct RollScene {brunner::RollModel model;double wheel_deg=0;double wheel_counts=std::numeric_limits<double>::quiet_NaN();};
 static std::optional<RollScene> roll_scene(const std::string& scene,std::string& pitch_name) {
     using namespace brunner;
     // The page's reported(): air over each aileron from airspeed and a little
@@ -65,25 +71,16 @@ static std::optional<RollScene> roll_scene(const std::string& scene,std::string&
     else return std::nullopt;
     return r;
 }
-int main(int argc,char** argv) {
-    std::string state=argc>1?argv[1]:"stopped";
-    const bool is_hud=state.substr(0,4)=="hud-";if (is_hud) state=state.substr(4);
-    const bool is_pitch=is_hud && state.substr(0,6)=="pitch-";
-    std::optional<brunner::tail::View> pitch_view;
-    if (is_pitch) {pitch_view=pitch_scene(state.substr(6));state="detail";}
-    std::optional<RollScene> roll_case;
-    if (is_hud && state.substr(0,5)=="roll-") {
-        std::string pitch_name;roll_case=roll_scene(state.substr(5),pitch_name);
-        pitch_view=pitch_scene(pitch_name);state="detail";
-    }
-    if (is_hud && (state=="trim" || state=="limit")) pitch_view=pitch_scene(state=="limit"?"limit":"cruise");
+// One preview as SVG: a monitor state, or with is_hud the HUD window in
+// `state` with the pitch card and the roll card when given.
+static std::string draw_svg(std::string state,bool is_hud,const std::optional<brunner::tail::View>& pitch_view,
+    const std::optional<RollScene>& roll_case,int span,const std::string& after,const char* select) {
     std::string status,reason;
     if (state=="fault") {status="Yoke stopped - Retry to resume";reason="A drive left its ready state";}
     if (state=="disconnected") status="Yoke off or unplugged - check its power switch and USB cable";
     if (state=="paused") status="Yoke waiting - X-Plane is paused";
     brunner::hud::State context;brunner::hud::Settings settings;
     auto recorder=brunner::recording::State::recording;
-    const int span=argc>2?std::stoi(argv[2]):60;
     auto model=std::make_unique<Model>();model->range(span);
     const double duration=120;
     for (int tick=0;tick<=2400;++tick) {
@@ -111,10 +108,11 @@ int main(int argc,char** argv) {
             f.fresh=true;f.age_ms=20;f.mode=Mode::flight;f.sim_valid=true;f.simulator={60,0};
             f.applied=f.requested={28,28,0};f.motors={true,true};f.position_valid=true;
             if (roll_case) {
-                const double counts=brunner::wheel_exact_counts(roll_case->model.figures,roll_case->wheel_deg*brunner::radians_per_degree);
-                f.encoder[0]=int(std::lround(-counts));f.preview.roll=roll_case->model;f.preview.aileron_source=brunner::AileronSource::surface;
-                f.roll_solved=true;f.roll_solution=brunner::solve_roll(roll_case->model,counts);
-                f.roll=roll_card(roll_case->model,f.roll_solution,true,true);
+                const double counts=std::isfinite(roll_case->wheel_counts)?roll_case->wheel_counts:
+                    brunner::wheel_exact_counts(roll_case->model.figures,roll_case->wheel_deg*brunner::radians_per_degree);
+                const auto r=brunner::preview::roll_frame(roll_case->model,counts);
+                f.encoder[0]=r.encoder[0];f.preview.roll=r.preview.roll;f.preview.aileron_source=r.preview.aileron_source;
+                f.roll_solved=r.roll_solved;f.roll_solution=r.roll_solution;f.roll=r.roll;
             }
             if (state=="trim" || state=="limit") {
                 f.simulator.trim=f.time>115?.07:0;
@@ -137,19 +135,132 @@ int main(int argc,char** argv) {
         model->observe(f);
     }
     if (state=="frozen") {model->freeze();model->select(.74);}
-    if (argc>3 && std::string(argv[3])=="freeze" && !model->frozen()) model->freeze();
-    if (argc>3 && std::string(argv[3])=="clear") model->clear();
-    if (argc>4) model->select(std::stod(argv[4]));
+    if (after=="freeze" && !model->frozen()) model->freeze();
+    if (after=="clear") model->clear();
+    if (select) model->select(std::stod(select));
     const auto canvas=is_hud?brunner::hud::render(*model,context,settings,recorder,0,duration,status,pitch_view,reason):
         render(*model,true,-1,brunner::recording::status_label(recorder,0));
     const int height=is_hud?brunner::hud::window_height:800;
-    std::cout<<"<svg xmlns=\"http://www.w3.org/2000/svg\" viewBox=\"0 0 "<<(is_hud?380:1200)<<" "<<height<<"\" width=\""<<(is_hud?380:1200)<<"\" height=\""<<height<<"\" role=\"img\" aria-label=\"Synthetic force monitor preview\">\n";
+    std::ostringstream out;
+    out<<"<svg xmlns=\"http://www.w3.org/2000/svg\" viewBox=\"0 0 "<<(is_hud?380:1200)<<" "<<height<<"\" width=\""<<(is_hud?380:1200)<<"\" height=\""<<height<<"\" role=\"img\" aria-label=\"Synthetic force monitor preview\">\n";
     for (const auto& p:canvas.items) {
         const auto col=color(p.color);
-        if (p.kind==Primitive::Kind::rect) std::cout<<"<rect x=\""<<p.x<<"\" y=\""<<p.y<<"\" width=\""<<p.w<<"\" height=\""<<p.h<<"\" fill=\""<<col<<"\" opacity=\""<<p.color.a<<"\"/>\n";
-        else if (p.kind==Primitive::Kind::triangle) std::cout<<"<path d=\"M "<<p.x<<' '<<p.y<<" L "<<p.w<<' '<<p.h<<" L "<<p.x3<<' '<<p.y3<<" Z\" fill=\""<<col<<"\" opacity=\""<<p.color.a<<"\""<<(p.color.a>=1?" stroke=\""+col+"\" stroke-width=\"0.4\"":"")<<"/>\n";
-        else if (p.kind==Primitive::Kind::line) std::cout<<"<path d=\"M "<<p.x<<' '<<p.y<<" L "<<p.w<<' '<<p.h<<"\" stroke=\""<<col<<"\" stroke-width=\""<<p.size<<"\" opacity=\""<<p.color.a<<"\"/>\n";
-        else std::cout<<"<text x=\""<<p.x<<"\" y=\""<<p.y+p.size*.85f<<"\" fill=\""<<col<<"\" font-family=\"Segoe UI, Arial, sans-serif\" font-size=\""<<p.size<<"\" font-weight=\""<<(p.bold?600:400)<<"\">"<<escape(p.label)<<"</text>\n";
+        if (p.kind==Primitive::Kind::rect) out<<"<rect x=\""<<p.x<<"\" y=\""<<p.y<<"\" width=\""<<p.w<<"\" height=\""<<p.h<<"\" fill=\""<<col<<"\" opacity=\""<<p.color.a<<"\"/>\n";
+        else if (p.kind==Primitive::Kind::triangle) out<<"<path d=\"M "<<p.x<<' '<<p.y<<" L "<<p.w<<' '<<p.h<<" L "<<p.x3<<' '<<p.y3<<" Z\" fill=\""<<col<<"\" opacity=\""<<p.color.a<<"\""<<(p.color.a>=1?" stroke=\""+col+"\" stroke-width=\"0.4\"":"")<<"/>\n";
+        else if (p.kind==Primitive::Kind::line) out<<"<path d=\"M "<<p.x<<' '<<p.y<<" L "<<p.w<<' '<<p.h<<"\" stroke=\""<<col<<"\" stroke-width=\""<<p.size<<"\" opacity=\""<<p.color.a<<"\"/>\n";
+        else out<<"<text x=\""<<p.x<<"\" y=\""<<p.y+p.size*.85f<<"\" fill=\""<<col<<"\" font-family=\"Segoe UI, Arial, sans-serif\" font-size=\""<<p.size<<"\" font-weight=\""<<(p.bold?600:400)<<"\">"<<escape(p.label)<<"</text>\n";
     }
-    std::cout<<"</svg>\n";
+    out<<"</svg>\n";
+    return out.str();
+}
+// The promo film's frames (docs/brunner/video/promo/sync_check.py reads what
+// this writes):
+//   brunner_panel_preview frames FRAMES.json OUTDIR --profiles BrunnerDirect.profiles.json
+//       [--from I] [--to I] [--step N] [--solve-only]
+// For every frame from I to I (frame indices, inclusive) every N with the
+// timeline's conditions, the plugin's solvers solve both axes at the
+// timeline's yoke and wheel (preview_frames.hpp) with the default profile's
+// figures, and OUTDIR gets hud-####.svg, the HUD card the plugin shows with
+// both axes, and pitch-####.svg, the pitch card alone (#### the film's frame
+// number, index + 1), and solved.json: each frame's inputs, rests and the
+// cards' words. --solve-only writes solved.json alone.
+static std::string number(double v,int digits=6) {
+    if (!std::isfinite(v)) return "null";
+    std::ostringstream o;o.imbue(std::locale::classic());o<<std::setprecision(digits)<<v;return o.str();
+}
+static std::string quoted(const std::string& s) {
+    std::string o="\"";
+    for (char c:s) {if (c=='"' || c=='\\') o+='\\';o+=c;}
+    return o+"\"";
+}
+static int frames_mode(int argc,char** argv) {
+    using namespace brunner;
+    if (argc<4) {std::cerr<<"usage: brunner_panel_preview frames FRAMES.json OUTDIR --profiles FILE [--from I] [--to I] [--step N] [--solve-only]\n";return 2;}
+    const std::filesystem::path frames_path=argv[2],out_dir=argv[3];
+    std::filesystem::path profiles_path;int from=0,to=-1,step=1;bool solve_only=false;
+    for (int i=4;i<argc;++i) {
+        const std::string a=argv[i];
+        const auto value=[&]()->std::string {if (i+1>=argc) throw std::invalid_argument(a+" needs a value");return argv[++i];};
+        if (a=="--profiles") profiles_path=value();
+        else if (a=="--from") from=std::stoi(value());
+        else if (a=="--to") to=std::stoi(value());
+        else if (a=="--step") step=std::max(1,std::stoi(value()));
+        else if (a=="--solve-only") solve_only=true;
+        else {std::cerr<<"frames: unknown "<<a<<'\n';return 2;}
+    }
+    if (profiles_path.empty()) {std::cerr<<"frames: --profiles is required (scripts/brunner_profiles.py --profiles FILE writes one)\n";return 2;}
+    const auto slurp=[](const std::filesystem::path& p) {std::ifstream in(p,std::ios::binary);std::ostringstream s;s<<in.rdbuf();return s.str();};
+    // The film flies the C172 in its own profile.
+    const auto set=parse_profiles(slurp(profiles_path));
+    const auto profile=profile_for(set,"Aircraft/Laminar Research/Cessna 172 SP/Cessna_172SP.acf");
+    const auto doc=parse_json(slurp(frames_path));
+    const auto* frames=doc.get("frames");
+    if (!frames || frames->kind!=Json::Kind::array) {std::cerr<<"frames: "<<frames_path<<" has no frames\n";return 1;}
+    std::filesystem::create_directories(out_dir);
+    std::ofstream solved(out_dir/"solved.json");
+    solved<<"{\"profile\":"<<quoted(profile.name)<<",\"frames\":[\n";
+    bool first=true;int written=0;
+    const int last=to<0?int(frames->items.size())-1:std::min(to,int(frames->items.size())-1);
+    for (int k=std::max(0,from);k<=last;k+=step) {
+        const auto film=preview::film_frame(frames->items[std::size_t(k)]);
+        const auto cards=preview::solve_frame(profile.elevator,profile.aileron,film);
+        if (!cards.pitch && !cards.roll) continue;
+        char name[32];
+        std::ostringstream rec;rec.imbue(std::locale::classic());
+        rec<<"{\"i\":"<<film.i<<",\"t\":"<<number(film.t);
+        if (cards.pitch) {
+            const auto& v=*cards.pitch;const auto& p=v.solution;const auto s=elevator_state(v.figures,v.inputs);
+            rec<<",\"pitch\":{\"trim\":"<<number(v.inputs.trim)<<",\"tail_pa\":"<<number(v.inputs.tail_pa)<<",\"tail_kt\":"<<number(preview::pa_kt(v.inputs.tail_pa))
+               <<",\"load_factor\":"<<number(v.inputs.load_factor)<<",\"tail_alpha_deg\":"<<number(v.inputs.tail_alpha_deg)
+               <<",\"counts\":"<<number(v.yoke_counts)<<",\"yoke_in\":"<<number(elevator_rad(s,v.yoke_counts)/s.gearing)
+               <<",\"rest_counts\":"<<number(p.rest_counts)<<",\"rest_frac\":"<<number(p.rest_counts/full_travel_counts())
+               <<",\"rest_in\":"<<number(elevator_rad(s,p.rest_counts)/s.gearing)<<",\"force_lb\":"<<number(p.force_lb)
+               <<",\"card_net_lb\":"<<number(tail::geometry(v).net/newton_metres_per_inlb*s.gearing)
+               <<",\"strength\":"<<p.strength<<",\"saturated\":"<<(p.saturated?"true":"false")<<",\"floored\":"<<(p.floored?"true":"false")
+               <<",\"context\":"<<quoted(tail::context(v))<<",\"status\":"<<quoted(tail::status(v))<<"}";
+        }
+        if (cards.roll) {
+            const auto f=preview::roll_frame(*cards.roll,cards.wheel_counts);
+            const auto r=hud::roll_view(f);const auto& sol=f.roll_solution;const auto& in=cards.roll->inputs;
+            rec<<",\"roll\":{\"left\":{\"pa\":"<<number(in.left.pa)<<",\"alpha_deg\":"<<number(in.left.alpha_deg)<<",\"stalled\":"<<number(in.left.stalled)<<"}"
+               <<",\"right\":{\"pa\":"<<number(in.right.pa)<<",\"alpha_deg\":"<<number(in.right.alpha_deg)<<",\"stalled\":"<<number(in.right.stalled)<<"}"
+               <<",\"counts\":"<<number(cards.wheel_counts)<<",\"wheel_deg\":"<<number(sol.wheel_deg)
+               <<",\"rest_deg\":"<<(r && std::isfinite(r->rest)?number(r->rest):"null")<<",\"model_lb\":"<<number(sol.model_lb)
+               <<",\"strength\":"<<sol.strength<<",\"saturated\":"<<(sol.saturated?"true":"false")<<",\"floored\":"<<(sol.floored?"true":"false");
+            if (r) rec<<",\"note\":"<<quoted(hud::roll_note(*r))<<",\"status\":"<<quoted(cards.pitch?hud::roll_status(*r,*cards.pitch):std::string{});
+            rec<<"}";
+        }
+        rec<<"}";
+        solved<<(first?"":",\n")<<rec.str();first=false;
+        if (!solve_only) {
+            std::optional<RollScene> roll_card;
+            if (cards.roll) {RollScene r;r.model=*cards.roll;r.wheel_counts=cards.wheel_counts;roll_card=r;}
+            std::snprintf(name,sizeof(name),"hud-%04d.svg",film.i+1);
+            std::ofstream(out_dir/name)<<draw_svg("detail",true,cards.pitch,roll_card,60,{},nullptr);
+            std::snprintf(name,sizeof(name),"pitch-%04d.svg",film.i+1);
+            std::ofstream(out_dir/name)<<draw_svg("detail",true,cards.pitch,std::nullopt,60,{},nullptr);
+        }
+        ++written;
+    }
+    solved<<"\n]}\n";
+    std::cout<<"frames: "<<written<<" frames solved into "<<out_dir.string()<<(solve_only?" (solved.json only)":"")<<'\n';
+    return 0;
+}
+int main(int argc,char** argv) {
+    std::string state=argc>1?argv[1]:"stopped";
+    if (state=="frames") {
+        try {return frames_mode(argc,argv);}
+        catch (const std::exception& e) {std::cerr<<"frames: "<<e.what()<<'\n';return 1;}
+    }
+    const bool is_hud=state.substr(0,4)=="hud-";if (is_hud) state=state.substr(4);
+    const bool is_pitch=is_hud && state.substr(0,6)=="pitch-";
+    std::optional<brunner::tail::View> pitch_view;
+    if (is_pitch) {pitch_view=pitch_scene(state.substr(6));state="detail";}
+    std::optional<RollScene> roll_case;
+    if (is_hud && state.substr(0,5)=="roll-") {
+        std::string pitch_name;roll_case=roll_scene(state.substr(5),pitch_name);
+        pitch_view=pitch_scene(pitch_name);state="detail";
+    }
+    if (is_hud && (state=="trim" || state=="limit")) pitch_view=pitch_scene(state=="limit"?"limit":"cruise");
+    std::cout<<draw_svg(state,is_hud,pitch_view,roll_case,argc>2?std::stoi(argv[2]):60,argc>3?argv[3]:"",argc>4?argv[4]:nullptr);
 }
