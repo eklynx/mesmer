@@ -7,6 +7,7 @@
 #include "lab.hpp"
 #include "brunner/yoke.hpp"
 #include "ui/view/panel_win.hpp"
+#include "ui/menu/menu.hpp"
 #include "ui/view/startup_notice.hpp"
 #include "brunner/loading.hpp"
 #include "force/slew.hpp"
@@ -61,13 +62,7 @@ int read_recorder(void* ref) {
 }
 
 XPLMCommandRef monitor_command=nullptr;
-XPLMMenuID menu=nullptr,developer_menu=nullptr;
-int parent_item=-1;
-// Main menu item indices (status first); developer submenu indices for the live axis lines.
-constexpr int menu_status=0,menu_recenter=2,menu_force_feel=3,menu_status_line=4,menu_keep_feel=5,menu_feel_tuning=6;
-// Developer menu items by position (nothing before them moves): monitor 0, HUD 1, move 2, roll 3, pitch 4,
-// reference 5, light spring 6, flight 7, stop 8, reconnect 9, survey 10, unverified-yoke toggle 11.
-constexpr int developer_roll=3,developer_pitch=4,developer_unverified=11;
+brunner::ui::YokeMenu yoke_menu; // the menu (ui/menu/menu.hpp); what a click does is menu_action below
 bool enabled=false;
 std::string last_status;
 XPLMCommandRef reference_command=nullptr,stop_command=nullptr,stop_motors_command=nullptr;
@@ -462,19 +457,18 @@ void act(brunner::YokeAction action) {
     }
 }
 void refresh_menu(const brunner::Snapshot& s) {
-    XPLMSetMenuItemName(menu,menu_status,decision.status.c_str(),0);
-    XPLMSetMenuItemName(menu,menu_recenter,decision.retry_offered?"Retry":"Re-centre yoke (hands off)",0);
-    XPLMCheckMenuItem(menu,menu_force_feel,force_feel?xplm_Menu_Checked:xplm_Menu_Unchecked);
-    XPLMCheckMenuItem(menu,menu_status_line,show_status_line?xplm_Menu_Checked:xplm_Menu_Unchecked);
-    XPLMCheckMenuItem(menu,menu_keep_feel,force_hud.pinned()?xplm_Menu_Checked:xplm_Menu_Unchecked);
-    XPLMCheckMenuItem(developer_menu,developer_unverified,allow_unverified_yoke?xplm_Menu_Checked:xplm_Menu_Unchecked);
+    brunner::ui::MenuModel model;
+    model.status=decision.status;model.retry_offered=decision.retry_offered;
+    model.force_feel=force_feel;model.status_line=show_status_line;model.pinned=force_hud.pinned();model.unverified=allow_unverified_yoke;
+    std::string* lines[2]={&model.roll_line,&model.pitch_line};
     for (unsigned i=0;i<2;++i) {
         char text[160];
         if (s.connected) std::snprintf(text,sizeof(text),"%s: encoder %ld, control %ld, status %04X",
             i==0?"Roll":"Pitch",static_cast<long>(s.axes[i].encoder),static_cast<long>(s.axes[i].position),s.axes[i].status);
         else std::snprintf(text,sizeof(text),"%s: unavailable",i==0?"Roll":"Pitch");
-        XPLMSetMenuItemName(developer_menu,i==0?developer_roll:developer_pitch,text,0);
+        *lines[i]=text;
     }
+    yoke_menu.refresh(model);
 }
 int stop_motors_handler(XPLMCommandRef,XPLMCommandPhase,void*);
 int force_feel_handler(XPLMCommandRef,XPLMCommandPhase,void*);
@@ -1101,7 +1095,7 @@ void start_workbench() {
             workbench_retry_at=brunner::Clock::now()+std::chrono::seconds(5);
         }
     }
-    if (menu) XPLMSetMenuItemName(menu,menu_feel_tuning,feel_menu_text.c_str(),0);
+    yoke_menu.set_feel_text(feel_menu_text);
 }
 void retry_workbench(brunner::Clock::time_point now) {
     if (bench && workbench_port && !workbench_server.running() && workbench_retry_at!=brunner::Clock::time_point{} && now>=workbench_retry_at) start_workbench();
@@ -1113,31 +1107,29 @@ void stop_workbench() {
     if (bench) (void)bench->take_commands();
     log_feel_events();
     feel_menu_text="Feel tuning: off";
-    if (menu) XPLMSetMenuItemName(menu,menu_feel_tuning,feel_menu_text.c_str(),0);
+    yoke_menu.set_feel_text(feel_menu_text);
 }
-enum MenuItem : std::intptr_t {item_reconnect=1,item_reference=2,item_stop=3,item_loading=4,item_flight=5,item_monitor=6,
-    item_hud=7,item_pin=8,item_move=9,item_recenter=10,item_force_feel=11,item_status_line=12,item_stop_motors=13,item_survey=14,item_unverified=15};
-void menu_click(void*,void* item) {
-    try {
-        switch (reinterpret_cast<std::intptr_t>(item)) {
-        case item_hud:hud_handler(hud_command,xplm_CommandBegin,nullptr);break;
-        case item_pin:hud_handler(pin_command,xplm_CommandBegin,nullptr);break;
-        case item_move:hud_handler(move_command,xplm_CommandBegin,nullptr);break;
-        case item_monitor:monitor_handler(nullptr,xplm_CommandBegin,nullptr);break;
-        case item_reconnect:reconnect_handler(nullptr,xplm_CommandBegin,nullptr);break;
-        case item_reference:reference_handler(nullptr,xplm_CommandBegin,nullptr);break;
-        case item_stop:stop_handler(nullptr,xplm_CommandBegin,nullptr);break;
-        case item_stop_motors:stop_motors_handler(nullptr,xplm_CommandBegin,nullptr);break;
-        case item_loading:loading_handler(nullptr,xplm_CommandBegin,nullptr);break;
-        case item_flight:flight_handler(nullptr,xplm_CommandBegin,nullptr);break;
-        case item_recenter:recenter_handler(nullptr,xplm_CommandBegin,nullptr);break;
-        case item_force_feel:force_feel_handler(force_feel_toggle,xplm_CommandBegin,nullptr);break;
-        case item_status_line:status_line_handler(nullptr,xplm_CommandBegin,nullptr);break;
-        case item_unverified:unverified_toggle();break;
-        case item_survey:log(reader.request_survey()?"Survey requested: reading registers only; the file appears in Output/BrunnerDirect":"Survey refused: it is only for a yoke on firmware the plugin does not drive");break;
+// What a click asks for (ui/menu/menu.hpp); the menu catches anything thrown and logs it.
+void menu_action(brunner::ui::MenuItem item) {
+    using brunner::ui::MenuItem;
+        switch (item) {
+        case MenuItem::hud:hud_handler(hud_command,xplm_CommandBegin,nullptr);break;
+        case MenuItem::pin:hud_handler(pin_command,xplm_CommandBegin,nullptr);break;
+        case MenuItem::move:hud_handler(move_command,xplm_CommandBegin,nullptr);break;
+        case MenuItem::monitor:monitor_handler(nullptr,xplm_CommandBegin,nullptr);break;
+        case MenuItem::reconnect:reconnect_handler(nullptr,xplm_CommandBegin,nullptr);break;
+        case MenuItem::reference:reference_handler(nullptr,xplm_CommandBegin,nullptr);break;
+        case MenuItem::stop:stop_handler(nullptr,xplm_CommandBegin,nullptr);break;
+        case MenuItem::stop_motors:stop_motors_handler(nullptr,xplm_CommandBegin,nullptr);break;
+        case MenuItem::loading:loading_handler(nullptr,xplm_CommandBegin,nullptr);break;
+        case MenuItem::flight:flight_handler(nullptr,xplm_CommandBegin,nullptr);break;
+        case MenuItem::recenter:recenter_handler(nullptr,xplm_CommandBegin,nullptr);break;
+        case MenuItem::force_feel:force_feel_handler(force_feel_toggle,xplm_CommandBegin,nullptr);break;
+        case MenuItem::status_line:status_line_handler(nullptr,xplm_CommandBegin,nullptr);break;
+        case MenuItem::unverified:unverified_toggle();break;
+        case MenuItem::survey:log(reader.request_survey()?"Survey requested: reading registers only; the file appears in Output/BrunnerDirect":"Survey refused: it is only for a yoke on firmware the plugin does not drive");break;
         default:break;
         }
-    } catch (const std::exception& e) {log(e.what());}
 }
 }
 PLUGIN_API int XPluginStart(char* name,char* signature,char* description) {
@@ -1172,29 +1164,7 @@ PLUGIN_API int XPluginStart(char* name,char* signature,char* description) {
         load_yoke_presets();
         sync_feel(brunner::Clock::now());
     } catch (const std::exception& e) {log(std::string("Configuration invalid; plugin not started: ")+e.what());return 0;}
-    parent_item=XPLMAppendMenuItem(XPLMFindPluginsMenu(),"Yoke (Brunner)",nullptr,0);
-    menu=XPLMCreateMenu("Yoke (Brunner)",XPLMFindPluginsMenu(),parent_item,menu_click,nullptr);
-    XPLMAppendMenuItem(menu,"Yoke plugin is disabled",nullptr,0); // menu_status
-    XPLMAppendMenuItem(menu,"Stop yoke motors",reinterpret_cast<void*>(item_stop_motors),0);
-    XPLMAppendMenuItem(menu,"Re-centre yoke (hands off)",reinterpret_cast<void*>(item_recenter),0); // menu_recenter
-    XPLMAppendMenuItem(menu,"Force feel",reinterpret_cast<void*>(item_force_feel),0); // menu_force_feel
-    XPLMAppendMenuItem(menu,"Show yoke status on screen",reinterpret_cast<void*>(item_status_line),0); // menu_status_line
-    XPLMAppendMenuItem(menu,"Keep yoke feel on screen",reinterpret_cast<void*>(item_pin),0); // menu_keep_feel
-    XPLMAppendMenuItem(menu,feel_menu_text.c_str(),nullptr,0); // menu_feel_tuning
-    const int developer_item=XPLMAppendMenuItem(menu,"Developer",nullptr,0);
-    developer_menu=XPLMCreateMenu("Developer",menu,developer_item,menu_click,nullptr);
-    XPLMAppendMenuItem(developer_menu,"Force monitor (read-only)",reinterpret_cast<void*>(item_monitor),0);
-    XPLMAppendMenuItem(developer_menu,"Show / hide flight HUD",reinterpret_cast<void*>(item_hud),0);
-    XPLMAppendMenuItem(developer_menu,"Move HUD / finish moving",reinterpret_cast<void*>(item_move),0);
-    XPLMAppendMenuItem(developer_menu,"Roll: unavailable",nullptr,0); // developer_roll
-    XPLMAppendMenuItem(developer_menu,"Pitch: unavailable",nullptr,0); // developer_pitch
-    XPLMAppendMenuItem(developer_menu,"Supervised reference and stop (moves yoke)",reinterpret_cast<void*>(item_reference),0);
-    XPLMAppendMenuItem(developer_menu,"Supervised light spring test (ten minutes)",reinterpret_cast<void*>(item_loading),0);
-    XPLMAppendMenuItem(developer_menu,"Start flight loading (force feel on)",reinterpret_cast<void*>(item_flight),0);
-    XPLMAppendMenuItem(developer_menu,"Stop test and disconnect",reinterpret_cast<void*>(item_stop),0);
-    XPLMAppendMenuItem(developer_menu,"Reconnect reader",reinterpret_cast<void*>(item_reconnect),0);
-    XPLMAppendMenuItem(developer_menu,"Survey yoke registers (read-only firmware)",reinterpret_cast<void*>(item_survey),0);
-    XPLMAppendMenuItem(developer_menu,"Allow unverified yoke models (writes to untested hardware)",reinterpret_cast<void*>(item_unverified),0); // developer_unverified
+    yoke_menu.create({menu_action,[](const std::string& line) {log(line);}},feel_menu_text);
     hud_command=XPLMCreateCommand("brunner_direct/toggle_hud","Show or hide contextual HUD; recording continues");
     pin_command=XPLMCreateCommand("brunner_direct/pin_hud","Keep the yoke feel card on screen, or show it only when useful");
     move_command=XPLMCreateCommand("brunner_direct/move_hud","Enable or finish dragging the HUD by its status strip");
@@ -1294,7 +1264,7 @@ PLUGIN_API void XPluginDisable() {
     decision=brunner::YokeDecision{};decision.status="Yoke plugin is disabled";
     if (readiness_loop) {XPLMDestroyFlightLoop(readiness_loop);readiness_loop=nullptr;}
     startup_notice.destroy();
-    if (menu) XPLMSetMenuItemName(menu,menu_status,decision.status.c_str(),0);
+    yoke_menu.set_status(decision.status);
 }
 PLUGIN_API void XPluginStop() {
     XPluginDisable();
@@ -1318,11 +1288,7 @@ PLUGIN_API void XPluginStop() {
     for (auto& entry:live_datarefs) if (entry.handle) {XPLMUnregisterDataAccessor(entry.handle);entry.handle=nullptr;}
     if (status_dataref) {XPLMUnregisterDataAccessor(status_dataref);status_dataref=nullptr;}
     for (unsigned i=0;i<3;++i) if (trim_commands[i]) XPLMUnregisterCommandHandler(trim_commands[i],trim_handler,1,&trim_steps[i]);
-    if (developer_menu) XPLMDestroyMenu(developer_menu);
-    developer_menu=nullptr;
-    if (menu) XPLMDestroyMenu(menu);
-    menu=nullptr;
-    if (parent_item>=0) XPLMRemoveMenuItem(XPLMFindPluginsMenu(),parent_item);
+    yoke_menu.destroy();
 }
 // An aircraft change releases the axes and waits for steady physics again; the
 // supervisor keeps running, so pitch and roll return on the new aircraft.
