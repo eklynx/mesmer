@@ -21,7 +21,7 @@ inline Geometry geometry(const View& v) {
     g.rest=elevator_rad(s,p.rest_counts);
     g.drive_rest=std::isfinite(p.drive_rest_counts)?elevator_rad(s,p.drive_rest_counts):g.rest;
     // The page marks the drive's rest where it is half a percent of travel or more from the model's.
-    g.drive_differs=v.session && std::isfinite(p.drive_rest_counts) && std::abs(p.drive_rest_counts-p.rest_counts)>=full_travel_counts/200;
+    g.drive_differs=v.session && std::isfinite(p.drive_rest_counts) && std::abs(p.drive_rest_counts-p.rest_counts)>=full_travel_counts()/200;
     const double t=std::isfinite(v.inputs.trim)?std::clamp(v.inputs.trim,-1.0,1.0):0.0;
     g.tab=(t>=0?t*v.figures.tab_down_deg:t*v.figures.tab_up_deg)*radians_per_degree;
     g.weight=s.w*std::cos(g.elevator);g.air=-s.k*(g.elevator-s.trim_rad);g.net=g.weight+g.air;
@@ -34,7 +34,7 @@ inline std::string status(const View& v) {
     if (!v.session) return v.force_feel?"Force feel starting":"Force feel off \xC2\xB7 the yoke is free";
     if (v.blending) return "Blending to the new feel";
     if (p.bias_limited) {
-        const double off=(p.drive_rest_counts-p.rest_counts)/(full_travel_counts/100);
+        const double off=(p.drive_rest_counts-p.rest_counts)/(full_travel_counts()/100);
         return "Force limit \xC2\xB7 rests "+std::to_string(std::max(1L,std::lround(std::abs(off))))+"% "+(off>0?"fwd":"aft")+" of model";
     }
     if (p.saturated) {

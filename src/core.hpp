@@ -6,8 +6,10 @@
 #include <cstring>
 #include <optional>
 #include <stdexcept>
+#include <cstdio>
 #include <string>
 #include "aileron.hpp"
+#include "drive.hpp"
 
 namespace brunner {
 using Clock = std::chrono::steady_clock;
@@ -74,6 +76,8 @@ struct Snapshot {
     Clock::time_point sampled{}; // beginning of the complete sampling cycle
     std::uint64_t cycles=0;
     bool connected=false;
+    std::uint16_t usb_vendor=0,usb_product=0; // the USB id of the bridge opened: the model follows from it
+    std::string model,model_title,yoke_note;  // its preset, and a note when the firmware is outside what that preset was verified on
     bool bridge_present=false; // USB bridge enumerated; controllers may still be unpowered
     bool bridge_busy=false; // another program (CLS2Sim, Simux) holds the bridge open
     bool stop_unconfirmed=false; // a motor stop could not be verified; never retried automatically
@@ -139,7 +143,6 @@ inline FlightInput flight_input(const Snapshot& s, const std::array<Calibration,
     if (!s.connected || s.cycles==0) return unavailable("No complete yoke sample");
     if (now<s.sampled || now-s.sampled>std::chrono::milliseconds(250)) return unavailable("Yoke data stale");
     for (const auto& a:s.axes) {
-        if (a.firmware!=367) return unavailable("Unsupported controller firmware");
         if (a.status&0x0008) return unavailable("Controller fault");
         if (a.status&0x0100) return unavailable("Controller homing error");
         if (!(a.status&0x1000)) return unavailable("Controller reference not initialized");
@@ -151,7 +154,13 @@ inline FlightInput flight_input(const Snapshot& s, const std::array<Calibration,
 }
 // Bit 11 reports an internal limit, not loss of a completed reference. Keep
 // live position input at the end stop while still rejecting other state changes.
-inline bool referenced_stopped_status(std::uint16_t word) {return (word & ~0x0800u)==0x0431u;}
+inline bool referenced_stopped_status(std::uint16_t word) {return (word & ~0x0800u)==active_drive().status_stopped;}
+// A spring is live: every bit of the model's ready mask is set.
+inline bool status_ready(std::uint16_t word) {return (word&active_drive().status_ready_mask)==active_drive().status_ready_mask;}
+inline std::string status_hex(std::uint16_t word) {
+    char text[16];std::snprintf(text,sizeof(text),"0x%04x",static_cast<unsigned>(word));return text;
+}
+inline std::string status_words(const Snapshot& s) {return "status "+status_hex(s.axes[0].status)+"/"+status_hex(s.axes[1].status);}
 // Commissioning input with the motors disabled after a successful centering
 // test. 0x2106 freezes when stopped; use the observed live 0x6064 encoder.
 // The reference is valid only for this continuous reader session. A cold/reset
@@ -160,8 +169,8 @@ inline FlightInput stopped_flight_input(const Snapshot& s,const std::array<Calib
     if (!s.session_reference || s.reference_active) return {false,0,0,"Run reference and centering before input"};
     if (!s.connected || s.cycles==0 || now<s.sampled || now-s.sampled>std::chrono::milliseconds(250))
         return {false,0,0,"Yoke data stale or unavailable"};
-    for (const auto& a:s.axes) if (a.firmware!=367 || (s.loading_active?((a.status&0x1017)!=0x1017 || (a.status&0x2108)!=0):!referenced_stopped_status(a.status)))
-        return {false,0,0,"Controller state changed; reference invalid"};
+    for (const auto& a:s.axes) if (s.loading_active?(!status_ready(a.status) || (a.status&0x2108)!=0):!referenced_stopped_status(a.status))
+        return {false,0,0,"Controller state changed; reference invalid ("+status_words(s)+")"};
     for (const auto& cal:c) if (!cal.verified || cal.lower>=0 || cal.upper<=0)
         return {false,0,0,"Axis calibration not verified"};
     return {true,normalize(s.axes[0].encoder,c[0]),normalize(s.axes[1].encoder,c[1]),

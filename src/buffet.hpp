@@ -35,7 +35,7 @@ inline std::uint32_t buffet_units(const BuffetKnob& k,double share) {
     return static_cast<std::uint32_t>(std::lround(buffet_ceiling_units*(k.percent/100.0)*level));
 }
 // Buffet's share of the drive's budget (decision 16, tuning.hpp): spring plus
-// constant force plus shake stays within drive_margin_units on each axis.
+// constant force plus shake stays within drive_margin_units() on each axis.
 // While the knob is on, the session reserves its configured maximum, percent
 // of buffet_ceiling_units, on both axes; with it off, nothing.
 inline DriveReserve buffet_reserve(const BuffetKnob& k) {
@@ -46,7 +46,7 @@ inline DriveReserve buffet_reserve(const BuffetKnob& k) {
 // The room the spring line as written leaves under the margin, anywhere in
 // the travel: what a shake may add at most.
 inline std::uint32_t buffet_headroom(int strength,std::int32_t centre,std::int32_t bias,std::int32_t travel) {
-    const double room=drive_margin_units-worst_force_units(strength,centre,-double(bias),travel);
+    const double room=drive_margin_units()-worst_force_units(strength,centre,-double(bias),travel);
     return room>0?static_cast<std::uint32_t>(std::floor(room)):0u;
 }
 // What the flight asks of each axis, before the headroom.
@@ -65,9 +65,9 @@ public:
         const auto period=static_cast<std::uint32_t>(t.knob.period);
         const auto knob_reserve=buffet_reserve(t.knob);
         const auto most=[](int u) {return static_cast<std::uint32_t>(u);};
-        axis(bridge,2,on?std::min({t.pitch,most(knob_reserve.pitch),buffet_headroom(applied.pitch_percent,applied.pitch_trim,applied.pitch_bias,pitch_travel_bound)}):0,
+        axis(bridge,2,on?std::min({t.pitch,most(knob_reserve.pitch),buffet_headroom(applied.pitch_percent,applied.pitch_trim,applied.pitch_bias,pitch_travel_bound())}):0,
             period,session_modes[1],stop);
-        axis(bridge,1,on?std::min({t.roll,most(knob_reserve.roll),buffet_headroom(applied.roll_percent,applied.roll_trim,0,roll_travel_bound)}):0,
+        axis(bridge,1,on?std::min({t.roll,most(knob_reserve.roll),buffet_headroom(applied.roll_percent,applied.roll_trim,0,roll_travel_bound())}):0,
             period,session_modes[0],stop);
     }
     // The reserve a session's spring writes keep this update: the knob's, and

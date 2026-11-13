@@ -59,7 +59,7 @@ inline bool valid_figures(const ElevatorFigures& e) {
 // level flight, no angle and nothing stalled.
 struct ElevatorInputs {double trim=0,tail_pa=0,load_factor=1,tail_alpha_deg=0,tail_stalled_xp=0;};
 inline constexpr double radians_per_degree=3.14159265358979323846/180,newton_metres_per_inlb=0.112985;
-inline constexpr double full_travel_counts=12000;
+inline double full_travel_counts() {return active_drive().pitch_travel_counts;}
 // The model's own constants, as the ailerons' (decision 5's amendment): under
 // this pressure over the tail its angle and stall say nothing; the angle is
 // clamped before it enters the float.
@@ -150,11 +150,11 @@ inline ElevatorMoments elevator_moments(const ElevatorState& s,double rad) {
     return m;
 }
 inline double elevator_rad(const ElevatorState& s,double counts) {
-    const double x=std::clamp(counts,-full_travel_counts,full_travel_counts)/full_travel_counts;
+    const double x=std::clamp(counts,-full_travel_counts(),full_travel_counts())/full_travel_counts();
     return x>=0?x*s.down:x*s.up;
 }
 inline double elevator_counts(const ElevatorState& s,double rad) {
-    return std::clamp(rad>=0?rad/s.down:rad/s.up,-1.0,1.0)*full_travel_counts;
+    return std::clamp(rad>=0?rad/s.down:rad/s.up,-1.0,1.0)*full_travel_counts();
 }
 // The force at the grip, lb, forward positive: the hinge moment through the gearing.
 inline double grip_lb(const ElevatorState& s,double rad) {
@@ -214,14 +214,14 @@ inline double elevator_rest_rad(const ElevatorState& s,double from_rad=std::nume
 // docs/brunner/firmware.md). Forward positive is the sign the trim path has
 // always written 0x2116 with; no powered check has confirmed it yet, and if
 // the first one shows the rest mirrored, this sign is the one to flip.
-inline double drive_counts_from_encoder(std::int32_t encoder) {return -static_cast<double>(encoder);}
+inline double drive_counts_from_encoder(std::int32_t encoder) {return active_drive().pitch_encoder_sign*static_cast<double>(encoder);}
 // The drive's spring is the straight-line curve (model_curve in loading.hpp):
 // 1000 units 12000 counts from its centre at 100 %.
-inline constexpr double curve_units_per_count_percent=1000.0/12000/100;
+inline double curve_units_per_count_percent() {return 1000.0/full_travel_counts()/100;}
 inline constexpr double secant_minimum_counts=60;
 // What the model wants at the yoke's position x0, and the drive's strength s,
 // centre c and constant force b that give it. The drive's force is the line
-// F(x) = b - k_s*(x - c), k_s = s*curve_units_per_count_percent, forward
+// F(x) = b - k_s*(x - c), k_s = s*curve_units_per_count_percent(), forward
 // positive; b and c enter only as b + k_s*c, so a line through one point has
 // one free choice, which puts c on the rest and b to zero inside the travel.
 // - Anchor: the model's rest, with the model's force there (zero inside the
@@ -274,9 +274,9 @@ inline PitchSolution solve_pitch(const ElevatorFigures& e,const ElevatorInputs& 
     const auto at_rest=tail_flow(s,rest);
     r.stiffness_lb_per_in=s.k*s.turn*at_rest.eff/newton_metres_per_inlb*s.gearing*s.gearing;
     r.rest_counts=elevator_counts(s,rest);
-    r.at_stop=std::abs(r.rest_counts)>=full_travel_counts-0.5;
+    r.at_stop=std::abs(r.rest_counts)>=full_travel_counts()-0.5;
     const double anchor_lb=r.at_stop?grip_lb(s,rest):0.0;
-    const double x=std::isfinite(x0)?std::clamp(x0,-full_travel_counts,full_travel_counts):r.rest_counts;
+    const double x=std::isfinite(x0)?std::clamp(x0,-full_travel_counts(),full_travel_counts()):r.rest_counts;
     r.force_lb=grip_lb(s,elevator_rad(s,x));
     {
         const auto at_yoke=tail_flow(s,elevator_rad(s,x));
@@ -288,33 +288,33 @@ inline PitchSolution solve_pitch(const ElevatorFigures& e,const ElevatorInputs& 
     if (std::abs(dx)<secant_minimum_counts) {
         const double side=dx>0?1.0:dx<0?-1.0:(r.rest_counts>0?-1.0:1.0);
         dx=side*secant_minimum_counts;
-        if (std::abs(r.rest_counts+dx)>full_travel_counts) dx=-dx;
+        if (std::abs(r.rest_counts+dx)>full_travel_counts()) dx=-dx;
     }
     r.slope_lb_per_count=(anchor_lb-grip_lb(s,elevator_rad(s,r.rest_counts+dx)))/dx;
-    const double want=r.slope_lb_per_count*u/curve_units_per_count_percent;
+    const double want=r.slope_lb_per_count*u/curve_units_per_count_percent();
     const double anchor=r.rest_counts;
     r.centre=static_cast<std::int32_t>(std::lround(anchor));
     // The constant force a strength would be sent with, as held below.
     const auto held_at=[&](int strength) {
-        const double b=anchor_lb*u+strength*curve_units_per_count_percent*(anchor-r.centre);
-        return static_cast<std::int32_t>(std::lround(std::clamp(b,-double(max_pitch_bias),double(max_pitch_bias))));
+        const double b=anchor_lb*u+strength*curve_units_per_count_percent()*(anchor-r.centre);
+        return static_cast<std::int32_t>(std::lround(std::clamp(b,-double(max_pitch_bias()),double(max_pitch_bias()))));
     };
-    r.ceiling=drive_ceiling(full_travel_counts,[&](int strength) {return std::pair<double,double>{double(r.centre),double(held_at(strength))};});
+    r.ceiling=drive_ceiling(full_travel_counts(),[&](int strength) {return std::pair<double,double>{double(r.centre),double(held_at(strength))};});
     // With a constant force the strength stays where the firmware keeps it
     // (0x211f's cut-off, tuning.hpp): the push at a stop is never lost.
     while (r.ceiling>strongest_with_constant_force_percent && held_at(r.ceiling)!=0) --r.ceiling;
     r.saturated=want>r.ceiling+1e-9;
     r.floored=!std::isfinite(want) || want<softest_spring_percent-0.5;
     r.strength=spring_percent(want,r.ceiling);
-    const double ks=r.strength*curve_units_per_count_percent;
+    const double ks=r.strength*curve_units_per_count_percent();
     const double b=anchor_lb*u+ks*(anchor-r.centre);
-    r.bias_limited=std::abs(b)>max_pitch_bias+0.5;
+    r.bias_limited=std::abs(b)>max_pitch_bias()+0.5;
     const auto held=held_at(r.strength);
     r.bias=-held;r.bias_lb=held/u;
     r.drive_force_lb=(held-ks*(x-r.centre))/u;
     r.drive_slope_lb_per_count=ks/u;
-    r.drive_rest_counts=ks>0?std::clamp(r.centre+held/ks,-full_travel_counts,full_travel_counts)
-        :held>0?full_travel_counts:held<0?-full_travel_counts:double(r.centre);
+    r.drive_rest_counts=ks>0?std::clamp(r.centre+held/ks,-full_travel_counts(),full_travel_counts())
+        :held>0?full_travel_counts():held<0?-full_travel_counts():double(r.centre);
     if (r.slope_lb_per_count>0) r.shrink_ratio=r.drive_slope_lb_per_count/r.slope_lb_per_count;
     return r;
 }

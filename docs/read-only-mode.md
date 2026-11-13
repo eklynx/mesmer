@@ -8,11 +8,14 @@ The code it describes: `src/readonly.hpp` (the rules; read it first),
 
 ## When
 
-Mesmer drives the original CLS-E, whose controllers report firmware **367**.
-If either controller on a listed USB bridge ([hid-bridge.md](hid-bridge.md))
-reports anything else, for example **642** on a CLS-E NG, the yoke is
-**read-only**: automatically, with no setting. Unlisted USB ids are never
-opened.
+A yoke is read-only when its **model's preset is not verified** and the owner has
+not set `allow_unverified_yoke=1` in `BrunnerDirect.ini`
+([yoke-presets.md](yoke-presets.md)). The model follows from the USB id, never
+from the firmware: a firmware outside the verified list is noted in the log and the
+Force Monitor and changes nothing. Today that means a **CLS-E NG** (`25BB:008B`)
+without the key; the original CLS-E is verified and is always driven. Unlisted
+USB ids are never opened. With the key set, the NG is driven; its first writes are
+one setting written back unchanged (see the presets spec).
 
 ## The guarantee: nothing is written
 

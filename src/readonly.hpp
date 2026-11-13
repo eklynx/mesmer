@@ -18,6 +18,7 @@
 #pragma once
 #include "core.hpp"
 #include "json.hpp"
+#include "yoke_preset.hpp"
 #include <algorithm>
 #include <array>
 #include <cstdint>
@@ -25,10 +26,23 @@
 #include <string>
 
 namespace brunner {
-inline constexpr std::uint16_t supported_firmware=367;
-// Any controller on another firmware makes the whole yoke read-only.
-inline bool needs_read_only(const std::array<std::uint16_t,2>& firmware) {
-    return firmware[0]!=supported_firmware || firmware[1]!=supported_firmware;
+// Why a yoke is read-only, if it is. A model whose preset is not verified is only driven
+// when the owner has acknowledged it (allow_unverified_yoke=1 in BrunnerDirect.ini).
+// Firmware never decides this: a firmware outside the preset's verified list is noted
+// in the log and the Force Monitor, nothing more.
+inline std::optional<std::string> read_only_reason(const YokePreset& preset,bool allow_unverified) {
+    if (preset.verified || allow_unverified) return std::nullopt;
+    return "Yoke model "+preset.title+" is not verified: read-only. To drive it, set allow_unverified_yoke=1 in BrunnerDirect.ini";
+}
+// The note for a firmware the preset was not verified on, or empty when it was.
+inline std::string firmware_note(const YokePreset& preset,const std::array<std::uint16_t,2>& firmware) {
+    for (const auto f:firmware) {
+        if (firmware_verified(preset,f)) continue;
+        std::string verified;
+        for (const auto v:preset.verified_firmware) verified+=(verified.empty()?"":", ")+std::to_string(v);
+        return "Firmware "+std::to_string(f)+" is not one the "+preset.title+" settings were verified on ("+(verified.empty()?std::string("none"):verified)+")";
+    }
+    return {};
 }
 // The status bits the CLS-E's own input gate uses (core.hpp flight_input). On the
 // NG, bit 0x1000 is absent exactly while it homes at power-on (captured

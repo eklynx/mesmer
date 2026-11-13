@@ -152,7 +152,13 @@ std::string last_inspection;
 std::string last_loading;
 // Stored controller soft travel, with directions confirmed by the supervised
 // November 6 push/pull/right/left recording. End-to-end simulator check follows.
-const std::array<brunner::Calibration,2> calibration{{{-13000,13000,true,true},{-12000,12000,false,true}}};
+// The CLS-E-flow input calibration: the active drive's travel either way, in its directions
+// (roll right positive, pitch forward positive). The CLS-E's is -13000..13000 reversed / -12000..12000.
+std::array<brunner::Calibration,2> calibration() {
+    const auto& d=brunner::active_drive();
+    const auto roll=static_cast<std::int32_t>(std::lround(d.roll_travel_counts)),pitch=static_cast<std::int32_t>(std::lround(d.pitch_travel_counts));
+    return {{{-roll,roll,d.roll_input_reverse,true},{-pitch,pitch,d.pitch_input_reverse,true}}};
+}
 XPLMDataRef pitch_override=nullptr,roll_override=nullptr,pitch_value=nullptr,roll_value=nullptr;
 XPLMDataRef paused=nullptr,scenery_loading=nullptr,flight_clock=nullptr;
 XPLMDataRef trim_override=nullptr,sim_trim=nullptr,airspeed=nullptr,load_factor_ref=nullptr;
@@ -167,6 +173,9 @@ bool travel_dirty=false;
 brunner::Clock::time_point travel_saved{};
 unsigned surveys_written=0;
 std::filesystem::path output_folder; // Output/BrunnerDirect, set when the plugin is enabled
+// The yoke models: the built-ins, plus anything BrunnerDirect.yokes.json adds or changes.
+std::vector<brunner::YokePreset> yoke_presets=brunner::builtin_yoke_presets();
+std::string last_yoke_note,last_yoke_model;
 enum class LiveField { roll_target,pitch_target,trim_target,roll_applied,pitch_applied,trim_applied,
     connected,reference_active,referenced,loading_active,tuning_valid,remaining,sample_age,
     roll_encoder,pitch_encoder,roll_status,pitch_status,last_write_accepted,rejected_writes,
@@ -623,6 +632,28 @@ void publish_feel(const brunner::Snapshot& s,const brunner::FlightInput& input,c
     for (std::size_t i=0;i<live.pitch_curve.size();++i) live.pitch_curve[i]=shape[i];
     bench->publish(now,live);
 }
+// Read once at start. A missing file is normal; a file that does not validate is refused whole
+// and the built-in models stay in force (nothing half-applied).
+void load_yoke_presets() {
+    yoke_presets=brunner::builtin_yoke_presets();
+    const auto path=plugin_folder/brunner::yokes_file;
+    std::ifstream in(path,std::ios::binary);
+    if (in) {
+        std::stringstream text;text<<in.rdbuf();
+        try {
+            yoke_presets=brunner::parse_yoke_presets(text.str(),yoke_presets);
+            log("Yoke models loaded from "+path.string());
+        } catch (const std::exception& e) {
+            yoke_presets=brunner::builtin_yoke_presets();
+            log(std::string("Yoke models file refused, built-in models only: ")+e.what());
+        }
+    }
+    std::string names;
+    for (const auto& m:yoke_presets) names+=(names.empty()?"":", ")+m.name+(m.verified?"":" (unverified)");
+    log("Yoke models: "+names);
+    reader.set_presets(yoke_presets);
+    reader.set_allow_unverified(flight_settings.allow_unverified_yoke!=0);
+}
 std::filesystem::path travel_file() {return output_folder/"read-only-travel.json";}
 // Written atomically (temp file, then rename), at most every 5 s and only when the range widened.
 void save_travel(brunner::Clock::time_point now,bool force) {
@@ -652,7 +683,7 @@ void load_travel(const std::array<std::uint16_t,2>& firmware) {
 // Position input: the CLS-E's own once centred (firmware 367), else, in read-only
 // mode, the learned travel. The learners watch every sample; the file follows them.
 brunner::FlightInput current_input(const brunner::Snapshot& s,brunner::Clock::time_point now) {
-    if (!s.read_only) return brunner::stopped_flight_input(s,calibration,now);
+    if (!s.read_only) return brunner::stopped_flight_input(s,calibration(),now);
     const std::array<std::uint16_t,2> firmware{s.axes[0].firmware,s.axes[1].firmware};
     if (firmware!=travel_firmware) {save_travel(now,true);load_travel(firmware);}
     const auto result=brunner::read_only_flight_input(s,read_only_travel,
@@ -685,6 +716,8 @@ float update(float,float,int,void*) {
     if (!s.loading_inspection.empty() && s.loading_inspection!=last_inspection) {log("Loading inspection: "+s.loading_inspection);last_inspection=s.loading_inspection;}
     const auto input=current_input(s,now);
     write_survey(s);
+    if (s.model!=last_yoke_model) {last_yoke_model=s.model;if (!s.model.empty()) log("Yoke model: "+s.model_title+" (USB "+brunner::status_hex(s.usb_vendor)+":"+brunner::status_hex(s.usb_product)+")");}
+    if (s.yoke_note!=last_yoke_note) {last_yoke_note=s.yoke_note;if (!s.yoke_note.empty()) log("Yoke firmware note: "+s.yoke_note);}
     last_input_status=apply_input(input);
     const bool is_paused=paused && XPLMGetDatai(paused)!=0;
     const bool input_running=paused && !is_paused && controls_available();
@@ -767,7 +800,7 @@ float update(float,float,int,void*) {
     publish_feel(s,input,solution,lab_active,fresh,now);
     force_hud.observe_pitch(pitch_card(s,input,solution));
     log_feel_events();
-    force_monitor.set_status(decision.status);force_hud.set_status(decision.status,corner_reason);
+    force_monitor.set_status(s.yoke_note.empty()?decision.status:decision.status+"  |  "+s.yoke_note);force_hud.set_status(decision.status,corner_reason);
     // Log live evidence at one-second intervals without a companion recorder.
     static auto last_log=brunner::Clock::time_point{};
     if (s.connected && now-last_log>=std::chrono::seconds(1)) {
@@ -782,7 +815,7 @@ float update(float,float,int,void*) {
     // stopped/disconnected device and renewable short lease are mandatory.
     if (lab_active && sim_trim) XPLMSetDataf(sim_trim,static_cast<float>(diagnostic_trim.target())/1000.0f);
     auto frame=brunner::monitor::make_frame(s,reader.requested_tuning(),flight_output,flight_settings,
-        flight_sample,target.has_value(),calibration,now);
+        flight_sample,target.has_value(),calibration(),now);
     frame.owns_axes=owns_axes;frame.owns_trim=owns_trim;
     recorder.observe(frame);
     const auto recording_state=recorder.state();const auto recording_dropped=recorder.dropped();
@@ -1104,6 +1137,7 @@ PLUGIN_API int XPluginStart(char* name,char* signature,char* description) {
         for (const auto& line:wb::managed_adjustments(flight_settings)) log(line);
         bench=std::make_unique<wb::Workbench>(wb::from_managed(flight_settings));
         for (const auto& line:bench->load(plugin_folder)) log(line);
+        load_yoke_presets();
         sync_feel(brunner::Clock::now());
     } catch (const std::exception& e) {log(std::string("Configuration invalid; plugin not started: ")+e.what());return 0;}
     parent_item=XPLMAppendMenuItem(XPLMFindPluginsMenu(),"Yoke (Brunner)",nullptr,0);

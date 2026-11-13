@@ -33,6 +33,7 @@ HidCandidate bridge_candidate(std::uint16_t vendor=0x25bb,std::uint16_t product=
 // Scripted device: each read() pops the next step; an empty script means "unrelated
 // traffic every 10 ms" so a caller waiting for a reply runs into its deadline.
 struct FakeDevice : HidDevice {
+    UsbId id() const override {return {0x25bb,0x0081};}
     std::deque<std::function<void(Report&)>> script;
     std::vector<Report>* writes;
     bool fail_write=false;
@@ -77,19 +78,34 @@ void selection() {
     // Each listed id is accepted, alone and among unrelated devices.
     for (const auto& id:bridge_ids) {
         std::vector<HidCandidate> list{HidCandidate{},bridge_candidate(id.vendor,id.product),HidCandidate{}};
-        check(select_bridge(list)==1);
+        check(select_bridge(list,default_usb_ids())==1);
     }
     // A listed id with the wrong descriptor is not the bridge.
-    auto bad=bridge_candidate();bad.usage_page=0x0001;check(throws<BridgeAbsent>([&]{select_bridge({bad});}));
-    bad=bridge_candidate();bad.usage=0x0004;check(throws<BridgeAbsent>([&]{select_bridge({bad});}));
-    bad=bridge_candidate();bad.input_length=32;check(throws<BridgeAbsent>([&]{select_bridge({bad});}));
-    bad=bridge_candidate();bad.output_length=65;check(throws<BridgeAbsent>([&]{select_bridge({bad});}));
+    auto bad=bridge_candidate();bad.usage_page=0x0001;check(throws<BridgeAbsent>([&]{select_bridge({bad},default_usb_ids());}));
+    bad=bridge_candidate();bad.usage=0x0004;check(throws<BridgeAbsent>([&]{select_bridge({bad},default_usb_ids());}));
+    bad=bridge_candidate();bad.input_length=32;check(throws<BridgeAbsent>([&]{select_bridge({bad},default_usb_ids());}));
+    bad=bridge_candidate();bad.output_length=65;check(throws<BridgeAbsent>([&]{select_bridge({bad},default_usb_ids());}));
     // The right descriptor on an id that is not listed is not the bridge either.
-    check(throws<BridgeAbsent>([&]{select_bridge({bridge_candidate(0x25bb,0x0082)});}));
-    check(throws<BridgeAbsent>([&]{select_bridge({});}));
+    check(throws<BridgeAbsent>([&]{select_bridge({bridge_candidate(0x25bb,0x0082)},default_usb_ids());}));
+    check(throws<BridgeAbsent>([&]{select_bridge({},default_usb_ids());}));
     // More than one: refuse, even for two different listed ids.
-    check(throws<std::runtime_error>([&]{select_bridge({bridge_candidate(),bridge_candidate()});},"found several"));
-    check(throws<std::runtime_error>([&]{select_bridge({bridge_candidate(0x25bb,0x0081),bridge_candidate(0x25bb,0x008b)});},"found several"));
+    check(throws<std::runtime_error>([&]{select_bridge({bridge_candidate(),bridge_candidate()},default_usb_ids());},"found several"));
+    check(throws<std::runtime_error>([&]{select_bridge({bridge_candidate(0x25bb,0x0081),bridge_candidate(0x25bb,0x008b)},default_usb_ids());},"found several"));
+}
+// The ids come from the yoke presets, so a model added to the presets file is found
+// and one that is not named there is not, whatever the built-ins say.
+void the_id_list_is_the_callers() {
+    const std::vector<UsbId> club{{0x1234,0x5678}};
+    check(select_bridge({HidCandidate{},bridge_candidate(0x1234,0x5678)},club)==1);          // an id the built-ins lack
+    check(throws<BridgeAbsent>([&]{select_bridge({bridge_candidate(0x25bb,0x0081)},club);})); // a built-in id not in this list
+    check(throws<BridgeAbsent>([&]{select_bridge({bridge_candidate()},{});}));               // an empty list opens nothing
+    // Both models listed and both present: still refused, not guessed.
+    check(throws<std::runtime_error>([&]{select_bridge({bridge_candidate(0x1234,0x5678),bridge_candidate(0x25bb,0x0081)},
+        {{0x1234,0x5678},{0x25bb,0x0081}});},"found several"));
+}
+void a_bridge_reports_the_id_it_opened() {
+    Rig rig;
+    check(rig.bridge->id().vendor==0x25bb && rig.bridge->id().product==0x0081);
 }
 void a_read_returns_the_matching_reply() {
     Rig rig;
@@ -129,6 +145,8 @@ int main() {
     try {
         the_id_list();
         selection();
+        the_id_list_is_the_callers();
+        a_bridge_reports_the_id_it_opened();
         a_read_returns_the_matching_reply();
         unrelated_replies_are_skipped();
         transport_failures_surface();

@@ -28,9 +28,9 @@ struct DeviceList {
     ~DeviceList() { SetupDiDestroyDeviceInfoList(value); }
 };
 // Fills `out` from an open handle; false when it is not a listed id or cannot be read.
-bool describe(HANDLE h,HidCandidate& out) {
+bool describe(HANDLE h,HidCandidate& out,const std::vector<UsbId>& ids) {
     HIDD_ATTRIBUTES attributes{}; attributes.Size=sizeof(attributes);
-    if (!HidD_GetAttributes(h,&attributes) || !is_bridge_id(attributes.VendorID,attributes.ProductID)) return false;
+    if (!HidD_GetAttributes(h,&attributes) || !id_listed(ids,attributes.VendorID,attributes.ProductID)) return false;
     PHIDP_PREPARSED_DATA data=nullptr;
     if (!HidD_GetPreparsedData(h,&data)) return false;
     HIDP_CAPS caps{};
@@ -42,7 +42,7 @@ bool describe(HANDLE h,HidCandidate& out) {
     out.input_length=caps.InputReportByteLength;out.output_length=caps.OutputReportByteLength;
     return true;
 }
-std::wstring find_bridge() {
+std::wstring find_bridge(const std::vector<UsbId>& ids) {
     GUID guid; HidD_GetHidGuid(&guid);
     DeviceList list{SetupDiGetClassDevsW(&guid,nullptr,nullptr,DIGCF_PRESENT|DIGCF_DEVICEINTERFACE)};
     if (list.value==INVALID_HANDLE_VALUE) throw std::runtime_error("Cannot enumerate HID devices");
@@ -63,15 +63,16 @@ std::wstring find_bridge() {
         if (!SetupDiGetDeviceInterfaceDetailW(list.value,&entry,detail,bytes,nullptr,nullptr)) continue;
         Handle candidate(CreateFileW(detail->DevicePath,0,FILE_SHARE_READ|FILE_SHARE_WRITE,nullptr,OPEN_EXISTING,0,nullptr));
         HidCandidate described;
-        if (candidate.value!=INVALID_HANDLE_VALUE && describe(candidate.value,described)) {
+        if (candidate.value!=INVALID_HANDLE_VALUE && describe(candidate.value,described,ids)) {
             candidates.push_back(described);
             paths.emplace_back(detail->DevicePath);
         }
     }
-    return paths[select_bridge(candidates)];
+    return paths[select_bridge(candidates,ids)];
 }
 class WinHidDevice final : public HidDevice {
     Handle handle_;
+    UsbId id_{};
     void transfer(Report& report, bool write, DWORD wait_ms) {
         Handle event(CreateEventW(nullptr,TRUE,FALSE,nullptr));
         if (!event.value) throw TransportError("Cannot create HID completion event");
@@ -92,21 +93,23 @@ class WinHidDevice final : public HidDevice {
         if (bytes!=64) throw TransportError("Short HID report");
     }
  public:
-    explicit WinHidDevice(const std::wstring& path)
+    WinHidDevice(const std::wstring& path,const std::vector<UsbId>& ids)
         :handle_(CreateFileW(path.c_str(),GENERIC_READ|GENERIC_WRITE,0,nullptr,OPEN_EXISTING,FILE_FLAG_OVERLAPPED,nullptr)) {
         if (handle_.value==INVALID_HANDLE_VALUE) throw BridgeBusy{};
         HidCandidate described;
-        if (!describe(handle_.value,described)) throw TransportError("Unexpected bridge descriptor");
-        try {select_bridge({described});} // the opened device must still qualify
+        if (!describe(handle_.value,described,ids)) throw TransportError("Unexpected bridge descriptor");
+        id_={described.vendor,described.product};
+        try {select_bridge({described},ids);} // the opened device must still qualify
         catch (const std::exception&) {throw TransportError("Unexpected bridge descriptor");}
         flush();
     }
+    UsbId id() const override {return id_;}
     void write(const Report& report,int timeout_ms) override {Report copy=report;transfer(copy,true,static_cast<DWORD>(timeout_ms));}
     void read(Report& report,int timeout_ms) override {transfer(report,false,static_cast<DWORD>(timeout_ms));}
     void flush() override {if (!HidD_FlushQueue(handle_.value)) throw TransportError("Cannot clear old HID input");}
 };
 }
-std::unique_ptr<HidDevice> open_bridge() {
-    return std::make_unique<WinHidDevice>(find_bridge());
+std::unique_ptr<HidDevice> open_bridge(const std::vector<UsbId>& ids) {
+    return std::make_unique<WinHidDevice>(find_bridge(ids),ids);
 }
 }

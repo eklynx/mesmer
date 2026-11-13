@@ -38,6 +38,8 @@ struct FlightSettings {
     int buffet=0,buffet_percent=10,buffet_period=80;
     // Read-only mode (readonly.hpp): flip an axis whose learned direction is backwards.
     int read_only_roll_reverse=0,read_only_pitch_reverse=0;
+    // Drive a yoke model whose preset is not verified (yoke_preset.hpp): the owner's acknowledgement.
+    int allow_unverified_yoke=0;
 };
 inline bool valid_flight_settings(const FlightSettings& c) {
     return (c.auto_start==0 || c.auto_start==1) && (c.force_feel==0 || c.force_feel==1)
@@ -46,7 +48,7 @@ inline bool valid_flight_settings(const FlightSettings& c) {
         && c.pitch_force_gain_divisor>=1 && c.pitch_force_gain_divisor<=6 && c.pitch_move_back_gain>=180 && c.pitch_move_back_gain<=720
         && c.reference_airspeed>=40 && c.reference_airspeed<=400
         && c.roll_minimum_percent==softest_spring_percent
-        && (c.read_only_roll_reverse==0 || c.read_only_roll_reverse==1) && (c.read_only_pitch_reverse==0 || c.read_only_pitch_reverse==1)
+        && (c.allow_unverified_yoke==0 || c.allow_unverified_yoke==1) && (c.read_only_roll_reverse==0 || c.read_only_roll_reverse==1) && (c.read_only_pitch_reverse==0 || c.read_only_pitch_reverse==1)
         && (c.buffet==0 || c.buffet==1) && c.buffet_percent>=0 && c.buffet_percent<=100 && c.buffet_period>=10 && c.buffet_period<=140;
 }
 // Per-element dynamic pressure over two X-Plane wings, area-weighted so
@@ -247,9 +249,9 @@ inline std::optional<FlightTarget> flight_target(const FlightSample& s,const Fli
     // The rests reached from where the yoke and wheel are (X-Plane's ratios:
     // pitch aft positive, the drive's counts forward positive; roll right
     // positive in both), as the session's solve takes them.
-    const double rest=model_rest_counts(figures,m.inputs,-s.pitch*full_travel_counts);
-    const double roll_rest=wheel_exact_counts(ailerons,wheel_rest_rad(ailerons,air.inputs,wheel_rad(ailerons,s.roll*roll_travel_counts)));
-    return FlightTarget{{caps.roll_percent,caps.pitch_percent,0,0},m,roll,air.source,s.pitch+rest/full_travel_counts,s.roll-roll_rest/roll_travel_counts};
+    const double rest=model_rest_counts(figures,m.inputs,-s.pitch*full_travel_counts());
+    const double roll_rest=wheel_exact_counts(ailerons,wheel_rest_rad(ailerons,air.inputs,wheel_rad(ailerons,s.roll*roll_travel_counts())));
+    return FlightTarget{{caps.roll_percent,caps.pitch_percent,0,0},m,roll,air.source,s.pitch+rest/full_travel_counts(),s.roll-roll_rest/roll_travel_counts()};
 }
 // A loaded aircraft alone is insufficient: the first frame can still stall.
 // Observe completed physics frames after scenery work, then start from the

@@ -46,9 +46,9 @@ bool number_property(IOHIDDeviceRef device,CFStringRef key,int& out) {
     return value && CFGetTypeID(value)==CFNumberGetTypeID()
         && CFNumberGetValue(static_cast<CFNumberRef>(value),kCFNumberIntType,&out);
 }
-Ref<CFMutableArrayRef> matching_ids() {
+Ref<CFMutableArrayRef> matching_ids(const std::vector<UsbId>& ids) {
     Ref<CFMutableArrayRef> list(CFArrayCreateMutable(kCFAllocatorDefault,0,&kCFTypeArrayCallBacks));
-    for (const auto& id:bridge_ids) {
+    for (const auto& id:ids) {
         Ref<CFMutableDictionaryRef> match(CFDictionaryCreateMutable(kCFAllocatorDefault,0,&kCFTypeDictionaryKeyCallBacks,&kCFTypeDictionaryValueCallBacks));
         const int vendor=id.vendor,product=id.product;
         Ref<CFNumberRef> vendor_number(CFNumberCreate(kCFAllocatorDefault,kCFNumberIntType,&vendor));
@@ -70,11 +70,11 @@ struct Enumeration {
     std::vector<Ref<IOHIDDeviceRef>> devices; // same order as candidates
     std::string text;                          // raw values, for describe_mac_bridges
 };
-Enumeration enumerate() {
+Enumeration enumerate(const std::vector<UsbId>& ids) {
     Enumeration found;
     found.manager=Ref<IOHIDManagerRef>(IOHIDManagerCreate(kCFAllocatorDefault,kIOHIDOptionsTypeNone));
     if (!found.manager.get()) throw TransportError("Cannot create HID manager");
-    const auto list=matching_ids();
+    const auto list=matching_ids(ids);
     IOHIDManagerSetDeviceMatchingMultiple(found.manager.get(),list.get());
     const IOReturn opened=IOHIDManagerOpen(found.manager.get(),kIOHIDOptionsTypeNone);
     if (opened==kIOReturnNotPermitted) throw BridgeBusy{}; // typically: no Input Monitoring permission
@@ -115,6 +115,7 @@ class MacHidDevice final : public HidDevice {
     Enumeration found_; // keeps the manager and the device alive
     IOHIDDeviceRef device_=nullptr;
     bool opened_=false;
+    UsbId id_{};
     std::mutex mutex_;
     std::condition_variable changed_;
     std::deque<Input> queue_;
@@ -149,6 +150,7 @@ class MacHidDevice final : public HidDevice {
     }
  public:
     MacHidDevice(Enumeration found,std::size_t index):found_(std::move(found)),device_(found_.devices[index].get()) {
+        id_={found_.candidates[index].vendor,found_.candidates[index].product};
         const IOReturn opened=IOHIDDeviceOpen(device_,kIOHIDOptionsTypeSeizeDevice);
         if (opened==kIOReturnExclusiveAccess || opened==kIOReturnBusy || opened==kIOReturnNotPermitted) throw BridgeBusy{};
         if (opened!=kIOReturnSuccess) throw TransportError("Cannot open HID device");
@@ -175,6 +177,7 @@ class MacHidDevice final : public HidDevice {
             IOHIDDeviceClose(device_,kIOHIDOptionsTypeNone);
         }
     }
+    UsbId id() const override {return id_;}
     void write(const Report& report,int timeout_ms) override {
         std::unique_lock<std::mutex> lock(mutex_);
         if (dead_) throw TransportError("HID I/O failed");
@@ -207,14 +210,14 @@ class MacHidDevice final : public HidDevice {
     }
 };
 }
-std::unique_ptr<HidDevice> open_bridge() {
-    auto found=enumerate();
-    const auto index=select_bridge(found.candidates);
+std::unique_ptr<HidDevice> open_bridge(const std::vector<UsbId>& ids) {
+    auto found=enumerate(ids);
+    const auto index=select_bridge(found.candidates,ids);
     return std::make_unique<MacHidDevice>(std::move(found),index);
 }
-std::string describe_mac_bridges() {
+std::string describe_mac_bridges(const std::vector<UsbId>& ids) {
     try {
-        const auto found=enumerate();
+        const auto found=enumerate(ids);
         return found.text.empty() ? std::string("no HID device with a listed bridge id\n") : found.text;
     } catch (const std::exception& e) {
         return std::string("cannot enumerate: ")+e.what()+"\n";

@@ -904,7 +904,7 @@ void elevator_model_vectors() {
             const double x0=at && at->kind==Json::Kind::null?std::nan(""):num(s,"x0");
             const auto p=solve_pitch(e,inputs,x0,static_cast<int>(num(s,"units_per_lb")));
             const bool same=p.strength==num(s,"strength") && p.centre==num(s,"centre") && p.bias==num(s,"bias") && p.ceiling==num(s,"ceiling")
-                && within_margin(p.strength,p.centre,p.bias,pitch_travel_bound)
+                && within_margin(p.strength,p.centre,p.bias,pitch_travel_bound())
                 && std::abs(p.force_lb-num(s,"force_lb"))<2e-6 && std::abs(p.drive_force_lb-num(s,"drive_force_lb"))<2e-6
                 && std::abs(p.slope_lb_per_count-num(s,"slope_lb_per_count"))<2e-9 && p.saturated==flag(s,"saturated") && p.floored==flag(s,"floored") && p.bias_limited==flag(s,"bias_limited");
             if (!same) std::cerr<<name<<" at "<<x0<<": plugin strength "<<p.strength<<", centre "<<p.centre<<", bias "<<p.bias<<", model "<<p.force_lb
@@ -974,7 +974,7 @@ void elevator_alpha_vectors() {
         for (const double x0:{-12000.0,-3000.0,0.0,4500.0,12000.0}) {
             const auto p=solve_pitch(e,inputs,x0,222);
             ok=ok && close_to(p.rest_counts,elevator_counts(s,elevator_rest_rad(s,elevator_rad(s,x0))),1e-9) && close_to(p.force_lb,grip_lb(s,elevator_rad(s,x0)),1e-12)
-                && within_margin(p.strength,p.centre,p.bias,pitch_travel_bound) && keeps_constant_force(p.strength,p.bias)
+                && within_margin(p.strength,p.centre,p.bias,pitch_travel_bound()) && keeps_constant_force(p.strength,p.bias)
                 && p.strength>=softest_spring_percent && p.tail_reversed==s.reversed;
         }
         // The page's solve at each yoke position: the rest reached from it, the
@@ -1055,10 +1055,10 @@ void elevator_alpha_vectors() {
                 if (i>0) ok=ok && std::abs(rest-last_rest)<=most_rest && std::abs(r.stiffness_lb_per_in-last_k)<=pa*per_pa
                     && std::abs(f[0]-last_f[0])<=pa*per_pa && std::abs(f[1]-last_f[1])<=pa*per_pa;
                 // What the drive is sent, at the yoke's neutral and both stops.
-                for (const double x0:{0.0,-full_travel_counts,full_travel_counts}) {
+                for (const double x0:{0.0,-full_travel_counts(),full_travel_counts()}) {
                     const auto d=solve_pitch(e,inputs,x0,222);
-                    ok=ok && d.strength>=softest_spring_percent && d.strength<=d.ceiling && d.ceiling<=strongest_spring_percent
-                        && std::abs(d.centre)<=full_travel_counts && std::abs(d.bias)<=max_pitch_bias && std::isfinite(d.drive_force_lb)
+                    ok=ok && d.strength>=softest_spring_percent && d.strength<=d.ceiling && d.ceiling<=strongest_spring_percent()
+                        && std::abs(d.centre)<=full_travel_counts() && std::abs(d.bias)<=max_pitch_bias() && std::isfinite(d.drive_force_lb)
                         && valid_tuning(solved_tuning(Tuning{},d));
                 }
                 through_zero=through_zero || std::abs(r.stiffness_lb_per_in)<1e-9;negative=negative || r.stiffness_lb_per_in<0;
@@ -1167,7 +1167,7 @@ void aileron_model_vectors() {
         bool ok=aileron_indifferent(f,inputs)==flag(v,"indifferent") && close_to(rest/radians_per_degree,num(v,"rest_deg"),2e-6)
             && std::floor(wheel_exact_counts(f,rest)+0.5)==num(v,"rest_counts"); // Math.round
         // A rest at a stop keeps the model's torque there: the anchor the drive's centre is offset by.
-        const double anchor=std::abs(wheel_exact_counts(f,rest))>=roll_travel_counts-0.5?wheel_nm(f,inputs,rest):0;
+        const double anchor=std::abs(wheel_exact_counts(f,rest))>=roll_travel_counts()-0.5?wheel_nm(f,inputs,rest):0;
         ok=ok && close_to(anchor,num(v,"anchor_nm"),2e-9);
         anchored=anchored || anchor!=0;
         const auto half=aileron_angles(f,f.wheel_deg*radians_per_degree/2);
@@ -1190,7 +1190,7 @@ void aileron_model_vectors() {
             const double x0=at && at->kind==Json::Kind::null?std::nan(""):num(s,"x0");
             const auto r=solve_roll(f,inputs,x0,num(s,"units_per_nm"),flag(s,"force_exact_rule"));
             const bool same=r.strength==num(s,"strength") && r.centre==num(s,"centre") && r.ceiling==num(s,"ceiling")
-                && within_margin(r.strength,r.centre,0,roll_travel_bound)
+                && within_margin(r.strength,r.centre,0,roll_travel_bound())
                 && close_to(r.model_nm,num(s,"model_nm"),2e-9) && close_to(r.drive_nm,num(s,"drive_nm"),2e-9)
                 && close_to(r.slope_nm_per_count,num(s,"slope_nm_per_count"),2e-12) && r.saturated==flag(s,"saturated") && r.floored==flag(s,"floored")
                 && r.force_exact==flag(s,"force_exact") && r.centre_limited==flag(s,"centre_limited");
@@ -1201,7 +1201,7 @@ void aileron_model_vectors() {
                 const auto m=solve_roll(f,mirrored,-x0,num(s,"units_per_nm"),flag(s,"force_exact_rule"));
                 require(m.strength==r.strength && m.centre==-r.centre && close_to(m.model_nm,-r.model_nm,1e-9) && close_to(m.drive_nm,-r.drive_nm,1e-9),
                     "the mirrored registers are the registers' negative: "+name);
-                stops=stops || std::abs(x0)==roll_travel_counts;
+                stops=stops || std::abs(x0)==roll_travel_counts();
             }
             if (aileron_airless(inputs) && f.unbalance_inlb==0 && std::isfinite(x0) && flag(s,"force_exact_rule")) {
                 // No air: zero torque, the centre on the wheel, no force at all.
@@ -1253,10 +1253,10 @@ void aileron_model_vectors() {
                 if (i>0) ok=ok && (!held_rest || std::abs(rest-last_rest)<=most_rest)
                     && std::abs(t[0]-last_t[0])<=pa*per_pa && std::abs(t[1]-last_t[1])<=pa*per_pa
                     && std::abs(dn[0]-last_d[0])<=pa*per_pa && std::abs(dn[1]-last_d[1])<=pa*per_pa;
-                for (const double x0:{0.0,-roll_travel_counts,roll_travel_counts}) for (const bool exact_rule:{true,false}) {
+                for (const double x0:{0.0,-roll_travel_counts(),roll_travel_counts()}) for (const bool exact_rule:{true,false}) {
                     const auto r=solve_roll(f,inputs,x0,1000,exact_rule);
-                    ok=ok && r.strength>=softest_spring_percent && r.strength<=r.ceiling && r.ceiling<=strongest_spring_percent
-                        && std::abs(r.centre)<=roll_travel_counts && std::isfinite(r.drive_nm) && valid_tuning(solved_tuning(Tuning{},r));
+                    ok=ok && r.strength>=softest_spring_percent && r.strength<=r.ceiling && r.ceiling<=strongest_spring_percent()
+                        && std::abs(r.centre)<=roll_travel_counts() && std::isfinite(r.drive_nm) && valid_tuning(solved_tuning(Tuning{},r));
                 }
                 if (!ok) std::cerr<<"aileron sweep "<<where<<", step "<<i<<": rest "<<rest<<'\n';
                 last_rest=rest;last_t=t;last_d=dn;

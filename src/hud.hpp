@@ -162,7 +162,7 @@ inline std::optional<RollView> roll_view(const monitor::Frame& f) {
     if (!aileron_indifferent(m.figures,m.inputs)) v.rest=card.rest_deg;
     v.model_lb=card.model_lb;v.drive_lb=card.drive_lb;v.saturated=card.saturated;v.floored=card.floored;v.engaged=card.engaged;
     const auto solution=f.roll_solved?f.roll_solution:solve_roll(m,roll_counts_from_encoder(f.encoder[0]));
-    const double drive=solution.strength*roll_units_per_count_percent/std::clamp(double(m.units_per_nm),1.0,1e6);
+    const double drive=solution.strength*roll_units_per_count_percent()/std::clamp(double(m.units_per_nm),1.0,1e6);
     if (solution.slope_nm_per_count>0 && solution.strength>0) v.shrink=drive/solution.slope_nm_per_count;
     return v;
 }

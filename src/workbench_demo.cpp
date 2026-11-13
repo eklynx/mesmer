@@ -159,7 +159,7 @@ int main(int argc,char** argv) {
             const AileronSide side{roll_pa,scenario->stock_c172?4-ias/40+std::sin(t/5):0,0};
             live.roll.inputs=AileronInputs{side,side};
             live.roll.source=scenario->stock_c172?AileronSource::surface:AileronSource::airspeed;
-            live.roll.solution=solve_roll(applied.ailerons,*live.roll.inputs,wheel*roll_travel_counts/100,
+            live.roll.solution=solve_roll(applied.ailerons,*live.roll.inputs,wheel*roll_travel_counts()/100,
                 applied.roll_knobs.units_per_nm,true);
             if (session) {live.roll.now_percent=live.roll.solution->strength;live.roll.phase=t<0.5?"blending":"following";}
         }

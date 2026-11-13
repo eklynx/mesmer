@@ -17,7 +17,7 @@
 
 using namespace brunner;
 // The tests give the reader their own devices; the real one is never opened here.
-std::unique_ptr<HidDevice> brunner::open_bridge() {throw BridgeAbsent{};}
+std::unique_ptr<HidDevice> brunner::open_bridge(const std::vector<UsbId>&) {throw BridgeAbsent{};}
 namespace {
 void check_at(bool okay,int line) {if (!okay) throw std::runtime_error("check failed line "+std::to_string(line));}
 #define check(x) check_at((x),__LINE__)
@@ -35,40 +35,68 @@ static_assert(can_load_write<Bridge>::value && can_ref_write<Bridge>::value && c
 static_assert(!can_load_write<ReadOnlyBridge>::value && !can_ref_write<ReadOnlyBridge>::value && !can_exchange<ReadOnlyBridge>::value,
     "ReadOnlyBridge must have no write members");
 
-// A controller pair on firmware 642. Answers SDO uploads from a table; any
-// register not in it aborts, as one a controller lacks would. Records every
-// report written.
+// A controller pair. Answers SDO uploads from a table of registers and takes SDO writes; any
+// register not in the table aborts, as one a controller lacks would. It logs every report
+// written, and separately the ones that were writes. Defaults mimic the CLS-E NG.
 struct ControllerFake : HidDevice {
-    std::vector<Report>* sent;
+    UsbId usb;
+    std::vector<Report>* sent;      // every report written
+    std::vector<Report>* writes;    // the SDO writes among them
     std::deque<Report> replies;
+    std::map<std::uint32_t,std::uint32_t> regs;
+    std::uint16_t firmware[3]={0,642,642};   // by node
+    bool refuse_writes=false;
     int encoder=100;
-    explicit ControllerFake(std::vector<Report>* log):sent(log) {}
+    static std::uint32_t key(unsigned node,unsigned index,unsigned sub) {return (node<<24)|(index<<8)|sub;}
+    explicit ControllerFake(std::vector<Report>* log,std::vector<Report>* write_log,UsbId id={0x25bb,0x008b}):usb(id),sent(log),writes(write_log) {
+        const bool cls_e=id.product==0x0081;
+        for (unsigned node=1;node<=2;++node) {
+            const std::uint32_t limit=cls_e?4500:(node==1?2150:2250);
+            regs[key(node,0x211b,0)]=limit;regs[key(node,0x6072,0)]=limit;
+            regs[key(node,0x2114,0)]=cls_e?100:(node==1?180:160);
+        }
+        if (cls_e) firmware[1]=firmware[2]=367;
+    }
+    UsbId id() const override {return usb;}
     static unsigned width_of(unsigned index) {
         switch (index) {case 0x20a1:case 0x2102:case 0x2115:case 0x2116:case 0x2117:case 0x6064:case 0x2106:return 4;default:return 2;}
     }
     void write(const Report& r,int) override {
         sent->push_back(r);
         const unsigned node=r[4],index=r[7]|(r[8]<<8),sub=r[9];
+        const bool is_write=r[6]==0x2b || r[6]==0x23;
         Report reply=r;
         reply[1]=0x11;reply[4]=static_cast<std::uint8_t>(0x80+node);reply[5]=0x85;
-        std::uint32_t value=0;bool known=true;
-        switch (index) {
-        case 0x3018:value=642;break;
-        case 0x6041:value=0x0010;break;
-        case 0x6064:value=static_cast<std::uint32_t>(encoder++);break;
-        case 0x2106:value=0;break;
-        case 0x2114:value=100;break;
-        default:known=false;
-        }
-        if (known) {
-            reply[6]=width_of(index)==2?0x4b:0x43;
-            for (unsigned i=0;i<4;++i) reply[10+i]=static_cast<std::uint8_t>(value>>(i*8));
-        } else {
+        const auto abort_with=[&](std::uint32_t code) {
             reply[6]=0x80;
-            const std::uint32_t abort_code=0x06020000u;
-            for (unsigned i=0;i<4;++i) reply[10+i]=static_cast<std::uint8_t>(abort_code>>(i*8));
+            for (unsigned i=0;i<4;++i) reply[10+i]=static_cast<std::uint8_t>(code>>(i*8));
+        };
+        if (is_write) {
+            writes->push_back(r);
+            if (refuse_writes) abort_with(0x06010002u);
+            else {
+                std::uint32_t value=0;
+                for (unsigned i=0;i<(r[6]==0x2b?2u:4u);++i) value|=static_cast<std::uint32_t>(r[10+i])<<(i*8);
+                regs[key(node,index,sub)]=value;
+                reply[6]=0x60;for (unsigned i=0;i<4;++i) reply[10+i]=0;
+            }
+        } else {
+            std::uint32_t value=0;bool known=true;
+            switch (index) {
+            case 0x3018:value=firmware[node];break;
+            case 0x6041:value=0x0010;break;
+            case 0x6064:value=static_cast<std::uint32_t>(encoder++);break;
+            case 0x2106:value=0;break;
+            default: {
+                const auto found=regs.find(key(node,index,sub));
+                if (found==regs.end()) known=false; else value=found->second;
+            }
+            }
+            if (known) {
+                reply[6]=width_of(index)==2?0x4b:0x43;
+                for (unsigned i=0;i<4;++i) reply[10+i]=static_cast<std::uint8_t>(value>>(i*8));
+            } else abort_with(0x06020000u);
         }
-        (void)sub;
         replies.push_back(reply);
     }
     void read(Report& r,int timeout_ms) override {
@@ -86,60 +114,136 @@ template<class Predicate> bool wait_for(Predicate done,int ms=3000) {
     while (Clock::now()<end) {if (done()) return true;std::this_thread::sleep_for(std::chrono::milliseconds(5));}
     return done();
 }
-
-void firmware_classification() {
-    check(!needs_read_only({367,367}));
-    check(needs_read_only({642,642}) && needs_read_only({367,642}) && needs_read_only({642,367}) && needs_read_only({366,366}) && needs_read_only({0,0}));
+// A reader on a fake controller, with the logs the tests read after it has stopped.
+struct Run {
+    std::vector<Report> sent,writes;
+    Reader reader;
+    explicit Run(UsbId id={0x25bb,0x008b},std::function<void(ControllerFake&)> tweak={}) {
+        reader.set_device_factory([this,id,tweak] {auto d=std::make_unique<ControllerFake>(&sent,&writes,id);if (tweak) tweak(*d);return d;});
+    }
+    bool ready() {const auto s=reader.snapshot();return !s.read_only && s.connected && s.cycles>2;}
+};
+std::uint32_t le(const Report& r,unsigned from,unsigned bytes) {
+    std::uint32_t v=0;for (unsigned i=0;i<bytes;++i) v|=static_cast<std::uint32_t>(r[from+i])<<(i*8);return v;
 }
 
-// The whole reader on firmware 642: it reads, it publishes read_only, it refuses
-// every request that could write, it serves a survey, and it never writes.
-void reader_never_writes_on_unsupported_firmware() {
-    std::vector<Report> sent;
-    Reader reader;
-    reader.set_device_factory([&] {return std::make_unique<ControllerFake>(&sent);});
-    reader.start();
-    check(wait_for([&] {const auto s=reader.snapshot();return s.read_only && s.connected && s.cycles>2;}));
-    const auto s=reader.snapshot();
+// The rule is the model's, never the firmware's.
+void the_gate_rule() {
+    const auto cls_e=builtin_cls_e(),ng=builtin_cls_e_ng();
+    check(!read_only_reason(cls_e,false) && !read_only_reason(cls_e,true));          // verified: always driven
+    const auto why=read_only_reason(ng,false);
+    check(why && why->find("Brunner CLS-E NG")!=std::string::npos && why->find("allow_unverified_yoke=1")!=std::string::npos);
+    check(!read_only_reason(ng,true));                                               // acknowledged
+    auto verified_ng=ng;verified_ng.verified=true;
+    check(!read_only_reason(verified_ng,false));                                     // a preset that says verified needs no key
+    // The firmware is only a note.
+    check(firmware_note(cls_e,{{367,367}}).empty());
+    check(firmware_note(cls_e,{{367,368}}).find("368")!=std::string::npos && firmware_note(cls_e,{{367,368}}).find("367")!=std::string::npos);
+    check(firmware_note(ng,{{642,642}}).find("642")!=std::string::npos && firmware_note(ng,{{642,642}}).find("none")!=std::string::npos);
+}
+
+// An unverified model without the owner's acknowledgement: read-only, and nothing is ever written.
+void unverified_model_is_read_only_and_never_written() {
+    Run run;
+    run.reader.start();
+    check(wait_for([&] {const auto s=run.reader.snapshot();return s.read_only && s.connected && s.cycles>2;}));
+    const auto s=run.reader.snapshot();
     check(s.axes[0].firmware==642 && s.axes[1].firmware==642);
-    check(s.message.find("642")!=std::string::npos && s.message.find("read-only")!=std::string::npos);
+    check(s.usb_vendor==0x25bb && s.usb_product==0x008b && s.model=="cls-e-ng" && s.model_title=="Brunner CLS-E NG");   // the model follows from the device
+    check(s.message.find("not verified")!=std::string::npos && s.message.find("read-only")!=std::string::npos);
+    check(s.yoke_note.find("642")!=std::string::npos);
     check(!s.loading_active && !s.reference_active && !s.session_reference && !s.loading_fault && !s.stop_unconfirmed);
     // Everything that could write is refused...
-    check(!reader.request_reference_test());
-    check(!reader.request_loading_test());
-    check(!reader.request_flight());
-    reader.request_loading_recovery();
-    reader.request_loading_inspection();
+    check(!run.reader.request_reference_test() && !run.reader.request_loading_test() && !run.reader.request_flight());
+    run.reader.request_loading_recovery();run.reader.request_loading_inspection();
     // ...and a survey is served, tolerating registers the controller lacks.
-    check(reader.request_survey());
-    check(wait_for([&] {return reader.snapshot().surveys==1;}));
-    const auto survey=reader.snapshot().survey;
-    check(survey.find("\"node1\"")!=std::string::npos && survey.find("\"node2\"")!=std::string::npos);
-    check(survey.find("\"firmware\":642")!=std::string::npos);
-    check(survey.find("\"0x2114.0\":100")!=std::string::npos);   // a register it has
-    check(survey.find("\"0x2113.1\":\"unsupported 0x6020000\"")!=std::string::npos); // one it lacks
-    reader.stop();
-    check(!sent.empty());
-    for (const auto& r:sent) check(r[0]==0x3f && r[6]==0x40); // every report is an SDO upload: a read
-    check(!reader.request_survey()); // not read-only any more once stopped
+    check(run.reader.request_survey());
+    check(wait_for([&] {return run.reader.snapshot().surveys==1;}));
+    const auto survey=run.reader.snapshot().survey;
+    check(survey.find("\"node1\"")!=std::string::npos && survey.find("\"node2\"")!=std::string::npos && survey.find("\"firmware\":642")!=std::string::npos);
+    check(survey.find("\"0x2114.0\":180")!=std::string::npos && survey.find("\"0x2114.0\":160")!=std::string::npos);   // registers it has
+    check(survey.find("\"0x2113.1\":\"unsupported 0x6020000\"")!=std::string::npos);                                    // one it lacks
+    run.reader.stop();
+    check(!run.sent.empty() && run.writes.empty());
+    for (const auto& r:run.sent) check(r[0]==0x3f && r[6]==0x40);          // every report is an SDO upload: a read
+    check(!run.reader.request_survey());
 }
-// Unsupported firmware on one axis is enough.
-void mixed_firmware_is_read_only() {
-    struct Mixed:ControllerFake {
-        using ControllerFake::ControllerFake;
-        void write(const Report& r,int t) override {
-            ControllerFake::write(r,t);
-            if (r[4]==1 && (r[7]|(r[8]<<8))==0x3018) {replies.back()[10]=0x6f;replies.back()[11]=0x01;} // node 1 reports 367
-        }
-    };
-    std::vector<Report> sent;
-    Reader reader;
-    reader.set_device_factory([&] {return std::make_unique<Mixed>(&sent);});
-    reader.start();
-    check(wait_for([&] {const auto s=reader.snapshot();return s.read_only && s.cycles>1;}));
-    check(reader.snapshot().axes[0].firmware==367 && reader.snapshot().axes[1].firmware==642);
-    reader.stop();
-    for (const auto& r:sent) check(r[6]==0x40);
+// Acknowledged: the NG is driven, but its first writes are one setting written back
+// unchanged, node by node, before anything else is sent. The drive is the NG's own.
+void an_acknowledged_model_starts_with_a_no_change_write() {
+    ScopedDrive restore(cls_e_drive());
+    Run run;
+    run.reader.set_allow_unverified(true);
+    run.reader.start();
+    check(wait_for([&] {return run.ready();}));
+    const auto s=run.reader.snapshot();
+    check(s.model=="cls-e-ng" && !s.read_only && s.yoke_note.find("642")!=std::string::npos);
+    // The active drive is the NG's, built from its live limit registers (2150 / 2250) and the preset.
+    check(active_drive().model=="cls-e-ng" && active_drive().roll_limit_register==2150 && active_drive().pitch_limit_register==2250);
+    check(active_drive().limit_units==2150 && active_drive().roll_travel_counts==7642 && active_drive().target_torque==25);
+    run.reader.stop();
+    check(run.writes.size()==2);
+    for (unsigned i=0;i<2;++i) {
+        const auto& w=run.writes[i];
+        check(w[6]==0x2b && (w[7]|(w[8]<<8))==0x2114 && w[4]==i+1);                     // the spring strength, node 1 then node 2
+        check(le(w,10,2)==(i==0?180u:160u));                                           // the value it already had
+    }
+    // Before the first write nothing but uploads were sent.
+    std::size_t first_write=0;
+    while (first_write<run.sent.size() && run.sent[first_write][6]==0x40) ++first_write;
+    check(first_write<run.sent.size() && run.sent[first_write]==run.writes[0]);
+}
+// A write the controller refuses ends the session at once; nothing else is written.
+void a_refused_test_write_ends_the_session() {
+    ScopedDrive restore(cls_e_drive());
+    Run run({0x25bb,0x008b},[](ControllerFake& f) {f.refuse_writes=true;});
+    run.reader.set_allow_unverified(true);
+    run.reader.start();
+    check(wait_for([&] {const auto s=run.reader.snapshot();return s.loading_fault && s.message.find("test write")!=std::string::npos;}));
+    run.reader.stop();
+    check(!run.writes.empty());
+    for (const auto& w:run.writes) check((w[7]|(w[8]<<8))==0x2114);                     // only the test write was attempted
+}
+// A verified model at a firmware its preset was not verified on: driven, with a note only.
+void a_verified_model_on_other_firmware_is_noted_not_gated() {
+    ScopedDrive restore(cls_e_drive());
+    Run run({0x25bb,0x0081},[](ControllerFake& f) {f.firmware[2]=368;});
+    run.reader.start();
+    check(wait_for([&] {return run.ready();}));
+    const auto s=run.reader.snapshot();
+    check(s.model=="cls-e" && !s.read_only && s.yoke_note.find("368")!=std::string::npos && s.yoke_note.find("367")!=std::string::npos);
+    check(active_drive().limit_units==4500 && active_drive().target_torque==50);
+    run.reader.stop();
+    check(run.writes.empty());   // verified: no test write, and nothing to stop or recover
+}
+// A preset edited to say verified needs no acknowledgement; the ids come from the presets.
+void presets_decide_the_ids_and_the_gate() {
+    ScopedDrive restore(cls_e_drive());
+    auto presets=builtin_yoke_presets();
+    presets[1].verified=true;
+    Run run;
+    run.reader.set_presets(presets);
+    run.reader.start();
+    check(wait_for([&] {return run.ready();}));
+    check(run.reader.snapshot().model=="cls-e-ng");
+    run.reader.stop();
+    check(run.writes.empty());
+    // A device whose id no preset names is refused before anything is read but its firmware.
+    Run stranger({0x1234,0x5678});
+    stranger.reader.start();
+    check(wait_for([&] {const auto s=stranger.reader.snapshot();return s.loading_fault && s.message.find("No yoke preset")!=std::string::npos;}));
+    stranger.reader.stop();
+    check(stranger.writes.empty());
+    for (const auto& r:stranger.sent) check(r[6]==0x40);
+}
+// One unverified model, firmware 367 on one axis and 642 on the other: still the model's rule.
+void mixed_firmware_is_the_models_rule() {
+    Run run({0x25bb,0x008b},[](ControllerFake& f) {f.firmware[1]=367;});
+    run.reader.start();
+    check(wait_for([&] {const auto s=run.reader.snapshot();return s.read_only && s.cycles>1;}));
+    check(run.reader.snapshot().axes[0].firmware==367 && run.reader.snapshot().axes[1].firmware==642);
+    run.reader.stop();
+    check(run.writes.empty());
 }
 
 template<class Fn> bool throws_invalid(Fn f) {try {f();} catch (const std::invalid_argument&) {return true;} catch (...) {} return false;}
@@ -289,7 +393,9 @@ void the_new_config_keys() {
     {std::istringstream in(base);const auto c=parse_configuration(in);check(c.flight.read_only_roll_reverse==0 && c.flight.read_only_pitch_reverse==0);}
     {std::istringstream in(base+"read_only_roll_reverse=1\nread_only_pitch_reverse=1\n");const auto c=parse_configuration(in);
         check(c.flight.read_only_roll_reverse==1 && c.flight.read_only_pitch_reverse==1);}
-    for (const auto* bad:{"read_only_roll_reverse=2\n","read_only_pitch_reverse=-1\n"}) {
+    {std::istringstream in(base);check(parse_configuration(in).flight.allow_unverified_yoke==0);}                    // off unless the owner turns it on
+    {std::istringstream in(base+"allow_unverified_yoke=1\n");check(parse_configuration(in).flight.allow_unverified_yoke==1);}
+    for (const auto* bad:{"read_only_roll_reverse=2\n","read_only_pitch_reverse=-1\n","allow_unverified_yoke=2\n","allow_unverified_yoke=-1\n"}) {
         bool refused=false;
         try {std::istringstream in(base+bad);parse_configuration(in);} catch (const std::exception&) {refused=true;}
         check(refused);
@@ -298,9 +404,13 @@ void the_new_config_keys() {
 }
 int main() {
     try {
-        firmware_classification();
-        reader_never_writes_on_unsupported_firmware();
-        mixed_firmware_is_read_only();
+        the_gate_rule();
+        unverified_model_is_read_only_and_never_written();
+        an_acknowledged_model_starts_with_a_no_change_write();
+        a_refused_test_write_ends_the_session();
+        a_verified_model_on_other_firmware_is_noted_not_gated();
+        presets_decide_the_ids_and_the_gate();
+        mixed_firmware_is_the_models_rule();
         travel_learning();
         input_from_the_learned_travel();
         the_remembered_travel();

@@ -14,10 +14,11 @@ class Bridge {
     std::unique_ptr<HidDevice> device_;
     std::uint16_t counter_=0;
  public:
-    // Opens the platform's bridge (may throw BridgeAbsent, BridgeBusy, TransportError).
-    Bridge():device_(open_bridge()) {}
+    // Opens the platform's bridge among `ids` (may throw BridgeAbsent, BridgeBusy, TransportError).
+    explicit Bridge(const std::vector<UsbId>& ids):device_(open_bridge(ids)) {}
     // For tests: any HidDevice.
     explicit Bridge(std::unique_ptr<HidDevice> device):device_(std::move(device)) {}
+    UsbId id() const {return device_->id();}
     template<class Parse> std::uint32_t exchange(Report request,Parse parse,const std::atomic<bool>& stop) {
         if (stop) throw OperationCancelled{};
         device_->write(request,100);

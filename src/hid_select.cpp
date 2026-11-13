@@ -4,16 +4,16 @@
 
 namespace brunner {
 namespace {
-bool is_bridge(const HidCandidate& c) {
-    return is_bridge_id(c.vendor, c.product) && c.usage_page == 0xff00 && c.usage == 0xff02
+bool is_bridge(const HidCandidate& c,const std::vector<UsbId>& ids) {
+    return id_listed(ids, c.vendor, c.product) && c.usage_page == 0xff00 && c.usage == 0xff02
         && c.input_length == 64 && c.output_length == 64;
 }
 }
-std::size_t select_bridge(const std::vector<HidCandidate>& candidates) {
+std::size_t select_bridge(const std::vector<HidCandidate>& candidates,const std::vector<UsbId>& ids) {
     std::size_t found = candidates.size();
     unsigned matches = 0;
     for (std::size_t i = 0; i < candidates.size(); ++i)
-        if (is_bridge(candidates[i])) {
+        if (is_bridge(candidates[i],ids)) {
             found = i;
             ++matches;
         }

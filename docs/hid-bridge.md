@@ -12,12 +12,12 @@ Mesmer talks to the bridge directly. CLS2Sim is not needed and must be closed
 
 ## Which devices
 
-The bridge ids Mesmer will open are the list `bridge_ids` in `usb_ids.hpp`:
+The bridge ids Mesmer will open are the ids the yoke presets name ([yoke-presets.md](yoke-presets.md); `usb_ids.hpp` holds the built-in models' ids):
 
 | Vendor | Product | Notes |
 |---|---|---|
 | `0x25BB` | `0x0081` | The original CLS USB Bridge. |
-| `0x25BB` | `0x008B` | The CLS-E NG. Found and opened, and it answers the same read requests, but both controllers report firmware **642**, so the firmware check below makes it read-only (nothing is written). Seen on hardware 2026-11-12. |
+| `0x25BB` | `0x008B` | The CLS-E NG. Found and opened, and it answers the same read requests, but both controllers report firmware **642**, so its preset notes the firmware, and it is read-only until the owner acknowledges the unverified model. Seen on hardware 2026-11-12. |
 
 An id in the list is necessary, never sufficient. A device is the bridge only
 if **all** of these hold (`select_bridge`):
@@ -26,13 +26,15 @@ if **all** of these hold (`select_bridge`):
 - its top-level usage is vendor page `0xFF00`, usage `0xFF02`;
 - its input and output reports are 64 bytes (report ID included).
 
-Then `reader.cpp` still refuses to go further unless both controllers answer
-with firmware **v367**, before anything that moves a motor is sent. On any other
-firmware the yoke is [read-only](read-only-mode.md): read, never written.
+Then `reader.cpp` identifies the model from the device, and before anything that
+moves a motor is sent a model whose preset is not verified is
+[read-only](read-only-mode.md) unless the owner acknowledges it. Firmware is only
+noted ([yoke-presets.md](yoke-presets.md)).
 
-To support another bridge, add its id to the list only when its descriptor and
-protocol are the same; the checks above and the firmware check keep a
-different device from being driven. Add a test case in `bridge_tests.cpp`.
+To support another model, add a preset naming its bridge (in
+`BrunnerDirect.yokes.json`, no rebuild); the descriptor checks above and the
+verified/acknowledged rule keep a different device from being driven without
+the owner's say-so.
 
 ## Selecting among several
 

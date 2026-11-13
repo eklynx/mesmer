@@ -3,10 +3,12 @@
 #include "loading.hpp"
 #include "buffet.hpp"
 #include "hid_device.hpp"
+#include "yoke_preset.hpp"
 #include <atomic>
 #include <functional>
 #include <mutex>
 #include <thread>
+#include <vector>
 
 namespace brunner {
 class ReadOnlyBridge;
@@ -15,7 +17,11 @@ public:
     ~Reader() { stop(); }
     void start();
     void stop();
-    // For tests: where the bridge comes from (default: open_bridge(), the real device).
+    // The yoke models (presets), and so the USB ids to open; before the reader starts.
+    void set_presets(std::vector<YokePreset> presets) {presets_=std::move(presets);usb_ids_=preset_usb_ids(presets_);}
+    // allow_unverified_yoke in BrunnerDirect.ini: drive a model whose preset is not verified.
+    void set_allow_unverified(bool allow) {allow_unverified_=allow;}
+    // For tests: where the bridge comes from (default: open_bridge(ids), the real device).
     void set_device_factory(std::function<std::unique_ptr<HidDevice>()> factory) {device_factory_=std::move(factory);}
     // Read-only mode (readonly.hpp): every request that could write to the yoke is
     // refused here as well as ignored by the session. Only the survey is served.
@@ -93,8 +99,11 @@ public:
 private:
     void run();
     void session(Snapshot& s);
-    void read_only_session(ReadOnlyBridge& bridge,Snapshot& s);
-    std::function<std::unique_ptr<HidDevice>()> device_factory_=[] {return open_bridge();};
+    void read_only_session(ReadOnlyBridge& bridge,Snapshot& s,const std::string& why);
+    std::vector<YokePreset> presets_=builtin_yoke_presets();
+    bool allow_unverified_=false;
+    std::vector<UsbId> usb_ids_=default_usb_ids();
+    std::function<std::unique_ptr<HidDevice>()> device_factory_=[this] {return open_bridge(usb_ids_);};
     std::atomic<bool> survey_requested_{false};
     void publish(Snapshot state) { std::lock_guard<std::mutex> lock(mutex_); state_=std::move(state); }
     std::atomic<bool> stop_{true};

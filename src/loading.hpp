@@ -35,7 +35,7 @@ inline constexpr std::uint32_t default_gain_denominator=6,default_move_back=180;
 // owner chose (2026-11-07) that the plugin writes 50, this one fixed value
 // only, motors off; it is never driven from the simulator.
 inline constexpr Register target_torque{0x6071,0,2};
-inline constexpr std::uint32_t fixed_target_torque=50;
+inline std::uint32_t fixed_target_torque() {return active_drive().target_torque;}
 // The plugin owns the spring settings. It writes them itself, motors off, and
 // reads each one back; it never depends on what CLS2Sim or a switch-on left
 // in the controllers (docs/brunner/switch-on-inspection-20261107.jsonl).
@@ -72,7 +72,7 @@ inline bool valid_pitch_setup(const PitchSetup& p) {
 }
 // The drives' own protection thresholds, found at switch-on and after CLS2Sim
 // alike. The plugin checks them and never writes them.
-inline constexpr std::uint32_t protection_limit=4500;
+inline std::uint32_t expected_protection_limit(unsigned node) {return node==1?active_drive().roll_limit_register:active_drive().pitch_limit_register;}
 // Refused before anything was written: the controllers are as they were, so
 // the reference and the pilot's pitch and roll are unaffected. Switching the
 // yoke off and on returns it to its known switch-on state.
@@ -97,23 +97,23 @@ inline bool stopped_for_recovery(std::uint32_t status) {
 inline bool loading_write_allowed(unsigned node,RegisterWrite op) {
     if (vibration_register(op.reg)) return vibration_write_allowed(node,op); // buffet's own bounds (vibration.hpp)
     if (same_register(op.reg,trim_offset)) return op.value==0;
-    if (same_register(op.reg,manual_force_bias)) return op.value<=0xffff && (node==2?std::abs(decode_bias(op.value))<=max_pitch_bias:op.value==0);
+    if (same_register(op.reg,manual_force_bias)) return op.value<=0xffff && (node==2?std::abs(decode_bias(op.value))<=max_pitch_bias():op.value==0);
     if (same_register(op.reg,manual_offset_off)) return node==2 && op.value<=bias_offset_off;
     if (same_register(op.reg,force_gain_numerator)) return op.value==1;
     if (same_register(op.reg,force_gain_denominator)) return op.value>=1 && op.value<=default_gain_denominator;
     if (same_register(op.reg,move_back_gain)) return op.value>=default_move_back && op.value<=720;
     if (same_register(op.reg,trim_position)) {
-        const auto bound=node==1?roll_travel_bound:pitch_travel_bound;
+        const auto bound=node==1?roll_travel_bound():pitch_travel_bound();
         return signed32(op.value)>=-bound && signed32(op.value)<=bound;
     }
     if (op.reg.bytes!=2) return false;
     // The drive refused 0 (tuning.hpp's softest_spring_percent); above
-    // strongest_spring_percent no centre keeps the margin (decision 16).
+    // strongest_spring_percent() no centre keeps the margin (decision 16).
     // Whether a strength is within the margin with the axis's centre and
     // constant force is apply_live_tuning's check, write by write.
     if (same_register(op.reg,force_scale))
-        return op.value>=static_cast<std::uint32_t>(softest_spring_percent) && op.value<=static_cast<std::uint32_t>(strongest_spring_percent);
-    if (same_register(op.reg,target_torque)) return op.value==fixed_target_torque;
+        return op.value>=static_cast<std::uint32_t>(softest_spring_percent) && op.value<=static_cast<std::uint32_t>(strongest_spring_percent());
+    if (same_register(op.reg,target_torque)) return op.value==fixed_target_torque();
     return op.reg.index==0x2113 && op.reg.sub>=1 && op.reg.sub<=9 && op.value>=5 && op.value<=1000;
 }
 inline Report loading_write_request(unsigned node,RegisterWrite op,std::uint16_t counter) {
@@ -197,11 +197,11 @@ template<class Transport> void check_controllers(Transport& bridge,const std::at
     for (unsigned node=1;node<=2;++node) {
         const auto status=static_cast<std::uint16_t>(bridge.read(node,Object::status,stop));
         if (referenced?!referenced_stopped_status(status):!stopped_for_recovery(status))
-            throw std::runtime_error("Spring setup requires both motors disabled");
+            throw std::runtime_error("Spring setup requires both motors disabled (node "+std::to_string(node)+" status "+status_hex(status)+")");
     }
     for (unsigned node=1;node<=2;++node) {
         for (const auto reg:{force_limit,torque_limit})
-            if (bridge.ref_read(node,reg,stop)!=protection_limit)
+            if (bridge.ref_read(node,reg,stop)!=expected_protection_limit(node))
                 throw SettingsRefused("Controller protection limits differ from their switch-on values");
         if (base_spring_mode(static_cast<std::uint16_t>(bridge.ref_read(node,force_mode,stop)))!=spring_mode)
             throw SettingsRefused("Unknown controller spring mode");
@@ -228,7 +228,7 @@ template<class Transport> void write_spring(Transport& bridge,unsigned node,std:
     checked_loading_write(bridge,node,{manual_force_bias,0,0},stop);
     checked_loading_write(bridge,node,{trim_offset,0,0},stop);
     checked_loading_write(bridge,node,{trim_position,0,0},stop);
-    checked_loading_write(bridge,node,{target_torque,fixed_target_torque,0},stop);
+    checked_loading_write(bridge,node,{target_torque,fixed_target_torque(),0},stop);
     const auto& curve=node==2?pitch.curve:pitch.roll_curve;
     for (unsigned sub=1;sub<=9;++sub)
         checked_loading_write(bridge,node,{{0x2113,static_cast<std::uint8_t>(sub),2},curve[sub-1],0},stop);
@@ -274,7 +274,7 @@ template<class Transport> void prepare_loading(Transport& bridge,const std::atom
     std::optional<std::uint32_t>* found=nullptr) {
     if (!valid_tuning(initial))
         throw std::invalid_argument("Loading asked for "+tuning_words(initial)+": outside the plugin's bounds (springs "
-            +std::to_string(softest_spring_percent)+" to "+std::to_string(strongest_spring_percent)+"%, within the drive's margin)");
+            +std::to_string(softest_spring_percent)+" to "+std::to_string(strongest_spring_percent())+"%, within the drive's margin)");
     if (initial.pitch_trim!=0 || initial.pitch_bias!=0 || initial.roll_trim!=0)
         throw std::invalid_argument("Loading must start at zero trim and no constant force, not "+tuning_words(initial));
     if (!valid_pitch_setup(pitch)) throw std::invalid_argument("Pitch setup outside its bounds");
@@ -290,9 +290,9 @@ template<class Transport> void prepare_loading(Transport& bridge,const std::atom
 template<class Transport> void verify_loading(Transport& bridge,unsigned node,const std::atomic<bool>& stop,const Tuning& expected={},const PitchSetup& pitch={}) {
     if (!valid_tuning(expected) || (node!=1 && node!=2)) throw std::invalid_argument("Invalid loading readback request");
     for (const auto reg:{force_limit,torque_limit})
-        if (bridge.ref_read(node,reg,stop)!=protection_limit) throw std::runtime_error("Original controller protection limit changed");
+        if (bridge.ref_read(node,reg,stop)!=expected_protection_limit(node)) throw std::runtime_error("Original controller protection limit changed");
     if (decode_bias(bridge.ref_read(node,manual_force_bias,stop))!=(node==2?expected.pitch_bias:0)) throw std::runtime_error("Unexpected constant force (force bias)");
-    if (bridge.ref_read(node,target_torque,stop)!=fixed_target_torque) throw std::runtime_error("Target torque changed");
+    if (bridge.ref_read(node,target_torque,stop)!=fixed_target_torque()) throw std::runtime_error("Target torque changed");
     if (bridge.ref_read(node,force_scale,stop)!=static_cast<std::uint32_t>(node==1?expected.roll_percent:expected.pitch_percent)) throw std::runtime_error("Spring scale changed");
     if (signed32(bridge.ref_read(node,trim_position,stop))!=(node==2?expected.pitch_trim:expected.roll_trim)
         || bridge.ref_read(node,trim_offset,stop)!=0 || bridge.ref_read(node,center_mode,stop)!=0)
@@ -349,7 +349,7 @@ template<class Transport> void apply_live_tuning(Transport& bridge,Tuning& appli
     // a mismatch unwinds through the loading test's stop-and-rest path.
     for (unsigned node=1;node<=2;++node) {
         const auto status=bridge.read(node,Object::status,stop);
-        if ((status&0x1017)!=0x1017 || (status&0x2108)) throw std::runtime_error("Controller not ready for live tuning");
+        if (!status_ready(static_cast<std::uint16_t>(status)) || (status&0x2108)) throw std::runtime_error("Controller not ready for live tuning (node "+std::to_string(node)+" status "+status_hex(static_cast<std::uint16_t>(status))+")");
         if (decode_bias(bridge.ref_read(node,manual_force_bias,stop))!=(node==2?applied.pitch_bias:0)
             || bridge.ref_read(node,trim_offset,stop)!=0 || bridge.ref_read(node,center_mode,stop)!=0)
             throw std::runtime_error("Unexpected constant force, coordinate offset or position mode during live tuning");
@@ -372,8 +372,8 @@ template<class Transport> void apply_live_tuning(Transport& bridge,Tuning& appli
             }
         }
     };
-    write(2,axis_writes({applied.pitch_percent,applied.pitch_trim,applied.pitch_bias},{next.pitch_percent,next.pitch_trim,next.pitch_bias},pitch_travel_bound,r.pitch));
-    write(1,axis_writes({applied.roll_percent,applied.roll_trim,0},{next.roll_percent,next.roll_trim,0},roll_travel_bound,r.roll));
+    write(2,axis_writes({applied.pitch_percent,applied.pitch_trim,applied.pitch_bias},{next.pitch_percent,next.pitch_trim,next.pitch_bias},pitch_travel_bound(),r.pitch));
+    write(1,axis_writes({applied.roll_percent,applied.roll_trim,0},{next.roll_percent,next.roll_trim,0},roll_travel_bound(),r.roll));
 }
 // One update of a session: roll's centre held inside its deadband
 // (tuning.hpp's roll_centre_deadband), roll's strength lowered if the held

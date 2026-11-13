@@ -5,6 +5,7 @@
 #include <cstdlib>
 #include <stdexcept>
 #include <string>
+#include "drive.hpp"
 
 namespace brunner {
 enum class TuningField { roll_percent, pitch_percent, pitch_trim };
@@ -12,7 +13,7 @@ enum class TuningField { roll_percent, pitch_percent, pitch_trim };
 // same units as its 4500 protection limit); negative pushes the yoke forward.
 // Bounded to half that limit. Only a force-feel session following the
 // elevator model sends it (decision 15).
-inline constexpr std::int32_t max_pitch_bias=2250;
+inline std::int32_t max_pitch_bias() {return active_drive().limit_units/2;}
 // The softest spring strength (0x2114) the drives take. Measured motors off
 // on 2026-11-08 (docs/brunner/spring-range-probe-20261108.jsonl): both refuse
 // 0 to 19 (SDO abort 0x06000000) and take 20 and every value tried up to 1000.
@@ -20,13 +21,14 @@ inline constexpr std::int32_t max_pitch_bias=2250;
 inline constexpr int softest_spring_percent=20;
 // Each axis's spring centre, 0x2116, is bounded to its travel: pitch 12000
 // counts either way, roll 13000 (node 1's soft limits, calibration-control.md).
-inline constexpr std::int32_t pitch_travel_bound=12000,roll_travel_bound=13000;
+inline std::int32_t pitch_travel_bound() {return static_cast<std::int32_t>(std::lround(active_drive().pitch_travel_counts));}
+inline std::int32_t roll_travel_bound() {return static_cast<std::int32_t>(std::lround(active_drive().roll_travel_counts));}
 // The drive's own ceiling (decision 16). Neither axis has a firmest setting:
 // each update the strength may go as high as the drive can hold without its
 // protection limit (0x211b and 0x6072, 4500 force units, read and never
 // written) being reached anywhere in the travel. What a drive does when the
 // limit is reached is unknown (it may fault, cut torque or hold), so the
-// plugin never asks for more than drive_margin_units: 500 units, 11 %, under
+// plugin never asks for more than drive_margin_units(): 500 units, 11 %, under
 // it. That headroom also covers what is inferred rather than measured: the
 // spring's 1000 units at full travel at 100 % (the straight-line curve,
 // model_curve, whose point positions were never surveyed, extended in a
@@ -35,7 +37,8 @@ inline constexpr std::int32_t pitch_travel_bound=12000,roll_travel_bound=13000;
 // The margin is the whole budget for every force the plugin asks of a drive
 // at once: anything else added on top of the line (a vibration, say) must
 // come out of it, not out of the 500 under the protection limit.
-inline constexpr int protection_limit_units=4500,drive_margin_units=4000;
+inline int protection_limit_units() {return active_drive().limit_units;}
+inline int drive_margin_units() {return active_drive().limit_units-active_drive().margin_units;}
 // Pitch's constant-force cut-off, 0x211f, as a model session sets it: the
 // strength (0x2114 percent) at which the firmware drops the constant force,
 // 0x211a (loading.hpp). Raising it is untested, so a strength with a constant
@@ -48,7 +51,7 @@ inline constexpr double spring_units_per_percent_at_travel=10;
 // The strongest 0x2114 any write may carry: the margin with the centre
 // mid-travel and no constant force (400 %). The drives took up to 1000 with
 // the motors off (spring-range-probe-20261108.jsonl).
-inline constexpr int strongest_spring_percent=static_cast<int>(drive_margin_units/spring_units_per_percent_at_travel);
+inline int strongest_spring_percent() {return static_cast<int>(drive_margin_units()/spring_units_per_percent_at_travel);}
 // The most force the drive's line F(x) = held - k*(x - centre) gives
 // anywhere in [-travel, travel]: at the stop farther from its zero. `held`
 // is the constant force, the same sign as F (pitch's 0x211a negated); k is
@@ -58,21 +61,21 @@ inline double worst_force_units(int strength,double centre,double held,double tr
     return (std::max)(std::abs(held-k*(travel-centre)),std::abs(held-k*(-travel-centre)));
 }
 // What else a session asks of each drive at once, in force units, taken out
-// of drive_margin_units before the spring and constant force: buffet's shake
-// (buffet.hpp) while its knob is on, else 0. At most max_drive_reserve_units,
+// of drive_margin_units() before the spring and constant force: buffet's shake
+// (buffet.hpp) while its knob is on, else 0. At most max_drive_reserve_units(),
 // so the softest spring (20 % gives at most 400 units, plus at most 2250 of
 // constant force) always stays within what is left.
 struct DriveReserve {int roll=0,pitch=0;};
-inline constexpr int max_drive_reserve_units=drive_margin_units-2650;
-inline bool valid_drive_reserve(int units) {return units>=0 && units<=max_drive_reserve_units;}
-inline int drive_budget_units(int reserve) {return drive_margin_units-(valid_drive_reserve(reserve)?reserve:max_drive_reserve_units);}
-// The strongest whole percent, softest to strongest_spring_percent, at which
+inline int max_drive_reserve_units() {return drive_margin_units()-(static_cast<int>(2*softest_spring_percent*spring_units_per_percent_at_travel)+max_pitch_bias());}
+inline bool valid_drive_reserve(int units) {return units>=0 && units<=max_drive_reserve_units();}
+inline int drive_budget_units(int reserve) {return drive_margin_units()-(valid_drive_reserve(reserve)?reserve:max_drive_reserve_units());}
+// The strongest whole percent, softest to strongest_spring_percent(), at which
 // the line stays within the margin less `reserve`; `line(s)` gives the centre
 // and constant force a solver would send with strength s. The softest is
 // always within it. The solvers and their pages reserve nothing: they never
 // see buffet, and a reserve lowers the strength after them (within_drive).
 template<class Line> int drive_ceiling(double travel,Line line,int reserve=0) {
-    for (int s=strongest_spring_percent;s>softest_spring_percent;--s) {
+    for (int s=strongest_spring_percent();s>softest_spring_percent;--s) {
         const auto [centre,held]=line(s);
         if (worst_force_units(s,centre,held,travel)<=drive_budget_units(reserve)) return s;
     }
@@ -96,19 +99,19 @@ struct Tuning {
 };
 // Both strengths stay from 20, the drive's softest, even where a model wants
 // a softer spring (elevator.hpp's and aileron.hpp's floored), to
-// strongest_spring_percent; and within the drive's margin over the whole travel, each axis with all its
+// strongest_spring_percent(); and within the drive's margin over the whole travel, each axis with all its
 // registers together: pitch's spring, centre and constant force; roll's
 // spring and centre (decision 16).
 inline bool within_margin(int strength,std::int32_t centre,std::int32_t bias,std::int32_t travel,int reserve=0) {
     return worst_force_units(strength,centre,-double(bias),travel)<=drive_budget_units(reserve);
 }
 inline bool valid_tuning(const Tuning& t,const DriveReserve& r={}) {
-    return t.roll_percent>=softest_spring_percent && t.roll_percent<=strongest_spring_percent
-        && t.pitch_percent>=softest_spring_percent && t.pitch_percent<=strongest_spring_percent
-        && t.pitch_trim>=-pitch_travel_bound && t.pitch_trim<=pitch_travel_bound && t.pitch_bias>=-max_pitch_bias && t.pitch_bias<=max_pitch_bias
-        && t.roll_trim>=-roll_travel_bound && t.roll_trim<=roll_travel_bound
-        && within_margin(t.pitch_percent,t.pitch_trim,t.pitch_bias,pitch_travel_bound,r.pitch)
-        && within_margin(t.roll_percent,t.roll_trim,0,roll_travel_bound,r.roll)
+    return t.roll_percent>=softest_spring_percent && t.roll_percent<=strongest_spring_percent()
+        && t.pitch_percent>=softest_spring_percent && t.pitch_percent<=strongest_spring_percent()
+        && t.pitch_trim>=-pitch_travel_bound() && t.pitch_trim<=pitch_travel_bound() && t.pitch_bias>=-max_pitch_bias() && t.pitch_bias<=max_pitch_bias()
+        && t.roll_trim>=-roll_travel_bound() && t.roll_trim<=roll_travel_bound()
+        && within_margin(t.pitch_percent,t.pitch_trim,t.pitch_bias,pitch_travel_bound(),r.pitch)
+        && within_margin(t.roll_percent,t.roll_trim,0,roll_travel_bound(),r.roll)
         && keeps_constant_force(t.pitch_percent,t.pitch_bias);
 }
 // A tuning made by mixing two within the margin (FeelBlend's blend, or roll's
@@ -118,9 +121,9 @@ inline bool valid_tuning(const Tuning& t,const DriveReserve& r={}) {
 // at 20 % is always inside, so each strength comes down until its axis is
 // within the margin. Lighter, never misplaced (decision 16).
 inline Tuning within_drive(Tuning t,const DriveReserve& r={}) {
-    while (t.pitch_percent>softest_spring_percent && (!within_margin(t.pitch_percent,t.pitch_trim,t.pitch_bias,pitch_travel_bound,r.pitch)
+    while (t.pitch_percent>softest_spring_percent && (!within_margin(t.pitch_percent,t.pitch_trim,t.pitch_bias,pitch_travel_bound(),r.pitch)
         || !keeps_constant_force(t.pitch_percent,t.pitch_bias))) --t.pitch_percent;
-    while (t.roll_percent>softest_spring_percent && !within_margin(t.roll_percent,t.roll_trim,0,roll_travel_bound,r.roll)) --t.roll_percent;
+    while (t.roll_percent>softest_spring_percent && !within_margin(t.roll_percent,t.roll_trim,0,roll_travel_bound(),r.roll)) --t.roll_percent;
     return t;
 }
 // The commissioning channel's springs (the light spring bench test) stay
@@ -239,8 +242,8 @@ inline Tuning session_start(Tuning requested,double yoke_counts,double wheel_cou
     const auto at=[](double counts,std::int32_t bound) {
         return static_cast<std::int32_t>(std::lround(std::clamp(std::isfinite(counts)?counts:0.0,-double(bound),double(bound))));
     };
-    requested.pitch_percent=softest_spring_percent;requested.pitch_bias=0;requested.pitch_trim=at(yoke_counts,pitch_travel_bound);
-    requested.roll_percent=softest_spring_percent;requested.roll_trim=at(wheel_counts,roll_travel_bound);
+    requested.pitch_percent=softest_spring_percent;requested.pitch_bias=0;requested.pitch_trim=at(yoke_counts,pitch_travel_bound());
+    requested.roll_percent=softest_spring_percent;requested.roll_trim=at(wheel_counts,roll_travel_bound());
     return requested;
 }
 // What a force-feel session writes before its motors start, and where it then

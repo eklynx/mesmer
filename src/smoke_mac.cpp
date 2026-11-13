@@ -10,7 +10,7 @@
 #include <iostream>
 int main(int argc,char**) {
     if (argc!=1) {std::cerr<<"No options\n";return 2;}
-    std::cout<<"HID devices with a listed bridge id:\n"<<brunner::describe_mac_bridges();
+    std::cout<<"HID devices with a listed bridge id:\n"<<brunner::describe_mac_bridges(brunner::default_usb_ids());
     brunner::Reader reader;reader.start();
     std::uint64_t last=0;
     for (int i=0;i<15;++i) {

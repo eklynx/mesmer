@@ -42,7 +42,7 @@ inline bool valid_figures(const AileronFigures& a) {
 // the angle is clamped before it enters the coefficients.
 inline constexpr double aileron_minimum_panel_pa=2.5,aileron_alpha_clamp_deg=30;
 inline constexpr double newtons_per_lbf=4.44822,metres_per_second_per_knot=0.514444,sea_level_density=1.225;
-inline constexpr double roll_travel_counts=13000;
+inline double roll_travel_counts() {return active_drive().roll_travel_counts;}
 // One aileron's air as X-Plane reports it over its panels: dynamic pressure,
 // Pa; angle of attack, degrees, weighted by each panel's q*area; the stalled
 // share of that q*area, 0..1. A missing or non-finite value counts as none.
@@ -129,10 +129,10 @@ inline double wheel_rest_rad(const AileronFigures& f,const AileronInputs& in,dou
 }
 // Wheel angle (rad) and the roll drive's counts, 13000 at either stop.
 inline double wheel_exact_counts(const AileronFigures& f,double t) {
-    return std::clamp(t/(f.wheel_deg*radians_per_degree),-1.0,1.0)*roll_travel_counts;
+    return std::clamp(t/(f.wheel_deg*radians_per_degree),-1.0,1.0)*roll_travel_counts();
 }
 inline double wheel_rad(const AileronFigures& f,double counts) {
-    return std::clamp(counts,-roll_travel_counts,roll_travel_counts)/roll_travel_counts*(f.wheel_deg*radians_per_degree);
+    return std::clamp(counts,-roll_travel_counts(),roll_travel_counts())/roll_travel_counts()*(f.wheel_deg*radians_per_degree);
 }
 // The wheel's position in the roll drive's spring counts (0x2116's frame,
 // right positive) from the roll encoder (0x6064), which turning right
@@ -140,13 +140,13 @@ inline double wheel_rad(const AileronFigures& f,double counts) {
 // pitch assumes between its encoder and 0x2116 (drive_counts_from_encoder);
 // no powered check has confirmed it on either axis, and if the first one shows
 // the wheel pulled to its mirror image with no air, this sign is the one to flip.
-inline double roll_counts_from_encoder(std::int32_t encoder) {return -static_cast<double>(encoder);}
+inline double roll_counts_from_encoder(std::int32_t encoder) {return active_drive().roll_encoder_sign*static_cast<double>(encoder);}
 // The roll drive's spring is the straight-line curve (model_curve): 1000
 // units 13000 counts from its centre at 100 %.
-inline constexpr double roll_units_per_count_percent=1000.0/13000/100;
+inline double roll_units_per_count_percent() {return 1000.0/roll_travel_counts()/100;}
 // What the model wants at the wheel's position x0, and the strength s and
 // centre c that give it; solve_pitch's way, with no constant force. The
-// drive's torque is -k_s*(x - c), k_s = s*roll_units_per_count_percent.
+// drive's torque is -k_s*(x - c), k_s = s*roll_units_per_count_percent().
 // - Anchor: the model's rest (with the torque there when it is a stop).
 // - Slope: the secant from the anchor to x0, at least 60 counts, on x0's
 //   side; s the nearest whole percent from 20 to the drive's ceiling: no
@@ -177,33 +177,33 @@ inline RollSolution solve_roll(const AileronFigures& f,const AileronInputs& in,d
     // The rest the wheel reaches from x0 (bistable: the stop it is pushed toward).
     const double rest=wheel_rest_rad(f,in,std::isfinite(x0)?wheel_rad(f,x0):std::numeric_limits<double>::quiet_NaN());
     s.rest_counts=wheel_exact_counts(f,rest);
-    const bool at_stop=std::abs(s.rest_counts)>=roll_travel_counts-0.5;
+    const bool at_stop=std::abs(s.rest_counts)>=roll_travel_counts()-0.5;
     const double anchor_nm=at_stop?wheel_nm(f,in,rest):0.0;
-    s.x=std::isfinite(x0)?std::clamp(x0,-roll_travel_counts,roll_travel_counts):s.rest_counts;
+    s.x=std::isfinite(x0)?std::clamp(x0,-roll_travel_counts(),roll_travel_counts()):s.rest_counts;
     double dx=s.x-s.rest_counts;
     if (std::abs(dx)<secant_minimum_counts) {
         const double side=dx>0?1.0:dx<0?-1.0:(s.rest_counts>0?-1.0:1.0);
         dx=side*secant_minimum_counts;
-        if (std::abs(s.rest_counts+dx)>roll_travel_counts) dx=-dx;
+        if (std::abs(s.rest_counts+dx)>roll_travel_counts()) dx=-dx;
     }
     s.slope_nm_per_count=(anchor_nm-wheel_nm(f,in,wheel_rad(f,s.rest_counts+dx)))/dx;
-    s.want=s.slope_nm_per_count*u/roll_units_per_count_percent;
+    s.want=s.slope_nm_per_count*u/roll_units_per_count_percent();
     // The centre a strength above the floor is sent with, as below.
     const auto centre_at=[&](int strength) {
-        const double c=std::clamp(s.rest_counts+anchor_nm*u/(strength*roll_units_per_count_percent),-roll_travel_counts,roll_travel_counts);
+        const double c=std::clamp(s.rest_counts+anchor_nm*u/(strength*roll_units_per_count_percent()),-roll_travel_counts(),roll_travel_counts());
         return std::pair<double,double>{double(std::lround(c)),0.0};
     };
-    s.ceiling=drive_ceiling(roll_travel_counts,centre_at);
+    s.ceiling=drive_ceiling(roll_travel_counts(),centre_at);
     s.saturated=s.want>s.ceiling+1e-9;
     s.floored=!std::isfinite(s.want) || s.want<softest_spring_percent-0.5;
     s.strength=spring_percent(s.want,s.ceiling);
-    const double ks=s.strength*roll_units_per_count_percent;
+    const double ks=s.strength*roll_units_per_count_percent();
     const double t=wheel_rad(f,s.x);
     s.model_nm=wheel_nm(f,in,t);
     s.force_exact=s.floored && force_exact;
     double c=s.force_exact?s.x+s.model_nm*u/ks:s.rest_counts+anchor_nm*u/ks;
-    s.centre_limited=std::abs(c)>roll_travel_counts+0.5;
-    c=std::clamp(c,-roll_travel_counts,roll_travel_counts);
+    s.centre_limited=std::abs(c)>roll_travel_counts()+0.5;
+    c=std::clamp(c,-roll_travel_counts(),roll_travel_counts());
     s.centre=static_cast<std::int32_t>(std::lround(c));
     s.drive_nm=-ks*(s.x-s.centre)/u;
     const auto g=aileron_angles(f,t);

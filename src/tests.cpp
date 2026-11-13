@@ -92,7 +92,7 @@ struct MarginTransport:LoadingTransport {
     double worst=0,worst_with_shake=0; // the line alone, and the line plus the slow vibration amplitude (buffet.hpp)
     bool kept=true; // pitch never above the constant-force cut-off with a constant force
     double now(unsigned node) {
-        const auto travel=node==2?pitch_travel_bound:roll_travel_bound;
+        const auto travel=node==2?pitch_travel_bound():roll_travel_bound();
         return worst_force_units(static_cast<int>(values[key(node,force_scale)]),signed32(values[key(node,trim_position)]),
             -double(decode_bias(values[key(node,manual_force_bias)])),travel);
     }
@@ -138,7 +138,7 @@ int main() {
         check(!flight_input(s,cal,true,now+std::chrono::milliseconds(251)).ready);
         check(!flight_input(s,cal,true,now-std::chrono::milliseconds(1)).ready);
         for (auto word:{0x431,0x143f,0x1537}) {auto bad=s;bad.axes[1].status=static_cast<std::uint16_t>(word);check(!flight_input(bad,cal,true,now).ready);}
-        auto bad=s;bad.axes[0].firmware=808;check(!flight_input(bad,cal,true,now).ready);
+        auto bad=s;bad.axes[0].firmware=808;check(flight_input(bad,cal,true,now).ready); // firmware never gates; the model's preset and the owner's acknowledgement do
         bad=s;bad.connected=false;check(!flight_input(bad,cal,true,now).ready);
         bad=s;bad.cycles=0;check(!flight_input(bad,cal,true,now).ready);
         auto unverified=cal;unverified[1].verified=false;check(!flight_input(s,unverified,true,now).ready);
@@ -215,11 +215,11 @@ int main() {
         for (const auto reg:{force_limit,torque_limit}) for (std::uint32_t value:{0u,100u,101u,4500u})
             rejects([&]{loading_write_request(1,{reg,value,0},0);});
         // The constant force (decision 15): signed 16-bit, within half the protection limit.
-        for (std::int32_t bias:{0,1,-1800,max_pitch_bias,-max_pitch_bias}) check(loading_write_allowed(2,{manual_force_bias,encode_bias(bias),0}));
+        for (std::int32_t bias:{0,1,-1800,max_pitch_bias(),-max_pitch_bias()}) check(loading_write_allowed(2,{manual_force_bias,encode_bias(bias),0}));
         check(loading_write_allowed(1,{manual_force_bias,0,0})); // roll's is only ever cleared
         for (std::int32_t bias:{1,-1,-1800}) rejects([&]{loading_write_request(1,{manual_force_bias,encode_bias(bias),0},0);});
         check(encode_bias(-1800)==0xf8f8u && decode_bias(0xf8f8u)==-1800);
-        for (std::uint32_t value:{encode_bias(max_pitch_bias+1),encode_bias(-max_pitch_bias-1),0x10000u,0xffffffffu})
+        for (std::uint32_t value:{encode_bias(max_pitch_bias()+1),encode_bias(-max_pitch_bias()-1),0x10000u,0xffffffffu})
             rejects([&]{loading_write_request(2,{manual_force_bias,value,0},0);});
         // Its cut-off, pitch's alone: raised above any strength, or put back to a strength;
         // drag gains only the switch-on value or the untested ladder above it.
@@ -235,10 +235,10 @@ int main() {
         rejects([]{loading_write_request(1,{{0x2113,1,2},1001,0},0);});
         rejects([]{loading_write_request(1,{{0x2113,1,2},4,0},0);});
         for (std::uint32_t value:{0u,1u,20u,51u,4500u}) rejects([&]{loading_write_request(1,{target_torque,value,0},0);}); // no raw target torque
-        check(loading_write_request(2,{target_torque,fixed_target_torque,0},0)[7]==0x71); // only the owner's fixed 50
+        check(loading_write_request(2,{target_torque,fixed_target_torque(),0},0)[7]==0x71); // only the owner's fixed 50
         rejects([]{loading_write_request(1,{{0x2113,10,2},1,0},0);});
-        rejects([]{loading_write_request(1,{force_scale,static_cast<std::uint32_t>(strongest_spring_percent+1),0},0);});
-        check(loading_write_allowed(1,{force_scale,static_cast<std::uint32_t>(strongest_spring_percent),0}) && strongest_spring_percent==400 && strongest_spring_percent<=1000);
+        rejects([]{loading_write_request(1,{force_scale,static_cast<std::uint32_t>(strongest_spring_percent()+1),0},0);});
+        check(loading_write_allowed(1,{force_scale,static_cast<std::uint32_t>(strongest_spring_percent()),0}) && strongest_spring_percent()==400 && strongest_spring_percent()<=1000);
         // Roll's centre may reach the wheel's stops (13000), pitch's the yoke's (12000).
         rejects([]{loading_write_request(1,{trim_position,13001,0},0);});
         check(loading_write_request(1,{trim_position,13000,0},0)[6]==0x23 && loading_write_allowed(1,{trim_position,static_cast<std::uint32_t>(-13000),0}));
@@ -288,7 +288,7 @@ int main() {
                     && t.values[LoadingTransport::key(node,trim_position)]==0);
                 for (unsigned sub=1;sub<=9;++sub) check(t.values[LoadingTransport::key(node,{0x2113,static_cast<std::uint8_t>(sub),2})]==bench_curve[sub-1]);
                 check(t.values[LoadingTransport::key(node,force_limit)]==4500 && t.values[LoadingTransport::key(node,torque_limit)]==4500);
-                check(t.values[LoadingTransport::key(node,center_mode)]==0 && t.values[LoadingTransport::key(node,target_torque)]==fixed_target_torque);
+                check(t.values[LoadingTransport::key(node,center_mode)]==0 && t.values[LoadingTransport::key(node,target_torque)]==fixed_target_torque());
             }
             for (const auto& op:t.writes) check(!same_register(op.reg,force_limit) && !same_register(op.reg,torque_limit));
         };
@@ -463,13 +463,13 @@ int main() {
             check(edits.blending() && std::abs(e.pitch_bias-before.pitch_bias)<=std::abs(after.pitch_bias-before.pitch_bias)/8+1);
             for (int i=0;i<7;++i) {check(edits.blending());e=edits.advance(after,8,0.1);}
             check(!edits.blending() && same_tuning(e,after));
-            rejects([&]{blend.advance({30,strongest_spring_percent+1,0,0},5,0.02);});
-            rejects([&]{blend.advance({30,40,0,max_pitch_bias+1},5,0.02);});
+            rejects([&]{blend.advance({30,strongest_spring_percent()+1,0,0},5,0.02);});
+            rejects([&]{blend.advance({30,40,0,max_pitch_bias()+1},5,0.02);});
             rejects([&]{blend.advance({30,40,0,0},5,std::numeric_limits<double>::quiet_NaN());});
             rejects([]{FeelBlend({19,40,0,0},0);});
         }
-        check(!valid_tuning({20,20,0,max_pitch_bias+1}) && valid_tuning({20,20,0,-max_pitch_bias}));
-        rejects([&]{ramp.advance({strongest_spring_percent+1,40,0},0.02);});
+        check(!valid_tuning({20,20,0,max_pitch_bias()+1}) && valid_tuning({20,20,0,-max_pitch_bias()}));
+        rejects([&]{ramp.advance({strongest_spring_percent()+1,40,0},0.02);});
         rejects([&]{ramp.advance({},std::numeric_limits<double>::quiet_NaN());});
         rejects([&]{ramp.advance({},-0.1);});
         LoadingTransport live;prepare_loading(live,not_stopped);live.writes.clear();
@@ -523,8 +523,8 @@ int main() {
             // Decision 16: no write leaves a drive asking for more than the
             // margin anywhere in its travel, pitch's constant force counted:
             // whatever the update, in whatever order its registers go.
-            check(drive_margin_units<protection_limit_units && strongest_spring_percent==400);
-            check(!valid_tuning({20,100,12000,-max_pitch_bias}) && valid_tuning({20,87,12000,-max_pitch_bias}) && !valid_tuning({20,88,12000,-max_pitch_bias}));
+            check(drive_margin_units()<protection_limit_units() && strongest_spring_percent()==400);
+            check(!valid_tuning({20,100,12000,-max_pitch_bias()}) && valid_tuning({20,87,12000,-max_pitch_bias()}) && !valid_tuning({20,88,12000,-max_pitch_bias()}));
             check(valid_tuning({400,400,0,0}) && !valid_tuning({400,400,1,0}) && !valid_tuning({20,400,0,-1}));
             Tuning wheel_off{};wheel_off.roll_percent=400;wheel_off.roll_trim=1;check(!valid_tuning(wheel_off));
             check(within_drive(wheel_off).roll_percent==399 && valid_tuning(within_drive(wheel_off)));
@@ -532,7 +532,7 @@ int main() {
             const auto pick=[&](int lo,int hi) {return std::uniform_int_distribution<int>(lo,hi)(rng);};
             const auto any=[&]() {
                 for (;;) {
-                    Tuning t;t.pitch_percent=pick(20,400);t.pitch_trim=pick(-12000,12000);t.pitch_bias=pick(-max_pitch_bias,max_pitch_bias);
+                    Tuning t;t.pitch_percent=pick(20,400);t.pitch_trim=pick(-12000,12000);t.pitch_bias=pick(-max_pitch_bias(),max_pitch_bias());
                     t.roll_percent=pick(20,400);t.roll_trim=pick(-13000,13000);
                     if (pick(0,3)==0) t.pitch_trim=pick(0,1)?12000:-12000; // at a stop, as a parked solution is
                     if (pick(0,3)==0) {t.pitch_trim=t.roll_trim=0;t.pitch_bias=0;}
@@ -544,20 +544,20 @@ int main() {
             for (int i=0;i<3000;++i) {
                 const auto next=any();
                 apply_live_tuning(m,at,next,not_stopped);
-                check(same_tuning(at,next) && m.worst<=drive_margin_units && m.kept);
+                check(same_tuning(at,next) && m.worst<=drive_margin_units() && m.kept);
                 writes+=int(m.writes.size());m.writes.clear();
             }
             check(writes>3000*3);
             // The hardest turns: firmest at the centre to softest with all the
             // constant force at the far stop, and back.
-            const Tuning firm{400,400,0,0},parked{20,20,12000,-max_pitch_bias};
+            const Tuning firm{400,400,0,0},parked{20,20,12000,-max_pitch_bias()};
             apply_live_tuning(m,at,firm,not_stopped);apply_live_tuning(m,at,parked,not_stopped);apply_live_tuning(m,at,firm,not_stopped);
-            check(same_tuning(at,firm) && m.worst<=drive_margin_units && m.kept);
+            check(same_tuning(at,firm) && m.worst<=drive_margin_units() && m.kept);
             // Firm with no constant force to a constant force: the strength
             // comes down to the cut-off before the constant force goes on.
             const Tuning pushed{20,90,12000,-400},strong{20,300,0,0};
             apply_live_tuning(m,at,strong,not_stopped);apply_live_tuning(m,at,pushed,not_stopped);apply_live_tuning(m,at,strong,not_stopped);
-            check(same_tuning(at,strong) && m.kept && m.worst<=drive_margin_units);
+            check(same_tuning(at,strong) && m.kept && m.worst<=drive_margin_units());
             check(!valid_tuning({20,strongest_with_constant_force_percent+1,12000,-1}) && valid_tuning({20,strongest_with_constant_force_percent,12000,-1})
                 && valid_tuning({20,strongest_with_constant_force_percent+1,0,0}) && strongest_with_constant_force_percent==int(bias_offset_off)-1);
             check(within_drive({20,200,12000,-400}).pitch_percent==strongest_with_constant_force_percent);
@@ -568,7 +568,7 @@ int main() {
                 FeelBlend b(from,0);Tuning step=from;
                 for (int k=0;k<10;++k) {step=b.advance(to,1,0.05);check(valid_tuning(step));}
                 check(same_tuning(step,to));
-                update_live_tuning(m,at,step,not_stopped);check(m.worst<=drive_margin_units && m.kept);
+                update_live_tuning(m,at,step,not_stopped);check(m.worst<=drive_margin_units() && m.kept);
             }
             // Roll's centre held inside its deadband while its strength rose
             // to a limit set by the new centre: the strength gives way.
@@ -576,15 +576,15 @@ int main() {
             Tuning back=at;back.roll_trim=-(roll_centre_deadband-1);back.roll_percent=20;apply_live_tuning(m,at,back,not_stopped);
             check(valid_tuning(firm)); // 400 % is within the margin only centred
             update_live_tuning(m,at,firm,not_stopped); // the held centre (-19) with 400 % would be over: lowered to 399
-            check(at.roll_trim==-(roll_centre_deadband-1) && at.roll_percent==399 && valid_tuning(at) && m.worst<=drive_margin_units);
+            check(at.roll_trim==-(roll_centre_deadband-1) && at.roll_percent==399 && valid_tuning(at) && m.worst<=drive_margin_units());
             // Buffet's reserve (decision 19 within decision 16): with its knob
             // on, spring + constant force + shake stays within the margin on
             // each axis; with it off, everything is as without buffet.
-            check(drive_budget_units(0)==drive_margin_units && drive_budget_units(450)==3550 && max_drive_reserve_units==1350
-                && drive_budget_units(-1)==drive_margin_units-max_drive_reserve_units);
+            check(drive_budget_units(0)==drive_margin_units() && drive_budget_units(450)==3550 && max_drive_reserve_units()==1350
+                && drive_budget_units(-1)==drive_margin_units()-max_drive_reserve_units());
             const auto centred=[](int) {return std::pair<double,double>{0.0,0.0};};
-            check(drive_ceiling(pitch_travel_bound,centred)==400 && drive_ceiling(pitch_travel_bound,centred,0)==400);
-            check(drive_ceiling(pitch_travel_bound,centred,450)==355 && drive_ceiling(roll_travel_bound,centred,45)==395); // the ceiling drops by the reserve
+            check(drive_ceiling(pitch_travel_bound(),centred)==400 && drive_ceiling(pitch_travel_bound(),centred,0)==400);
+            check(drive_ceiling(pitch_travel_bound(),centred,450)==355 && drive_ceiling(roll_travel_bound(),centred,45)==395); // the ceiling drops by the reserve
             // A non-finite want is the softest spring, never lround(NaN); a finite one rounds within the floor and the ceiling.
             check(spring_percent(std::nan(""),400)==softest_spring_percent && spring_percent(HUGE_VAL,400)==softest_spring_percent
                 && spring_percent(-HUGE_VAL,400)==softest_spring_percent);
@@ -647,12 +647,12 @@ int main() {
             }
             // Knob off: the same answers and the same writes as no reserve at all.
             for (int i=0;i<2000;++i) {
-                Tuning raw;raw.pitch_percent=pick(20,400);raw.pitch_trim=pick(-12000,12000);raw.pitch_bias=pick(-max_pitch_bias,max_pitch_bias);
+                Tuning raw;raw.pitch_percent=pick(20,400);raw.pitch_trim=pick(-12000,12000);raw.pitch_bias=pick(-max_pitch_bias(),max_pitch_bias());
                 raw.roll_percent=pick(20,400);raw.roll_trim=pick(-13000,13000);
                 check(valid_tuning(raw,none)==valid_tuning(raw) && same_tuning(within_drive(raw,none),within_drive(raw)));
                 const auto to=any();
                 const AxisState a{raw.pitch_percent,raw.pitch_trim,raw.pitch_bias},b{to.pitch_percent,to.pitch_trim,to.pitch_bias};
-                const auto plain=axis_writes(a,b,pitch_travel_bound),reserved=axis_writes(a,b,pitch_travel_bound,0);
+                const auto plain=axis_writes(a,b,pitch_travel_bound()),reserved=axis_writes(a,b,pitch_travel_bound(),0);
                 check(plain.size()==reserved.size());
                 for (std::size_t j=0;j<plain.size() && j<reserved.size();++j) check(plain[j].reg==reserved[j].reg && plain[j].value==reserved[j].value);
             }
@@ -689,7 +689,7 @@ int main() {
                     shaker.update(d,BuffetTarget{knob,static_cast<std::uint32_t>(pick(0,450)),static_cast<std::uint32_t>(pick(0,450))},at_d,held_modes,not_stopped);
                     most=(std::max)(most,(std::max)(shaker.units()[0],shaker.units()[1]));
                 }
-                check(d.worst_with_shake<=drive_margin_units && d.kept && most>=300);
+                check(d.worst_with_shake<=drive_margin_units() && d.kept && most>=300);
             }
         }
         live.mismatch=true;
@@ -828,7 +828,7 @@ int main() {
             // The drive's force at x0 is the model's within half a percent of
             // the curve over the displacement, plus half a unit; unless saturated.
             const auto matches=[](const PitchSolution& p,double x,int units) {
-                return std::abs(p.drive_force_lb-p.force_lb)<=(0.5*curve_units_per_count_percent*std::abs(x-p.centre)+0.5)/units+1e-9;
+                return std::abs(p.drive_force_lb-p.force_lb)<=(0.5*curve_units_per_count_percent()*std::abs(x-p.centre)+0.5)/units+1e-9;
             };
             // It rests where the model does, within half a unit of constant force.
             const auto rests=[](const PitchSolution& p) {
@@ -856,16 +856,16 @@ int main() {
             check(!solution.saturated && solution.strength>100 && solution.strength<solution.ceiling && solution.ceiling==225 && matches(solution,0,222));
             // The limit is the strongest spring whose line, constant force
             // and centre together, stays within the margin at both stops.
-            check(worst_force_units(solution.ceiling,solution.centre,0,12000)<=drive_margin_units
-                && worst_force_units(solution.ceiling+1,solution.centre,0,12000)>drive_margin_units);
+            check(worst_force_units(solution.ceiling,solution.centre,0,12000)<=drive_margin_units()
+                && worst_force_units(solution.ceiling+1,solution.centre,0,12000)>drive_margin_units());
             // Cruise: the air is stiffer than the drive can be. Saturated at its
             // limit, the rest stays exact and the force is the most the drive gives.
             const ElevatorInputs cruise{0.15,1988,1};
             solution=solve_pitch(c172,cruise,-6000,222);
             check(!solution.at_stop && solution.saturated && solution.strength==solution.ceiling && solution.ceiling==381 && rests(solution)
                 && std::abs(solution.drive_force_lb)<std::abs(solution.force_lb));
-            check(within_margin(solution.strength,solution.centre,solution.bias,pitch_travel_bound)
-                && !within_margin(solution.strength+1,solution.centre,solution.bias,pitch_travel_bound));
+            check(within_margin(solution.strength,solution.centre,solution.bias,pitch_travel_bound())
+                && !within_margin(solution.strength+1,solution.centre,solution.bias,pitch_travel_bound()));
             check(std::abs(solution.shrink_ratio-solution.drive_slope_lb_per_count/solution.slope_lb_per_count)<1e-12 && solution.shrink_ratio<1);
             check(solution.centre==static_cast<int>(std::lround(solution.rest_counts)) && solution.rest_counts>solution.centre_counts); // forward of trim by the weight
             // At the rest itself: no force, and the slope from a 60-count secant.
@@ -878,11 +878,11 @@ int main() {
             // The constant force's bound: a heavy elevator at 4 g, parked, says so.
             auto heavy=c172;heavy.unbalance_inlb=200;
             solution=solve_pitch(heavy,{0,0,4},0,222);
-            check(solution.bias==-max_pitch_bias && solution.bias_limited);
+            check(solution.bias==-max_pitch_bias() && solution.bias_limited);
             // The constant force goes first, holding the rest; the spring has
             // what the margin leaves: 2250 + 20 units a percent across the
             // whole travel from the forward stop, so 87 %.
-            check(solution.ceiling==87 && solution.strength<=87 && within_margin(solution.strength,solution.centre,solution.bias,pitch_travel_bound));
+            check(solution.ceiling==87 && solution.strength<=87 && within_margin(solution.strength,solution.centre,solution.bias,pitch_travel_bound()));
             // Taxiing at 15 kt with full nose-down trim: the rest is at the
             // forward stop, held by a constant force, and the air wants more
             // than 100 %. The strength stays where the firmware keeps the
@@ -1216,9 +1216,9 @@ int main() {
             BuffetKnob on{true,100,80};
             check(buffet_units(on,1)==450 && buffet_units(on,0.5)==225 && buffet_units(on,0.04)==0 && buffet_units(on,0.07)==56);
             check(buffet_units(BuffetKnob{true,101,80},1)==0 && buffet_units(BuffetKnob{true,50,9},1)==0);
-            // The room the spring line leaves under drive_margin_units, anywhere in the travel.
-            check(buffet_headroom(100,0,2250,pitch_travel_bound)==750 && buffet_headroom(400,0,0,pitch_travel_bound)==0
-                && buffet_headroom(355,0,0,pitch_travel_bound)==450 && buffet_headroom(20,0,0,roll_travel_bound)==3800);
+            // The room the spring line leaves under drive_margin_units(), anywhere in the travel.
+            check(buffet_headroom(100,0,2250,pitch_travel_bound())==750 && buffet_headroom(400,0,0,pitch_travel_bound())==0
+                && buffet_headroom(355,0,0,pitch_travel_bound())==450 && buffet_headroom(20,0,0,roll_travel_bound())==3800);
             const std::atomic<bool> go{false};
             const Tuning soft{20,20,0,0,0};
             // Knob off: nothing written or even read, however hard the stall.

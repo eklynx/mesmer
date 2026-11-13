@@ -3,8 +3,9 @@
 // Specification: docs/hid-bridge.md. Read this header, not the platform files,
 // to use or implement a HidDevice.
 //
-// Happy path: open_bridge() finds exactly one yoke bridge, opens it exclusively,
-// discards stale input and returns it. write() sends one 64-byte report; read()
+// Happy path: open_bridge(ids) finds exactly one yoke bridge among the given USB
+// ids (the ids the yoke presets name), opens it exclusively, discards stale input
+// and returns it; the device reports which id it opened, so the model follows from it. write() sends one 64-byte report; read()
 // returns the next 64-byte report within the timeout.
 //
 // Error cases (all thrown as the types below, never returned as codes):
@@ -17,6 +18,7 @@
 //   OperationCancelled  the reader was asked to stop between transfers.
 #pragma once
 #include "core.hpp"
+#include "usb_ids.hpp"
 #include <cstddef>
 #include <memory>
 #include <stdexcept>
@@ -48,17 +50,19 @@ struct HidCandidate {
 };
 
 // Picks the yoke's bridge among enumerated devices and returns its index.
-// A device qualifies when its id is in usb_ids.hpp, its top-level usage is
+// A device qualifies when its id is in `ids`, its top-level usage is
 // vendor page 0xff00 / usage 0xff02, and its input and output reports are 64 bytes.
 // Throws BridgeAbsent if none qualifies and std::runtime_error ("... found
 // several") if more than one does, whatever their ids.
-std::size_t select_bridge(const std::vector<HidCandidate>& candidates);
+std::size_t select_bridge(const std::vector<HidCandidate>& candidates,const std::vector<UsbId>& ids);
 
 // An open, exclusively held bridge. One outstanding request at a time; not
 // thread-safe. Timeouts are in milliseconds.
 class HidDevice {
 public:
     virtual ~HidDevice() = default;
+    // The USB id this device was opened as: how the model is told from the device.
+    virtual UsbId id() const = 0;
     // Sends a 64-byte report (byte 0 is report ID 0x3f). TransportError on failure or timeout.
     virtual void write(const Report& report, int timeout_ms) = 0;
     // Receives the next 64-byte report. TransportError on timeout, short report or removal.
@@ -67,6 +71,7 @@ public:
     virtual void flush() = 0;
 };
 
-// Implemented once per platform (hid_win.cpp, hid_mac.cpp).
-std::unique_ptr<HidDevice> open_bridge();
+// Implemented once per platform (hid_win.cpp, hid_mac.cpp). Only devices with one of
+// `ids` are considered; BridgeAbsent if there is none.
+std::unique_ptr<HidDevice> open_bridge(const std::vector<UsbId>& ids);
 }

@@ -48,7 +48,7 @@ void link_lost(Bridge& bridge,Snapshot& s,const std::array<std::uint16_t,2>& wor
 void reference_test(Bridge& bridge,Snapshot& s,const std::atomic<bool>& stop,const std::function<void(const Snapshot&)>& publish,
     const std::function<void()>& check_alive) {
     sample(bridge,s,stop);
-    for (const auto& a:s.axes) if (a.status&0x000c) throw std::runtime_error("Reference test requires disabled, fault-free drives");
+    for (const auto& a:s.axes) if (a.status&0x000c) throw std::runtime_error("Reference test requires disabled, fault-free drives ("+status_words(s)+")");
     // Every centring starts from the plugin's own resting settings, whatever a
     // switch-on, CLS2Sim or an interrupted session left (motors off throughout).
     rest_controllers(bridge,stop);
@@ -75,8 +75,8 @@ void reference_test(Bridge& bridge,Snapshot& s,const std::atomic<bool>& stop,con
                 sample(bridge,s,stop);publish(s);
                 const auto& axis=s.axes[i];
                 if (axis.status&0x2108) throw std::runtime_error("Controller reported an error during reference test");
-                if ((axis.status&0x1004)==0x1004) acquired=true;
-                if (acquired && (axis.status&0x1004)!=0x1004) throw std::runtime_error("Reference was lost during centering");
+                if ((axis.status&active_drive().status_acquired_mask)==active_drive().status_acquired_mask) acquired=true;
+                if (acquired && (axis.status&active_drive().status_acquired_mask)!=active_drive().status_acquired_mask) throw std::runtime_error("Reference was lost during centering");
                 if (acquired && !center_commanded) {
                     // Target first, then select the vendor's position-centering mode.
                     bridge.ref_write(i+1,{center_position,0,0},stop);
@@ -155,7 +155,7 @@ void loading_test(Bridge& bridge,Snapshot& s,const std::atomic<bool>& stop,
                 sample(bridge,s,stop);publish(s);
                 const auto status=s.axes[i].status;
                 if (status&0x2108) throw std::runtime_error("Controller fault enabling light spring");
-                if ((status&0x1017)==0x1017) {enabled=true;break;}
+                if (status_ready(status)) {enabled=true;break;}
             }
             if (!enabled) throw std::runtime_error("Warm reference not acquired for light spring");
             verify_loading(bridge,i+1,stop,applied,pitch);
@@ -218,7 +218,7 @@ void loading_test(Bridge& bridge,Snapshot& s,const std::atomic<bool>& stop,
             if (flight && buffet && buffet_target) {buffet->update(bridge,shake,applied,modes,stop);s.buffet_units=buffet->units();}
             s.loading_seconds_remaining=flight?-1:static_cast<int>(std::max<std::int64_t>(0,std::chrono::duration_cast<std::chrono::seconds>(deadline-Clock::now()).count()));
             sample(bridge,s,stop);
-            for (const auto& axis:s.axes) if ((axis.status&0x1017)!=0x1017 || (axis.status&0x2108)) throw std::runtime_error("Controller state changed during loading");
+            for (const auto& axis:s.axes) if (!status_ready(axis.status) || (axis.status&0x2108)) throw std::runtime_error("Controller state changed during loading ("+status_words(s)+")");
             publish(s);
             std::this_thread::sleep_until(s.sampled+std::chrono::milliseconds(20));
         }
@@ -292,6 +292,7 @@ void wait_before_retry(const std::atomic<bool>& stop,std::chrono::milliseconds d
 // keeps looking for the yoke for as long as the reader is running.
 void Reader::session(Snapshot& s) {
     Bridge bridge(device_factory_());
+    s.usb_vendor=bridge.id().vendor;s.usb_product=bridge.id().product;
     s.bridge_present=true;s.message="Waiting for the yoke's controllers";publish(s);
     const auto check_alive=[this] {
         if (simulator_paused()) throw FlightPaused{};
@@ -304,13 +305,38 @@ void Reader::session(Snapshot& s) {
         firmware[i]=static_cast<std::uint16_t>(bridge.read(i+1,Object::firmware,stop_));
         s.axes[i].firmware=firmware[i];
     }
-    // Firmware the plugin does not drive: read the yoke and nothing else. The
-    // read-only session is given a ReadOnlyBridge, so it cannot write; every
-    // line below this one runs only for firmware 367 on both axes.
-    if (needs_read_only(firmware)) {
+    // The model follows from the device that was opened (never from its firmware).
+    const YokePreset* preset=find_yoke_preset(presets_,bridge.id());
+    if (!preset) throw std::runtime_error("No yoke preset for USB id "+status_hex(bridge.id().vendor)+":"+status_hex(bridge.id().product));
+    s.model=preset->name;s.model_title=preset->title;s.yoke_note=firmware_note(*preset,firmware);
+    // What each controller says its own force limit is (read, never written): the
+    // ceiling is the lower of that and the preset's, so forces stop at the controller's limit.
+    std::uint32_t limits[2]{};
+    for (unsigned i=0;i<2;++i) limits[i]=bridge.ref_read(i+1,force_limit,stop_);
+    try {set_active_drive(make_drive(*preset,limits[0],limits[1]));}
+    catch (const PresetError& e) {throw std::runtime_error(e.what());}
+    // A model that is not verified is only driven when the owner has said so; until then
+    // (and for any such reason) the yoke is read-only: the session is given a
+    // ReadOnlyBridge, so it cannot write. Every line below runs only for a driven yoke.
+    if (const auto why=read_only_reason(*preset,allow_unverified_)) {
         ReadOnlyBridge read_only(bridge);
-        read_only_session(read_only,s);
+        read_only_session(read_only,s,*why);
         return;
+    }
+    // The first writes to a model nobody has verified: write one setting back to the value it
+    // already has and read it back, before anything else is sent. A write that is refused, or
+    // does not take, ends the session here with the reason.
+    if (!preset->verified) {
+        s.message="Testing a write to this yoke model (no change)";publish(s);
+        for (unsigned node=1;node<=2;++node) {
+            const auto current=bridge.ref_read(node,force_scale,stop_);
+            try {checked_loading_write(bridge,node,{force_scale,current,0},stop_);}
+            catch (const TransportError&) {throw;}
+            catch (const OperationCancelled&) {throw;}
+            catch (const std::exception& e) {
+                throw std::runtime_error("The test write to this yoke model (spring strength "+std::to_string(current)+" on node "+std::to_string(node)+") failed: "+e.what());
+            }
+        }
     }
     // A link lost while buffet was on: what it set is cleared once both
     // motors are confirmed stopped (the stop comes first, never delayed), and
@@ -401,10 +427,9 @@ void Reader::session(Snapshot& s) {
 // Firmware the plugin does not drive (readonly.hpp): sample both controllers,
 // serve the survey, and write nothing. Every request that could write is ignored
 // (and was refused when made); the supervisor, seeing read_only, asks for none.
-void Reader::read_only_session(ReadOnlyBridge& bridge,Snapshot& s) {
+void Reader::read_only_session(ReadOnlyBridge& bridge,Snapshot& s,const std::string& why) {
     s.read_only=true;
-    s.message="Yoke firmware "+std::to_string(s.axes[0].firmware)+(s.axes[1].firmware!=s.axes[0].firmware?"/"+std::to_string(s.axes[1].firmware):"")
-        +" not supported: read-only, no force feel";
+    s.message=why;
     publish(s);
     while (!stop_) {
         reference_requested_=false;inspection_requested_=false;loading_requested_=false;recovery_requested_=false;
