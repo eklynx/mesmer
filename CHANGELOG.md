@@ -6,6 +6,11 @@ provenance attestation.
 
 ## Unreleased
 
+- **Source layout.** `src/` is grouped by idea: `brunner/` (the yoke),
+  `force/` (the simulation's force models), `hid/` (with `win/` and `mac/`),
+  `xplane/` (datarefs), and `ui/` (`menu/`, `view/`, `workbench/`). `plugin.cpp`
+  keeps the commands, the flight loop and start/stop, and calls the
+  new modules. No behaviour change; a build on Windows is the first check.
 - **A pause no longer ends force feel.** The motors stay on and hold the last
   forces through a pause, so there is no delay on resume (it used to rebuild
   the whole session). Real lapses still release the motors. Not yet run on

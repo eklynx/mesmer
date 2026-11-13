@@ -132,8 +132,20 @@ menu, the corner line, the feel card and the feel page. The full list is in
 
 ## For developers
 
-The source is in [`src/`](../src). Everything except the Windows USB reader
-and the X-Plane glue is portable C++17 with tests that run on macOS and Windows.
+The source is in [`src/`](../src), grouped by idea (each folder has a short
+README naming its source-of-truth headers):
+
+| Folder | What is in it |
+|---|---|
+| `brunner/` | The yoke: its controllers, the USB frames, the reader, and what differs between models |
+| `force/` | Forces calculated from the simulation: the elevator and aileron models, solvers, profiles, buffet |
+| `hid/` | The USB HID seam, with `win/` and `mac/` implementations |
+| `xplane/` | The X-Plane datarefs (read, write and published) |
+| `ui/menu/`, `ui/view/`, `ui/workbench/` | The menu, the windows, and the feel page |
+
+Everything except the Windows USB reader and the files under `xplane/`,
+`ui/menu/`, `ui/view/startup_notice.*`, `ui/view/panel_win.hpp` and `plugin.cpp` is portable
+C++17 with tests that run on macOS and Windows.
 
 | File | What it holds |
 |---|---|
@@ -152,9 +164,11 @@ and the X-Plane glue is portable C++17 with tests that run on macOS and Windows.
 | `brunner/reader.cpp`, `brunner/bridge.hpp` | The reader thread and its request/reply layer; the same on every platform |
 | `hid/hid_device.hpp`, `hid/usb_ids.hpp`, `hid/hid_select.cpp` | The seam to the operating system and the USB ids Mesmer opens ([spec](hid-bridge.md)) |
 | `hid/win/hid_win.cpp`, `hid/mac/hid_mac.cpp` | The Windows and macOS HID access |
-| `plugin.cpp` | The X-Plane plugin: menu, commands, datarefs, the corner line |
-| `ui/view/hud.hpp`, `ui/view/tail.hpp`, `panel*.hpp` | The feel card and the force monitor windows |
-| `workbench*.hpp/.cpp`, `workbench.html` | The feel page and its small HTTP server |
+| `plugin.cpp` | The X-Plane plugin's glue: commands, the flight loop, start and stop, and what the menu, the corner line and the datarefs show |
+| `xplane/sim.hpp`, `xplane/published.hpp` | Every X-Plane dataref the plugin reads or writes, and the `brunner_direct/...` datarefs it publishes |
+| `ui/menu/menu.hpp` | The Yoke (Brunner) menu and its Developer submenu |
+| `ui/view/startup_notice.hpp`, `ui/view/hud.hpp`, `ui/view/tail.hpp`, `ui/view/panel*.hpp` | The corner notice, the feel card and the force monitor windows |
+| `ui/workbench/workbench*.hpp/.cpp`, `workbench.html` | The feel page and its small HTTP server |
 | `elevator.html`, `aileron.html` | Stand-alone pages that animate each model; open them in a browser |
 
 **The models are written twice and kept equal.** `elevator.html` and
