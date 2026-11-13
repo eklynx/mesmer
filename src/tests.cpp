@@ -185,6 +185,30 @@ int main() {
         check(!evidence.observe(0,now+std::chrono::milliseconds(699)));
         check(evidence.observe(0,now+std::chrono::milliseconds(700)));
         check(!evidence.observe(300,now+std::chrono::milliseconds(710)));
+        // A sensitive yoke wanders a little: with a tolerance of 10 counts a wander of +-8 around where the hold
+        // began still settles after 500 ms; with the old 2 counts it never does.
+        const auto ms=[&](int n) {return now+std::chrono::milliseconds(n);};
+        const int wander[]={0,5,-6,8,-8,3,-4,7,-7,2,0,6,-5,4,-3,1,0,5,-6,8,-8,0};   // every 50 ms
+        CenterEvidence loose,tight;
+        bool loose_settled=false,tight_settled=false;
+        for (int i=0;i<22;++i) {
+            loose_settled=loose.observe(wander[i],ms(50*i),10) || loose_settled;
+            tight_settled=tight.observe(wander[i],ms(50*i),2) || tight_settled;
+        }
+        check(loose_settled && !tight_settled);
+        // Leaving the tolerance restarts the hold, at the new position: not settled until another 500 ms there.
+        CenterEvidence moved;
+        check(!moved.observe(0,ms(0),10) && !moved.observe(1,ms(100),10) && !moved.observe(0,ms(200),10));
+        check(!moved.observe(12,ms(600),10));                  // 12 from where the hold began: restarts, not settled
+        check(!moved.observe(13,ms(1000),10) && moved.observe(14,ms(1100),10));   // 500 ms after the restart
+        // A drift of 3 counts per 100 ms (30 counts a second) leaves the 10 count tolerance within 400 ms every time: each step
+        // is small, but the hold keeps restarting and never reaches 500 ms. (1.5 counts per 100 ms would settle.)
+        CenterEvidence drifting;
+        bool drift_settled=false;
+        for (int i=0;i<40;++i) drift_settled=drifting.observe(3*i-60,ms(100*i),10) || drift_settled;
+        check(!drift_settled);
+        // The default tolerance is a share of each axis's own travel: 0.2 % of 12000 and 13000 on the CLS-E.
+        check(centre_tolerance(1,2)==24 && centre_tolerance(0,2)==26 && centre_tolerance(1,0)==2 && centre_tolerance(1,1000)==600);
         auto stopped=s;
         for (auto& axis:stopped.axes) {axis.status=0x431;axis.encoder=100;axis.position=99999;}
         check(!stopped_flight_input(stopped,cal,now).ready);

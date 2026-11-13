@@ -46,7 +46,7 @@ void link_lost(Bridge& bridge,Snapshot& s,const std::array<std::uint16_t,2>& wor
     lost.pitch_force_cleared=cleared;publish(lost);
 }
 void reference_test(Bridge& bridge,Snapshot& s,const std::atomic<bool>& stop,const std::function<void(const Snapshot&)>& publish,
-    const std::function<void()>& check_alive) {
+    const std::function<void()>& check_alive,int centre_drift_permille=2) {
     sample(bridge,s,stop);
     for (const auto& a:s.axes) if (a.status&0x0008) throw std::runtime_error("Reference test requires disabled, fault-free drives ("+status_words(s)+")");
     if ((s.axes[0].status|s.axes[1].status)&0x0004) {
@@ -96,7 +96,7 @@ void reference_test(Bridge& bridge,Snapshot& s,const std::atomic<bool>& stop,con
                     bridge.ref_write(i+1,{center_mode,1,0},stop);
                     center_commanded=true;
                 }
-                if (center_commanded && center.observe(axis.encoder,Clock::now())) {settled=true;break;}
+                if (center_commanded && center.observe(axis.encoder,Clock::now(),centre_tolerance(i,centre_drift_permille))) {settled=true;break;}
                 std::this_thread::sleep_for(std::chrono::milliseconds(20));
             }
             if (!settled) throw std::runtime_error("Reference or centering did not complete within 40 seconds");
@@ -132,7 +132,7 @@ void loading_test(Bridge& bridge,Snapshot& s,const std::atomic<bool>& stop,
     const std::function<void(const Snapshot&)>& publish,const std::function<void()>& check_alive,std::atomic<bool>& gap,
     const std::function<SessionTarget()>& requested,bool flight,std::atomic<bool>& end,const PitchSetup& pitch={},
     BuffetDrive* buffet=nullptr,const std::function<BuffetTarget()>& buffet_target={},
-    const std::function<void()>& check_engaged={}) {
+    const std::function<void()>& check_engaged={},int centre_drift_permille=2) {
     // Once force feel is engaged a pause holds it (the owner's choice, 2026-11-12); a caller that gives
     // no check_engaged (the light spring test) ends on a pause as before.
     const auto alive_engaged=[&] {if (flight && check_engaged) check_engaged();else check_alive();};
@@ -140,7 +140,7 @@ void loading_test(Bridge& bridge,Snapshot& s,const std::atomic<bool>& stop,
     s.tuning_valid=false;s.loading_seconds_remaining=0;s.flight_session=flight;s.flight_suspended=false;s.loading_fault=false;
     s.force_unavailable.clear();s.power_cycle_needed=false;s.pitch_force_cleared.reset();
     s.stop_reason.clear();s.stop_reason_short.clear();s.retry_helps=true;
-    if (!flight || !s.session_reference) reference_test(bridge,s,stop,publish,check_alive);
+    if (!flight || !s.session_reference) reference_test(bridge,s,stop,publish,check_alive,centre_drift_permille);
     if (!s.session_reference || stop) return;
     std::array<std::uint16_t,2> words{},modes{};
     for (unsigned i=0;i<2;++i) {
@@ -466,7 +466,7 @@ void Reader::session(Snapshot& s) {
         if (inspection_requested_.exchange(false)) serve("Inspection",[&]{s.loading_inspection=inspect_loading(bridge,stop_);});
         if (reference_requested_.exchange(false)) serve("Centring",[&]{
             s.flight_session=false;s.flight_suspended=false;s.loading_fault=false;s.stop_unconfirmed=false;s.power_cycle_needed=false;
-            reference_test(bridge,s,stop_,publish_state,check_alive);
+            reference_test(bridge,s,stop_,publish_state,check_alive,centre_drift_permille_);
         });
         if (loading_requested_.exchange(false)) serve("Light spring test",[&]{
             end_requested_=false;
@@ -475,7 +475,7 @@ void Reader::session(Snapshot& s) {
         if (flight_requested_.exchange(false)) serve("Force feel",[&]{
             end_requested_=false;
             loading_test(bridge,s,stop_,publish_state,check_alive,gap_requested_,[this]{return flight_target();},true,end_requested_,pitch_setup(),
-                &buffet_,[this]{return buffet_target();},check_engaged);
+                &buffet_,[this]{return buffet_target();},check_engaged,centre_drift_permille_);
         });
         if (stop_) break;
         sample(bridge,s,stop_);

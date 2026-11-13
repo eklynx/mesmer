@@ -38,6 +38,9 @@ struct FlightSettings {
     int buffet=0,buffet_percent=10,buffet_period=80;
     // Read-only mode (brunner/readonly.hpp): flip an axis whose learned direction is backwards.
     int read_only_roll_reverse=0,read_only_pitch_reverse=0;
+    // How far the yoke may drift while a centring decides it has settled, in thousandths of the axis's travel
+    // (2 = +-0.2 %). A sensitive yoke wanders a little; 0 asks for the old fixed 2 counts.
+    int centre_drift_permille=2;
 };
 inline bool valid_flight_settings(const FlightSettings& c) {
     return (c.auto_start==0 || c.auto_start==1) && (c.force_feel==0 || c.force_feel==1)
@@ -47,6 +50,7 @@ inline bool valid_flight_settings(const FlightSettings& c) {
         && c.reference_airspeed>=40 && c.reference_airspeed<=400
         && c.roll_minimum_percent==softest_spring_percent
         && (c.read_only_roll_reverse==0 || c.read_only_roll_reverse==1) && (c.read_only_pitch_reverse==0 || c.read_only_pitch_reverse==1)
+        && c.centre_drift_permille>=0 && c.centre_drift_permille<=50
         && (c.buffet==0 || c.buffet==1) && c.buffet_percent>=0 && c.buffet_percent<=100 && c.buffet_period>=10 && c.buffet_period<=140;
 }
 // Per-element dynamic pressure over two X-Plane wings, area-weighted so

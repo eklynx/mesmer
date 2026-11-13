@@ -1013,7 +1013,7 @@ PLUGIN_API int XPluginStart(char* name,char* signature,char* description) {
             reader.request_tuning(brunner::TuningField::roll_percent,config.tuning.roll_percent);
             reader.request_tuning(brunner::TuningField::pitch_percent,config.tuning.pitch_percent);
             reader.request_tuning(brunner::TuningField::pitch_trim,config.tuning.pitch_trim);
-            flight_settings=config.flight;workbench_port=config.workbench_port;
+            flight_settings=config.flight;workbench_port=config.workbench_port;reader.set_centre_drift_permille(flight_settings.centre_drift_permille);
             log("Loaded managed yoke defaults from BrunnerDirect.ini");
             for (const auto& key:config.retired) log("BrunnerDirect.ini: "+key+" is retired and ignored"+(key=="allow_unverified_yoke"?" (use Developer > Allow unverified yoke models; it is off until you turn it on)":""));
         } else {flight_settings.auto_start=0;log("No startup defaults file; the yoke waits for Re-centre in the plugin menu");}

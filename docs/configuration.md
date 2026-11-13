@@ -35,6 +35,7 @@ that `auto_start` is 0 and the feel page is off.
 | `pitch_move_back_gain` | 180 | 180 to 720 | The drive's move-back gain on pitch. 180 is its own; higher values are untested. |
 | `buffet` | 0 | 0 or 1 | A shake at the stall through the drive's vibration generator. Untested with the motors on. Optional. |
 | `buffet_percent` | 10 | 0 to 100 | Buffet's strength, as a share of the plugin's own ceiling for it. Optional. |
+| `centre_drift_permille` | 2 | 0 to 50 | How far the yoke may drift while a centring decides it has settled, in **thousandths of the axis's own travel** (2 = ±0.2 %, so about ±24 counts on the CLS-E's pitch and ±11 on the NG's). A sensitive yoke wanders a little at rest: the centring is settled when it holds within this of where the hold began (and within 200 counts of zero) for half a second; leaving it restarts the hold. 0 asks for the old fixed 2 counts. Optional. |
 | `read_only_roll_reverse` | 0 | 0 or 1 | Read-only mode only ([spec](read-only-mode.md)): 1 flips the roll direction of the learned travel. Optional. |
 | `read_only_pitch_reverse` | 0 | 0 or 1 | Likewise for pitch. Optional. |
 | `buffet_period` | 80 | 10 to 140 | The vibration generator's raw time setting; its frequency is not confirmed. Optional. |

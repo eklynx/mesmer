@@ -67,6 +67,9 @@ public:
     // "Reset yoke": both motors off, the model's resting settings written and read back, faults cleared.
     // False (and nothing happens) when the yoke is read-only: it never writes. The yoke is left stopped;
     // Re-centre references it again as usual.
+    // How far a centring may drift and still count as settled, in thousandths of an axis's travel (2 = 0.2 %,
+    // the default; 0 to 50). The plugin sets it from BrunnerDirect.ini (centre_drift_permille).
+    void set_centre_drift_permille(int permille) {centre_drift_permille_=std::clamp(permille,0,50);}
     bool request_reset() {
         if (snapshot().read_only || busy_) return false;
         reset_requested_=true;return true;
@@ -143,6 +146,7 @@ private:
     std::atomic<bool> inspection_requested_{false};
     std::atomic<bool> loading_requested_{false};
     std::atomic<bool> recovery_requested_{false},reset_requested_{false};
+    std::atomic<int> centre_drift_permille_{2};
     std::atomic<bool> gap_requested_{false};
     std::atomic<bool> busy_{false},flight_requested_{false},end_requested_{false};
     Tuning tuning_{}; // guarded by mutex_; writes never enable a motor

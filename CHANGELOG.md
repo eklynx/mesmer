@@ -6,6 +6,10 @@ provenance attestation.
 
 ## Unreleased
 
+- **Natural drift allowed when centring.** A sensitive yoke wanders a little, so a centring
+  now counts as settled when it holds within ±0.2 % of the axis's travel of where the hold began
+  (it was a fixed 2 counts between samples). Set `centre_drift_permille` in `BrunnerDirect.ini`
+  (thousandths of travel, default 2, 0 to 50; 0 is the old behaviour).
 - **A model is left as it was found.** The plugin wrote the CLS-E's resting settings (spring
   curve, spring strength, pitch drag, and a force mode with the reference-at-power-on bit
   cleared) to the CLS-E NG at every rest and stop, and the NG kept them: it stopped

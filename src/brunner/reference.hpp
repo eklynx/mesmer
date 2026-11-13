@@ -175,18 +175,34 @@ template<class Transport> bool stop_reference(Transport& bridge,
     }
     return confirmed;
 }
+// Whether the yoke has settled at its centre: within 200 counts of zero and holding there for 500 ms.
+// A sensitive yoke drifts, so "holding" allows `tolerance` counts of wander around where the hold began (a
+// window starts when two consecutive samples agree within the tolerance, and restarts at once if the position
+// leaves the tolerance of the window's first sample). The plugin's setting is centre_drift_permille of the
+// axis's travel (default 0.2 %); the default argument is the old fixed 2 counts.
 struct CenterEvidence {
     Clock::time_point stable_since{};
-    std::int32_t previous=0;
+    std::int32_t previous=0,anchor=0;
     bool seen=false;
-    bool observe(std::int32_t encoder,Clock::time_point now) {
+    bool observe(std::int32_t encoder,Clock::time_point now,std::int32_t tolerance=2) {
         const auto position=static_cast<std::int64_t>(encoder);
-        const auto delta=position-previous;
-        if (seen && position>=-200 && position<=200 && delta>=-2 && delta<=2) {
-            if (stable_since==Clock::time_point{}) stable_since=now;
+        const bool near=position>=-200 && position<=200;
+        const bool started=stable_since!=Clock::time_point{};
+        if (near && started) {
+            const auto wander=position-anchor;
+            if (wander<-tolerance || wander>tolerance) {stable_since=now;anchor=encoder;} // moved: the hold starts again here
+        } else if (near && seen) {
+            const auto delta=position-previous;
+            if (delta>=-tolerance && delta<=tolerance) {stable_since=now;anchor=encoder;}
         } else stable_since={};
         previous=encoder;seen=true;
         return stable_since!=Clock::time_point{} && now>=stable_since && now-stable_since>=std::chrono::milliseconds(500);
     }
 };
+// The drift a centring may settle within, in encoder counts: centre_drift_permille of the axis's travel
+// (default 2, 0.2 %), at least the old fixed 2 counts. Roll is axis 0, pitch axis 1.
+inline std::int32_t centre_tolerance(unsigned axis,int permille) {
+    const double travel=axis==0?active_drive().roll_travel_counts:active_drive().pitch_travel_counts;
+    return std::max<std::int32_t>(2,static_cast<std::int32_t>(std::ceil(travel*std::clamp(permille,0,50)/1000.0)));
+}
 }
