@@ -71,3 +71,30 @@ No build starts after one of the first four.
   and check slices, signature, exports and deployment target.
 - `MESMER_SDK_URL` and `MESMER_SDK_SHA256` override the pin; they exist for
   that test, not for users.
+
+## Installing
+
+`src/scripts/install_macos.sh` copies the staged plugin (`build/stage/BrunnerDirect`, from
+`build_macos.sh`) into X-Plane. Tests: `tests/test-install-macos.sh` (a sandbox: fake home, fake
+X-Plane, fake stage).
+
+```
+src/scripts/install_macos.sh [--version N] [--xplane-dir PATH] [--force] [--dry-run] [--help]
+```
+
+- **Where.** X-Plane's folder is the first line of `~/Library/Preferences/x-plane_install_N.txt`,
+  where N is X-Plane's major version: the highest N found when there are several (numerically, so 12
+  beats 9), or the one `--version N` names.
+  `--xplane-dir PATH` names the folder directly (a leading `~` is expanded). If the file is missing or
+  empty and no `--xplane-dir` is given, the install stops: it never guesses. Either way the folder must
+  exist and hold `Resources/plugins`, checked before anything is changed.
+- **Checks first, nothing changed if one fails:** the stage is complete (`mac_x64/BrunnerDirect.xpl`,
+  `BrunnerDirect.ini`, `BrunnerDirect.profiles.json`, `yokes/cls-e.json`, `yokes/cls-e-ng.json`), and
+  X-Plane is not running (`--force` installs anyway; X-Plane loads plugins at start only).
+- **Reinstall.** An existing `Resources/plugins/BrunnerDirect` moves to
+  `<X-Plane>/Mesmer-backups/BrunnerDirect-<UTC time>` (outside `plugins/`, which X-Plane loads
+  entirely). The pilot's `BrunnerDirect.ini`, `BrunnerDirect.feel.ini` and `BrunnerDirect.yokes.json`,
+  and any other file in the old folder that the new plugin does not ship (saved state), are copied
+  into the new one, as `install.ps1` does on Windows.
+- `--dry-run` says what would happen and changes nothing. Every failure prints
+  `install_macos.sh: <reason>` to stderr and exits non-zero.

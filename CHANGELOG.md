@@ -6,6 +6,10 @@ provenance attestation.
 
 ## Unreleased
 
+- **A macOS install script.** `src/scripts/install_macos.sh` installs the staged plugin into
+  X-Plane (folder from `~/Library/Preferences/x-plane_install_12.txt`), backing up an existing
+  one outside `plugins/` and keeping your ini, feel and yoke overrides. `--dry-run`, `--version`,
+  `--xplane-dir` and `--force` (see `docs/macos-build.md`).
 - **Read-only mode leaves pitch and roll to X-Plane.** A yoke in read-only mode no longer has the
   plugin override X-Plane's pitch and roll: both override datarefs are set to 0 and X-Plane reads
   the yoke's own USB joystick (the CLS-E NG's shows X and Y). A driven (read-write) yoke is
