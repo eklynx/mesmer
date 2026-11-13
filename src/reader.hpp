@@ -19,7 +19,7 @@ public:
     void stop();
     // The yoke models (presets), and so the USB ids to open; before the reader starts.
     void set_presets(std::vector<YokePreset> presets) {presets_=std::move(presets);usb_ids_=preset_usb_ids(presets_);}
-    // allow_unverified_yoke in BrunnerDirect.ini: drive a model whose preset is not verified.
+    // The owner's acknowledgement (Developer menu, owner_state.hpp): drive a model whose preset is not verified.
     void set_allow_unverified(bool allow) {allow_unverified_=allow;}
     // For tests: where the bridge comes from (default: open_bridge(ids), the real device).
     void set_device_factory(std::function<std::unique_ptr<HidDevice>()> factory) {device_factory_=std::move(factory);}

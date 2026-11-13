@@ -27,12 +27,13 @@
 
 namespace brunner {
 // Why a yoke is read-only, if it is. A model whose preset is not verified is only driven
-// when the owner has acknowledged it (allow_unverified_yoke=1 in BrunnerDirect.ini).
+// when the owner has acknowledged it (Developer > Allow unverified yoke models; saved
+// state in owner_state.hpp).
 // Firmware never decides this: a firmware outside the preset's verified list is noted
 // in the log and the Force Monitor, nothing more.
 inline std::optional<std::string> read_only_reason(const YokePreset& preset,bool allow_unverified) {
     if (preset.verified || allow_unverified) return std::nullopt;
-    return "Yoke model "+preset.title+" is not verified: read-only. To drive it, set allow_unverified_yoke=1 in BrunnerDirect.ini";
+    return "Yoke model "+preset.title+" is not verified: read-only. To drive it, turn on Developer > Allow unverified yoke models in the Yoke (Brunner) menu";
 }
 // The note for a firmware the preset was not verified on, or empty when it was.
 inline std::string firmware_note(const YokePreset& preset,const std::array<std::uint16_t,2>& firmware) {

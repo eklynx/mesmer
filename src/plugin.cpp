@@ -1,6 +1,7 @@
 #define WIN32_LEAN_AND_MEAN
 #define NOMINMAX
 #include "reader.hpp"
+#include "owner_state.hpp"
 #include "readonly.hpp"
 #include "config.hpp"
 #include "lab.hpp"
@@ -63,7 +64,9 @@ XPLMMenuID menu=nullptr,developer_menu=nullptr;
 int parent_item=-1;
 // Main menu item indices (status first); developer submenu indices for the live axis lines.
 constexpr int menu_status=0,menu_recenter=2,menu_force_feel=3,menu_status_line=4,menu_keep_feel=5,menu_feel_tuning=6;
-constexpr int developer_roll=3,developer_pitch=4;
+// Developer menu items by position (nothing before them moves): monitor 0, HUD 1, move 2, roll 3, pitch 4,
+// reference 5, light spring 6, flight 7, stop 8, reconnect 9, survey 10, unverified-yoke toggle 11.
+constexpr int developer_roll=3,developer_pitch=4,developer_unverified=11;
 bool enabled=false;
 std::string last_status;
 XPLMCommandRef reference_command=nullptr,stop_command=nullptr,stop_motors_command=nullptr;
@@ -176,6 +179,8 @@ std::filesystem::path output_folder; // Output/BrunnerDirect, set when the plugi
 // The yoke models: the built-ins, plus anything BrunnerDirect.yokes.json adds or changes.
 std::vector<brunner::YokePreset> yoke_presets=brunner::builtin_yoke_presets();
 std::string last_yoke_note,last_yoke_model;
+// The owner's choice to drive a yoke model that is not verified (owner_state.hpp): off unless saved on.
+bool allow_unverified_yoke=false;
 enum class LiveField { roll_target,pitch_target,trim_target,roll_applied,pitch_applied,trim_applied,
     connected,reference_active,referenced,loading_active,tuning_valid,remaining,sample_age,
     roll_encoder,pitch_encoder,roll_status,pitch_status,last_write_accepted,rejected_writes,
@@ -462,6 +467,7 @@ void refresh_menu(const brunner::Snapshot& s) {
     XPLMCheckMenuItem(menu,menu_force_feel,force_feel?xplm_Menu_Checked:xplm_Menu_Unchecked);
     XPLMCheckMenuItem(menu,menu_status_line,show_status_line?xplm_Menu_Checked:xplm_Menu_Unchecked);
     XPLMCheckMenuItem(menu,menu_keep_feel,force_hud.pinned()?xplm_Menu_Checked:xplm_Menu_Unchecked);
+    XPLMCheckMenuItem(developer_menu,developer_unverified,allow_unverified_yoke?xplm_Menu_Checked:xplm_Menu_Unchecked);
     for (unsigned i=0;i<2;++i) {
         char text[160];
         if (s.connected) std::snprintf(text,sizeof(text),"%s: encoder %ld, control %ld, status %04X",
@@ -632,6 +638,50 @@ void publish_feel(const brunner::Snapshot& s,const brunner::FlightInput& input,c
     for (std::size_t i=0;i<live.pitch_curve.size();++i) live.pitch_curve[i]=shape[i];
     bench->publish(now,live);
 }
+// The saved choice, read once at start. A missing file is normal (off); a file that is not
+// exactly what is written is ignored and means off, and the log says so.
+void load_owner_state() {
+    allow_unverified_yoke=false;
+    std::ifstream in(plugin_folder/brunner::state_file,std::ios::binary);
+    if (in) {
+        std::stringstream text;text<<in.rdbuf();
+        const auto state=brunner::parse_owner_state(text.str());
+        allow_unverified_yoke=state.allow_unverified_yoke;
+        if (!allow_unverified_yoke && text.str()!=brunner::serialize_owner_state({}))
+            log(std::string("Ignored ")+brunner::state_file+": not valid, so unverified yoke models stay off");
+    }
+    log(std::string("Allow unverified yoke models: ")+(allow_unverified_yoke?"ON":"off")+" (Developer menu)");
+}
+// Written atomically (temp file, then rename) into the plugin folder. A failed save is logged and the
+// choice still holds for this run.
+void save_owner_state() {
+    const auto path=plugin_folder/brunner::state_file;
+    const std::filesystem::path temp=path.string()+".tmp";
+    {
+        std::ofstream out(temp,std::ios::binary|std::ios::trunc);
+        out<<brunner::serialize_owner_state({allow_unverified_yoke});
+        if (!out) {log("Could not save "+path.string()+": the choice holds for this run only");return;}
+    }
+    std::error_code ec;
+    std::filesystem::rename(temp,path,ec);
+    if (ec) log("Could not save "+path.string()+": "+ec.message()+"; the choice holds for this run only");
+}
+// The Developer menu's toggle. It takes effect at once, through the safe path: force feel is switched
+// off, the axes are released and the reader is stopped the existing way (motors disabled, rest settings)
+// before it starts again with the new choice.
+void unverified_toggle() {
+    allow_unverified_yoke=!allow_unverified_yoke;
+    log(allow_unverified_yoke
+        ?"Allow unverified yoke models: ON. A model that is not verified will now be driven: its first writes are a no-change test write, then the normal flow (motors stopped, rest settings written, the yoke centred and moved)"
+        :"Allow unverified yoke models: off. Force feel is switched off and a model that is not verified returns to read-only");
+    save_owner_state();
+    if (!enabled) return;
+    set_force_feel(false,"the unverified-yoke toggle");
+    release_axes();
+    reader.stop();
+    reader.set_allow_unverified(allow_unverified_yoke);
+    reader.start();
+}
 // Read once at start. A missing file is normal; a file that does not validate is refused whole
 // and the built-in models stay in force (nothing half-applied).
 void load_yoke_presets() {
@@ -652,7 +702,8 @@ void load_yoke_presets() {
     for (const auto& m:yoke_presets) names+=(names.empty()?"":", ")+m.name+(m.verified?"":" (unverified)");
     log("Yoke models: "+names);
     reader.set_presets(yoke_presets);
-    reader.set_allow_unverified(flight_settings.allow_unverified_yoke!=0);
+    load_owner_state();
+    reader.set_allow_unverified(allow_unverified_yoke);
 }
 std::filesystem::path travel_file() {return output_folder/"read-only-travel.json";}
 // Written atomically (temp file, then rename), at most every 5 s and only when the range widened.
@@ -1085,7 +1136,7 @@ void stop_workbench() {
     if (menu) XPLMSetMenuItemName(menu,menu_feel_tuning,feel_menu_text.c_str(),0);
 }
 enum MenuItem : std::intptr_t {item_reconnect=1,item_reference=2,item_stop=3,item_loading=4,item_flight=5,item_monitor=6,
-    item_hud=7,item_pin=8,item_move=9,item_recenter=10,item_force_feel=11,item_status_line=12,item_stop_motors=13,item_survey=14};
+    item_hud=7,item_pin=8,item_move=9,item_recenter=10,item_force_feel=11,item_status_line=12,item_stop_motors=13,item_survey=14,item_unverified=15};
 void menu_click(void*,void* item) {
     try {
         switch (reinterpret_cast<std::intptr_t>(item)) {
@@ -1102,6 +1153,7 @@ void menu_click(void*,void* item) {
         case item_recenter:recenter_handler(nullptr,xplm_CommandBegin,nullptr);break;
         case item_force_feel:force_feel_handler(force_feel_toggle,xplm_CommandBegin,nullptr);break;
         case item_status_line:status_line_handler(nullptr,xplm_CommandBegin,nullptr);break;
+        case item_unverified:unverified_toggle();break;
         case item_survey:log(reader.request_survey()?"Survey requested: reading registers only; the file appears in Output/BrunnerDirect":"Survey refused: it is only for a yoke on firmware the plugin does not drive");break;
         default:break;
         }
@@ -1130,7 +1182,7 @@ PLUGIN_API int XPluginStart(char* name,char* signature,char* description) {
             reader.request_tuning(brunner::TuningField::pitch_trim,config.tuning.pitch_trim);
             flight_settings=config.flight;workbench_port=config.workbench_port;
             log("Loaded managed yoke defaults from BrunnerDirect.ini");
-            for (const auto& key:config.retired) log("BrunnerDirect.ini: "+key+" is retired and ignored");
+            for (const auto& key:config.retired) log("BrunnerDirect.ini: "+key+" is retired and ignored"+(key=="allow_unverified_yoke"?" (use Developer > Allow unverified yoke models; it is off until you turn it on)":""));
         } else {flight_settings.auto_start=0;log("No startup defaults file; the yoke waits for Re-centre in the plugin menu");}
         // Kept overlays the managed values; an invalid feel file is logged and ignored.
         plugin_folder=defaults.parent_path();
@@ -1162,6 +1214,7 @@ PLUGIN_API int XPluginStart(char* name,char* signature,char* description) {
     XPLMAppendMenuItem(developer_menu,"Stop test and disconnect",reinterpret_cast<void*>(item_stop),0);
     XPLMAppendMenuItem(developer_menu,"Reconnect reader",reinterpret_cast<void*>(item_reconnect),0);
     XPLMAppendMenuItem(developer_menu,"Survey yoke registers (read-only firmware)",reinterpret_cast<void*>(item_survey),0);
+    XPLMAppendMenuItem(developer_menu,"Allow unverified yoke models (writes to untested hardware)",reinterpret_cast<void*>(item_unverified),0); // developer_unverified
     hud_command=XPLMCreateCommand("brunner_direct/toggle_hud","Show or hide contextual HUD; recording continues");
     pin_command=XPLMCreateCommand("brunner_direct/pin_hud","Keep the yoke feel card on screen, or show it only when useful");
     move_command=XPLMCreateCommand("brunner_direct/move_hud","Enable or finish dragging the HUD by its status strip");

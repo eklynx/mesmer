@@ -3,6 +3,7 @@
 // firmware nothing but read requests is ever sent to a controller. No hardware.
 #include "bridge.hpp"
 #include "config.hpp"
+#include "owner_state.hpp"
 #include "readonly.hpp"
 #include "reader.hpp"
 #include "yoke.hpp"
@@ -132,7 +133,7 @@ void the_gate_rule() {
     const auto cls_e=builtin_cls_e(),ng=builtin_cls_e_ng();
     check(!read_only_reason(cls_e,false) && !read_only_reason(cls_e,true));          // verified: always driven
     const auto why=read_only_reason(ng,false);
-    check(why && why->find("Brunner CLS-E NG")!=std::string::npos && why->find("allow_unverified_yoke=1")!=std::string::npos);
+    check(why && why->find("Brunner CLS-E NG")!=std::string::npos && why->find("Allow unverified yoke models")!=std::string::npos && why->find(".ini")==std::string::npos);
     check(!read_only_reason(ng,true));                                               // acknowledged
     auto verified_ng=ng;verified_ng.verified=true;
     check(!read_only_reason(verified_ng,false));                                     // a preset that says verified needs no key
@@ -388,14 +389,51 @@ void the_supervisor_asks_for_nothing() {
     yoke.retry();yoke.force_feel_switched_on();in.force_feel=true;in.input_ready=true;quiet();   // nothing the pilot asks makes it act
     yoke.stop();quiet();
 }
+// The owner's saved choice: only an exact, literal "true" in a file of this version turns it on.
+void the_saved_owner_state() {
+    check(!OwnerState{}.allow_unverified_yoke);
+    check(parse_owner_state(serialize_owner_state({true})).allow_unverified_yoke);
+    check(!parse_owner_state(serialize_owner_state({false})).allow_unverified_yoke);
+    check(serialize_owner_state({true})==std::string("{\"version\":1,\"allow_unverified_yoke\":true}\n"));
+    for (const auto* doubtful:{"","not json","{}","[]","null","true","{\"version\":1}","{\"allow_unverified_yoke\":true}",
+            "{\"version\":2,\"allow_unverified_yoke\":true}","{\"version\":\"1\",\"allow_unverified_yoke\":true}","{\"version\":1.5,\"allow_unverified_yoke\":true}",
+            "{\"version\":1,\"allow_unverified_yoke\":\"true\"}","{\"version\":1,\"allow_unverified_yoke\":1}","{\"version\":1,\"allow_unverified_yoke\":null}",
+            "{\"version\":1,\"allow_unverified_yoke\":\"yes\"}","{\"version\":1,\"allow_unverified_yoke\":true,\"other\":1}",
+            "{\"version\":1,\"allow_unverified_yoke\":true} trailing","{\"version\":1,\"allow_unverified_yoke\":tru"})
+        check(!parse_owner_state(doubtful).allow_unverified_yoke);     // any doubt is off
+}
+// What the menu toggle does to the reader: stop it, change the choice, start it again.
+void the_toggle_restarts_the_reader_with_the_new_choice() {
+    ScopedDrive restore(cls_e_drive());
+    Run run;
+    run.reader.start();
+    check(wait_for([&] {const auto s=run.reader.snapshot();return s.read_only && s.connected && s.cycles>2;}));   // off: read-only
+    check(run.writes.empty());
+    // ON.
+    run.reader.stop();run.reader.set_allow_unverified(true);run.reader.start();
+    check(wait_for([&] {return run.ready();}));
+    check(run.writes.size()==2 && (run.writes[0][7]|(run.writes[0][8]<<8))==0x2114);   // the no-change test write, node 1 then node 2
+    // OFF again: read-only, and no further writes.
+    const auto written=run.writes.size();
+    run.reader.stop();run.reader.set_allow_unverified(false);run.reader.start();
+    check(wait_for([&] {const auto s=run.reader.snapshot();return s.read_only && s.connected && s.cycles>2;}));
+    run.reader.stop();
+    check(run.writes.size()==written);
+}
 void the_new_config_keys() {
     const std::string base="schema_version=2\nroll_spring_percent=35\npitch_spring_percent=40\npitch_trim_counts=0\nauto_start=1\nreference_airspeed_knots=316\nminimum_spring_percent=20\nmaximum_trim_counts=6000\n";
     {std::istringstream in(base);const auto c=parse_configuration(in);check(c.flight.read_only_roll_reverse==0 && c.flight.read_only_pitch_reverse==0);}
     {std::istringstream in(base+"read_only_roll_reverse=1\nread_only_pitch_reverse=1\n");const auto c=parse_configuration(in);
         check(c.flight.read_only_roll_reverse==1 && c.flight.read_only_pitch_reverse==1);}
-    {std::istringstream in(base);check(parse_configuration(in).flight.allow_unverified_yoke==0);}                    // off unless the owner turns it on
-    {std::istringstream in(base+"allow_unverified_yoke=1\n");check(parse_configuration(in).flight.allow_unverified_yoke==1);}
-    for (const auto* bad:{"read_only_roll_reverse=2\n","read_only_pitch_reverse=-1\n","allow_unverified_yoke=2\n","allow_unverified_yoke=-1\n"}) {
+    // allow_unverified_yoke is no longer an ini setting (the Developer menu's saved choice is the only
+    // source): a file that still has it loads, the line is ignored at any value, and it is reported.
+    for (const char* value:{"1","0","2","-1"}) {
+        std::istringstream in(base+"allow_unverified_yoke="+value+"\n");
+        const auto c=parse_configuration(in);
+        check(std::find(c.retired.begin(),c.retired.end(),"allow_unverified_yoke")!=c.retired.end());
+    }
+    {std::istringstream in(base);const auto c=parse_configuration(in);check(std::find(c.retired.begin(),c.retired.end(),"allow_unverified_yoke")==c.retired.end());}
+    for (const auto* bad:{"read_only_roll_reverse=2\n","read_only_pitch_reverse=-1\n"}) {
         bool refused=false;
         try {std::istringstream in(base+bad);parse_configuration(in);} catch (const std::exception&) {refused=true;}
         check(refused);
@@ -405,6 +443,8 @@ void the_new_config_keys() {
 int main() {
     try {
         the_gate_rule();
+        the_saved_owner_state();
+        the_toggle_restarts_the_reader_with_the_new_choice();
         unverified_model_is_read_only_and_never_written();
         an_acknowledged_model_starts_with_a_no_change_write();
         a_refused_test_write_ends_the_session();

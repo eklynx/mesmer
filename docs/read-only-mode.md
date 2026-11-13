@@ -9,7 +9,8 @@ The code it describes: `src/readonly.hpp` (the rules; read it first),
 ## When
 
 A yoke is read-only when its **model's preset is not verified** and the owner has
-not set `allow_unverified_yoke=1` in `BrunnerDirect.ini`
+not turned on **Developer > Allow unverified yoke models** (saved in
+`BrunnerDirect.state.json` in the plugin folder; off by default)
 ([yoke-presets.md](yoke-presets.md)). The model follows from the USB id, never
 from the firmware: a firmware outside the verified list is noted in the log and the
 Force Monitor and changes nothing. Today that means a **CLS-E NG** (`25BB:008B`)

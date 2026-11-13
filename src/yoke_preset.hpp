@@ -34,7 +34,7 @@ struct YokePreset {
     std::string title;                      // shown to the pilot
     std::vector<UsbId> usb_ids;             // the bridges that identify this model
     // A model's first writes are the owner's call: unless `verified`, driving it
-    // needs allow_unverified_yoke=1 in BrunnerDirect.ini. Firmware never gates;
+    // needs the owner's acknowledgement (Developer > Allow unverified yoke models). Firmware never gates;
     // a firmware outside this list is noted in the log and the Force Monitor.
     bool verified=false;
     std::vector<std::uint16_t> verified_firmware;

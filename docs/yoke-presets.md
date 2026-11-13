@@ -67,8 +67,16 @@ model with less travel has a proportionally stiffer spring per count.
 
 ## Gates
 
-- **A model that is not `verified`** is read-only unless `allow_unverified_yoke=1`
-  is set in `BrunnerDirect.ini` (see [read-only-mode.md](read-only-mode.md)). The
+- **A model that is not `verified`** is read-only unless **Developer > Allow
+  unverified yoke models** in the Yoke (Brunner) menu is on (see
+  [read-only-mode.md](read-only-mode.md)). The choice is saved in
+  `BrunnerDirect.state.json` in the plugin folder, is off by default, and anything
+  doubtful in that file means off. Flipping it takes effect at once: the reader
+  restarts, so turning it off stops force feel and returns to read-only, and turning
+  it on starts the test write and then the normal flow (which stops the motors and
+  centres the yoke: it moves). The older `allow_unverified_yoke` key in
+  `BrunnerDirect.ini` is retired: a file that still has it loads, the line is ignored
+  and `Log.txt` says so. The
   first writes to such a model are one setting (the spring strength) written back
   to the value it already has, node by node, with a read-back, before anything
   else is sent. That checks the write is acknowledged and nothing aborts; it
