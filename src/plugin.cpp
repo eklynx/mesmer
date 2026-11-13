@@ -8,6 +8,7 @@
 #include "brunner/yoke.hpp"
 #include "ui/view/panel_win.hpp"
 #include "ui/menu/menu.hpp"
+#include "xplane/sim.hpp"
 #include "ui/view/startup_notice.hpp"
 #include "brunner/loading.hpp"
 #include "force/slew.hpp"
@@ -118,31 +119,7 @@ std::optional<std::array<brunner::AileronSide,2>> root_stall;
 const void* buffet_seeded_for=nullptr; // the page whose buffet knob the feel settings seeded
 brunner::FlightTarget flight_output;
 brunner::TailAir flight_tail; // the model's tail pressure this frame, and where it came from
-brunner::Clock::time_point flow_stamp{};
-float flow_clock=-1;
-XPLMDataRef panel_speed{},panel_area{},air_density{},native_pitch{},native_roll{};
-// Details for the workbench page, confirmed in X-Plane 12's DataRefs.txt.
-XPLMDataRef panel_aoa{},panel_stalled{},elevator_deg{},aileron_deg{},bank_ref{},vertical_ref{},flaps_ref{},aircraft_name_ref{};
-std::string aircraft_name,aircraft_path,aircraft_file;
-void bind_surface_refs() {
-    panel_aoa=XPLMFindDataRef("sim/flightmodel2/wing/elements/element_AOA_deg");
-    panel_stalled=XPLMFindDataRef("sim/flightmodel2/wing/elements/element_is_stalled");
-    elevator_deg=XPLMFindDataRef("sim/flightmodel2/wing/elevator1_deg");
-    aileron_deg=XPLMFindDataRef("sim/flightmodel2/wing/aileron1_deg");
-    bank_ref=XPLMFindDataRef("sim/flightmodel/position/phi");
-    vertical_ref=XPLMFindDataRef("sim/flightmodel/position/vh_ind_fpm");
-    flaps_ref=XPLMFindDataRef("sim/flightmodel2/wing/flap1_deg");
-    aircraft_name_ref=XPLMFindDataRef("sim/aircraft/view/acf_ui_name");
-    panel_speed=XPLMFindDataRef("sim/flightmodel2/wing/elements/element_speed_msc");
-    panel_area=XPLMFindDataRef("sim/flightmodel2/wing/elements/element_surface_area_mtr_sq");
-    air_density=XPLMFindDataRef("sim/weather/rho");
-    native_pitch=XPLMFindDataRef("sim/flightmodel/misc/act_frc_ptch_lb");
-    native_roll=XPLMFindDataRef("sim/flightmodel/misc/act_frc_roll_lb");
-    flow_stamp={};flow_clock=-1;
-    std::array<char,251> name{};
-    if (aircraft_name_ref) XPLMGetDatab(aircraft_name_ref,name.data(),0,250);
-    aircraft_name=name.data();
-}
+brunner::xplane::Sim sim; // X-Plane's own datarefs (xplane/sim.hpp)
 brunner::DiagnosticTrim diagnostic_trim;
 std::array<XPLMCommandRef,3> trim_commands{};
 std::array<std::int32_t,3> trim_steps{{600,-600,0}};
@@ -157,12 +134,6 @@ std::array<brunner::Calibration,2> calibration() {
     const auto roll=static_cast<std::int32_t>(std::lround(d.roll_travel_counts)),pitch=static_cast<std::int32_t>(std::lround(d.pitch_travel_counts));
     return {{{-roll,roll,d.roll_input_reverse,true},{-pitch,pitch,d.pitch_input_reverse,true}}};
 }
-XPLMDataRef pitch_override=nullptr,roll_override=nullptr,pitch_value=nullptr,roll_value=nullptr;
-XPLMDataRef paused=nullptr,scenery_loading=nullptr,flight_clock=nullptr;
-XPLMDataRef trim_override=nullptr,sim_trim=nullptr,airspeed=nullptr,load_factor_ref=nullptr;
-bool owns_axes=false;
-bool owns_trim=false;
-bool default_cessna=false; // selects the flight-dependent loading model and trim ownership only
 std::string last_input_status;
 // Read-only mode (brunner/readonly.hpp): the learned travel, where it is kept, and the surveys written.
 brunner::Travel read_only_travel;
@@ -267,14 +238,14 @@ int read_live(void* refcon) {
     case LiveField::startup_notice:return static_cast<int>(notice_code());
     case LiveField::notice_draws:return startup_notice.draws();
     case LiveField::airspeed_knots:return std::isfinite(flight_sample.airspeed)?static_cast<int>(std::lround(flight_sample.airspeed)):-1;
-    case LiveField::owns_trim:return owns_trim;
+    case LiveField::owns_trim:return sim.owns_trim();
     case LiveField::lab_trim:return diagnostic_trim.target();
     case LiveField::lab_lease:case LiveField::lab_active:
         return diagnostic_trim.active(enabled && !reader.snapshot().connected,brunner::Clock::now());
     case LiveField::force_feel:return force_feel;
     case LiveField::status_line:return show_status_line;
     case LiveField::retry_offered:return decision.retry_offered;
-    case LiveField::stock_aircraft:return default_cessna;
+    case LiveField::stock_aircraft:return sim.default_cessna();
     default:break;
     }
     const auto s=reader.snapshot();
@@ -373,74 +344,16 @@ int read_status(void*,void* output,int offset,int maximum) {
     const auto length=std::min(maximum,static_cast<int>(text.size())-offset);
     std::memcpy(output,text.data()+offset,static_cast<std::size_t>(length));return length;
 }
-void release_axes() {
-    if (owns_trim) {XPLMSetDatai(trim_override,0);owns_trim=false;}
-    if (!owns_axes) return;
-    XPLMSetDataf(pitch_value,0);XPLMSetDataf(roll_value,0);
-    XPLMSetDatai(pitch_override,0);XPLMSetDatai(roll_override,0);owns_axes=false;
-}
-void find_controls() {
-    if (pitch_override && roll_override && pitch_value && roll_value && paused
-        && trim_override && sim_trim && airspeed && scenery_loading && flight_clock) return;
-    pitch_override=XPLMFindDataRef("sim/operation/override/override_joystick_pitch");
-    roll_override=XPLMFindDataRef("sim/operation/override/override_joystick_roll");
-    pitch_value=XPLMFindDataRef("sim/joystick/yoke_pitch_ratio");
-    roll_value=XPLMFindDataRef("sim/joystick/yoke_roll_ratio");
-    paused=XPLMFindDataRef("sim/time/paused");
-    trim_override=XPLMFindDataRef("sim/operation/override/override_pitch_trim");
-    sim_trim=XPLMFindDataRef("sim/cockpit2/controls/elevator_trim");
-    load_factor_ref=XPLMFindDataRef("sim/flightmodel/forces/g_nrml");
-    airspeed=XPLMFindDataRef("sim/flightmodel/position/indicated_airspeed");
-    scenery_loading=XPLMFindDataRef("sim/graphics/scenery/async_scenery_load_in_progress");
-    flight_clock=XPLMFindDataRef("sim/time/total_flight_time_sec");
-}
-// The user's aircraft: its file picks its profile (force/profiles.hpp); the stock
-// C172 SP's also selects roll's airflow and the page's C172 details.
-void identify_aircraft() {
-    char name[256]{},path[1024]{};
-    XPLMGetNthAircraftModel(0,name,path);
-    aircraft_path=path;std::replace(aircraft_path.begin(),aircraft_path.end(),'\\','/');
-    aircraft_file=name;
-    const std::string suffix="/Aircraft/Laminar Research/Cessna 172 SP/Cessna_172SP.acf";
-    default_cessna=aircraft_path.size()>=suffix.size() && aircraft_path.compare(aircraft_path.size()-suffix.size(),suffix.size(),suffix)==0;
-}
-// Pitch and roll need the axis overrides free.
-bool controls_available() {
-    return pitch_override && roll_override && pitch_value && roll_value
-        && XPLMCanWriteDataRef(pitch_override) && XPLMCanWriteDataRef(roll_override)
-        && XPLMCanWriteDataRef(pitch_value) && XPLMCanWriteDataRef(roll_value)
-        && (owns_axes || (!XPLMGetDatai(pitch_override) && !XPLMGetDatai(roll_override)));
-}
-// Force feel suppresses X-Plane's own pitch trim on every aircraft: the
-// model's rest already carries trim (decision 15), so it must count once.
-// Another plugin's trim override costs force feel only, never the yoke's input.
-bool trim_available() {
-    return trim_override && XPLMCanWriteDataRef(trim_override) && (owns_trim || !XPLMGetDatai(trim_override));
-}
 // Why force feel cannot run on this aircraft, or empty.
 constexpr char no_profile_text[]="Ready - force feel needs the aircraft profiles; see X-Plane's Log.txt";
 constexpr char trim_taken_text[]="Ready - force feel off: another plugin holds the pitch trim";
-// Every aircraft gets pitch and roll from the yoke whenever its position is valid.
-std::string apply_input(const brunner::FlightInput& input) {
-    find_controls();
-    if (!pitch_override || !roll_override || !pitch_value || !roll_value) return "Waiting for simulator controls";
-    if (!input.ready) {release_axes();return input.reason;}
-    if (!owns_axes) {
-        if (!XPLMCanWriteDataRef(pitch_override) || !XPLMCanWriteDataRef(roll_override)
-            || !XPLMCanWriteDataRef(pitch_value) || !XPLMCanWriteDataRef(roll_value)) return "Simulator controls are not writable";
-        if (XPLMGetDatai(pitch_override) || XPLMGetDatai(roll_override)) return "Pitch or roll is owned by another plugin";
-        XPLMSetDatai(pitch_override,1);XPLMSetDatai(roll_override,1);owns_axes=true;
-    }
-    XPLMSetDataf(pitch_value,input.pitch);XPLMSetDataf(roll_value,input.roll);
-    return input.reason;
-}
 void log(const std::string& s) {
     recorder.event(s); XPLMDebugString(("[BrunnerDirect] "+s+"\n").c_str()); }
 void act(brunner::YokeAction action) {
     switch (action) {
     case brunner::YokeAction::none:break;
     case brunner::YokeAction::start_reader:
-        release_axes();reader.start();log("Looking for the yoke again");break;
+        sim.release_axes();reader.start();log("Looking for the yoke again");break;
     case brunner::YokeAction::reference:
         if (reader.request_reference_test()) log("Centring the yoke; motors stop after centring");break;
     case brunner::YokeAction::recover:
@@ -484,7 +397,7 @@ void sync_feel(brunner::Clock::time_point now) {
 // The aircraft's profile to the workbench: on a new flight, or a new file.
 void apply_aircraft_profile(brunner::Clock::time_point now,bool new_flight) {
     if (!bench || !profile_set) return;
-    try {bench->set_profile(now,brunner::profile_for(*profile_set,aircraft_path),new_flight,aircraft_name.empty()?aircraft_file:aircraft_name);}
+    try {bench->set_profile(now,brunner::profile_for(*profile_set,sim.aircraft_path()),new_flight,sim.aircraft_name().empty()?sim.aircraft_file():sim.aircraft_name());}
     catch (const std::exception& e) {bench->profile_refused(e.what());}
 }
 // BrunnerDirect.profiles.json, re-read within 2 s of a change (decision 5)
@@ -575,15 +488,10 @@ void publish_feel(const brunner::Snapshot& s,const brunner::FlightInput& input,c
     live.view=wb::view_for(view);
     live.motors=wb::motors_for(decision.retry_offered,s.loading_active || s.reference_active);
     if (decision.retry_offered) {live.reason=s.stop_reason;live.retry_helps=s.retry_helps;}
-    live.aircraft=aircraft_name;live.aircraft_file=aircraft_file;live.buffet_units=s.buffet_units;live.buffet_uncleared=s.buffet_uncleared;live.buffet_time_unrestored=s.buffet_time_unrestored;live.aileron_panels=flown.matched && flown.aileron_sections.has_value();
-    const auto nan=std::numeric_limits<double>::quiet_NaN();
-    const auto value=[&](XPLMDataRef ref) {return ref?static_cast<double>(XPLMGetDataf(ref)):nan;};
-    live.ias_kt=value(airspeed);live.bank_deg=value(bank_ref);live.vertical_fpm=value(vertical_ref);
-    if (flaps_ref) {
-        std::array<float,48> flaps{};
-        const int n=std::clamp(XPLMGetDatavf(flaps_ref,flaps.data(),0,48),0,48);
-        if (n>0) live.flaps_deg=*std::max_element(flaps.begin(),flaps.begin()+n);
-    }
+    live.aircraft=sim.aircraft_name();live.aircraft_file=sim.aircraft_file();live.buffet_units=s.buffet_units;live.buffet_uncleared=s.buffet_uncleared;live.buffet_time_unrestored=s.buffet_time_unrestored;live.aileron_panels=flown.matched && flown.aileron_sections.has_value();
+    const auto page=sim.read_page();
+    live.ias_kt=page.ias_kt;live.bank_deg=page.bank_deg;live.vertical_fpm=page.vertical_fpm;
+    if (!std::isnan(page.flaps_deg)) live.flaps_deg=page.flaps_deg;
     const auto age=now-s.sampled;
     if (s.connected && s.tuning_valid && age>=brunner::Clock::duration::zero() && age<=std::chrono::milliseconds(250)) {
         live.pitch.now_percent=s.applied_tuning.pitch_percent;live.roll.now_percent=s.applied_tuning.roll_percent;
@@ -608,25 +516,12 @@ void publish_feel(const brunner::Snapshot& s,const brunner::FlightInput& input,c
     }
     live.roll.solution=shown_roll(s,input);
     live.roll.phase=!session?"off":!s.pitch_engaged?"blending":"following";
-    if (default_cessna && fresh) {
+    if (sim.default_cessna() && fresh) {
         live.roll.airflow_pa=flight_sample.flow.roll;
-        std::array<float,100> area{},values{};
-        const int n=panel_area?XPLMGetDatavf(panel_area,area.data(),0,99):0;
-        if (panel_aoa) {
-            const int m=std::min(n,XPLMGetDatavf(panel_aoa,values.data(),0,99));
-            live.pitch.aoa_deg=brunner::c172_section_mean(values.data(),area.data(),m,8,9);
-            live.roll.aoa_deg=brunner::c172_section_mean(values.data(),area.data(),m,2,3);
-        }
-        if (panel_stalled) {
-            const int m=XPLMGetDatavf(panel_stalled,values.data(),0,99);
-            live.pitch.stalled=brunner::c172_section_stalled(values.data(),m,8,9);
-            live.roll.stalled=brunner::c172_section_stalled(values.data(),m,2,3);
-        }
-        // Degrees, trailing edge down positive, as X-Plane reports them (api.md).
-        // Wing 2 is the left (read 2026-11-09: it rose under a left input).
-        std::array<float,48> surface{};
-        if (elevator_deg && XPLMGetDatavf(elevator_deg,surface.data(),0,10)==10) live.pitch.deflection_deg=(surface[8]+surface[9])/2.0;
-        if (aileron_deg && XPLMGetDatavf(aileron_deg,surface.data(),0,4)==4) live.roll.deflection_deg=(surface[2]-surface[3])/2.0;
+        const auto c172=sim.read_c172();
+        live.pitch.aoa_deg=c172.pitch_aoa_deg;live.roll.aoa_deg=c172.roll_aoa_deg;
+        live.pitch.stalled=c172.pitch_stalled;live.roll.stalled=c172.roll_stalled;
+        live.pitch.deflection_deg=c172.pitch_deflection_deg;live.roll.deflection_deg=c172.roll_deflection_deg;
     }
     const auto shape=brunner::pitch_setup_for(true,flight_settings.pitch_force_gain_divisor,flight_settings.pitch_move_back_gain).curve;
     for (std::size_t i=0;i<live.pitch_curve.size();++i) live.pitch_curve[i]=shape[i];
@@ -671,7 +566,7 @@ void unverified_toggle() {
     save_owner_state();
     if (!enabled) return;
     set_force_feel(false,"the unverified-yoke toggle");
-    release_axes();
+    sim.release_axes();
     reader.stop();
     reader.set_allow_unverified(allow_unverified_yoke);
     reader.start();
@@ -751,7 +646,7 @@ void write_survey(const brunner::Snapshot& s) {
     log(out?"Survey written: "+path.string():"Could not write the survey to "+path.string());
 }
 float update(float,float,int,void*) {
-    find_controls();
+    sim.bind_controls();
     run_feel_commands();
     const auto now=brunner::Clock::now();
     retry_workbench(now);
@@ -763,13 +658,13 @@ float update(float,float,int,void*) {
     write_survey(s);
     if (s.model!=last_yoke_model) {last_yoke_model=s.model;if (!s.model.empty()) log("Yoke model: "+s.model_title+" (USB "+brunner::status_hex(s.usb_vendor)+":"+brunner::status_hex(s.usb_product)+")");}
     if (s.yoke_note!=last_yoke_note) {last_yoke_note=s.yoke_note;if (!s.yoke_note.empty()) log("Yoke firmware note: "+s.yoke_note);}
-    last_input_status=apply_input(input);
-    const bool is_paused=paused && XPLMGetDatai(paused)!=0;
-    const bool input_running=paused && !is_paused && controls_available();
+    last_input_status=sim.apply_input(input);
+    const bool is_paused=sim.paused();
+    const bool input_running=sim.pause_known() && !is_paused && sim.controls_available();
     // The model's inputs: trim, the tail's pressure (X-Plane's over the
     // profile's own sections, else airspeed's), the load factor, and the
     // tail's angle and stall with its sections' pressure.
-    const bool fresh=brunner::valid_frame_age(flow_stamp,now,is_paused);
+    const bool fresh=brunner::valid_frame_age(sim.flow_stamp(),now,is_paused);
     // X-Plane's stalled shares, slewed once a frame before either model takes
     // them; the recorder and the page's raw readings keep flight_sample's.
     const auto modelled=stall_slews.slewed(flight_sample);
@@ -810,7 +705,7 @@ float update(float,float,int,void*) {
         ? brunner::flight_target(modelled,flight_settings,reader.requested_tuning(),flown.figures,flown.knobs,flown.ailerons,flown.roll_knobs)
         : std::nullopt;
     flight_output=target.value_or(brunner::FlightTarget{});
-    const char* blocked=!flown.has_profile?no_profile_text:!trim_available()?trim_taken_text:nullptr;
+    const char* blocked=!flown.has_profile?no_profile_text:!sim.trim_available()?trim_taken_text:nullptr;
     const bool running=input_running && target.has_value() && !blocked;
     reader.simulator_update(running,is_paused,flight_output.tuning,flight_output.pitch,flight_output.roll);
     simulator_ready_for_start=input_running;
@@ -820,7 +715,7 @@ float update(float,float,int,void*) {
     const bool lab_active=diagnostic_trim.active(enabled && !s.connected,now);
     brunner::YokeInputs inputs;
     inputs.snapshot=s;inputs.enabled=enabled;inputs.reader_running=reader.running();inputs.sim_steady=settled;
-    inputs.paused=is_paused;inputs.input_ready=owns_axes && input.ready;inputs.force_feel=force_feel && !blocked;inputs.lab_lease=lab_active;inputs.now=now;
+    inputs.paused=is_paused;inputs.input_ready=sim.owns_axes() && input.ready;inputs.force_feel=force_feel && !blocked;inputs.lab_lease=lab_active;inputs.now=now;
     decision=yoke.step(inputs);
     // Read-only mode: until both axes have moved far enough, the line says how far they are.
     if (s.read_only && !input.ready) {decision.status=input.reason;decision.show_notice=true;}
@@ -831,9 +726,8 @@ float update(float,float,int,void*) {
     // only X-Plane's synthetic pitch trim, leaving its trim command and every
     // other control binding intact. Own/release this flag with the live axes,
     // on every aircraft: each one's rest carries its trim.
-    if (running && owns_axes && input.ready && s.flight_session && s.loading_active && s.tuning_valid) {
-        if (!owns_trim) {XPLMSetDatai(trim_override,1);owns_trim=true;}
-    } else if (owns_trim) {XPLMSetDatai(trim_override,0);owns_trim=false;}
+    if (running && sim.owns_axes() && input.ready && s.flight_session && s.loading_active && s.tuning_valid) sim.claim_trim();
+    else sim.release_trim();
     // The pilot may hide routine status; a movement warning or a Retry offer is always shown.
     const bool must_show=decision.status==brunner::centring_text || decision.retry_offered;
     // A feel notice shows for a few seconds when the yoke's own status line
@@ -853,15 +747,15 @@ float update(float,float,int,void*) {
         std::snprintf(text,sizeof(text),"cycle=%llu roll=%ld/%ld/%04X pitch=%ld/%ld/%04X input=%s %.4f/%.4f",
             static_cast<unsigned long long>(s.cycles),static_cast<long>(s.axes[0].encoder),static_cast<long>(s.axes[0].position),s.axes[0].status,
             static_cast<long>(s.axes[1].encoder),static_cast<long>(s.axes[1].position),s.axes[1].status,
-            owns_axes?"active":"unavailable",input.roll,input.pitch);
+            sim.owns_axes()?"active":"unavailable",input.roll,input.pitch);
         log(text); last_log=now;
     }
     // Apply after physical joystick processing, on the simulator thread. A
     // stopped/disconnected device and renewable short lease are mandatory.
-    if (lab_active && sim_trim) XPLMSetDataf(sim_trim,static_cast<float>(diagnostic_trim.target())/1000.0f);
+    if (lab_active) sim.set_sim_trim(static_cast<float>(diagnostic_trim.target())/1000.0f);
     auto frame=brunner::monitor::make_frame(s,reader.requested_tuning(),flight_output,flight_settings,
         flight_sample,target.has_value(),calibration(),now);
-    frame.owns_axes=owns_axes;frame.owns_trim=owns_trim;
+    frame.owns_axes=sim.owns_axes();frame.owns_trim=sim.owns_trim();
     recorder.observe(frame);
     const auto recording_state=recorder.state();const auto recording_dropped=recorder.dropped();
     force_monitor.observe(frame,recording_state,recording_dropped);
@@ -876,51 +770,15 @@ float update(float,float,int,void*) {
 // readiness. Resource creation and motor requests remain outside this phase.
 float observe_completed_frame(float,float,int,void*) {
     const auto now=brunner::Clock::now();
-    if (!enabled || !paused || XPLMGetDatai(paused) || !flight_clock || !sim_trim || !pitch_value || !roll_value) {
-        flow_stamp={};flow_clock=-1;
-    } else {
-        const float clock=XPLMGetDataf(flight_clock);
-        if (!std::isfinite(clock) || clock<flow_clock) {flow_stamp={};flow_clock=-1;}
-        else if (clock>flow_clock) {
-            std::array<float,99> speed{},area{};
-            const int n=panel_speed && panel_area?std::min(XPLMGetDatavf(panel_speed,speed.data(),0,99),XPLMGetDatavf(panel_area,area.data(),0,99)):0;
-            const auto nan=std::numeric_limits<double>::quiet_NaN();
-            const double rho=air_density?XPLMGetDataf(air_density):nan;
-            // The stock C172's surfaces for the page; the tail's and each
-            // aileron's air over the profile's sections on the profile's own
-            // aircraft (elsewhere airspeed's).
-            auto flow=default_cessna?brunner::c172_flow(rho,speed.data(),area.data(),n):brunner::SurfaceFlow{};
-            flow.tail=flown.matched && flown.tail_sections
-                ?brunner::sections_pa(rho,speed.data(),area.data(),n,(*flown.tail_sections)[0],(*flown.tail_sections)[1]):-1;
-            // Each panel's angle and stall, read once a frame when a surface needs them.
-            std::optional<brunner::AileronInputs> ailerons;
-            std::optional<brunner::AileronSide> tail_read;
-            root_stall.reset();
-            if (flown.matched && (flown.aileron_sections || flown.wing_root_sections || flown.tail_sections) && panel_aoa && panel_stalled) {
-                std::array<float,99> aoa{},stalled{};
-                const int m=std::min({n,XPLMGetDatavf(panel_aoa,aoa.data(),0,99),XPLMGetDatavf(panel_stalled,stalled.data(),0,99)});
-                const auto side=[&](int wing) {return brunner::aileron_side(rho,speed.data(),area.data(),aoa.data(),stalled.data(),m,wing);};
-                if (flown.aileron_sections) {
-                    const auto left=side((*flown.aileron_sections)[0]),right=side((*flown.aileron_sections)[1]);
-                    if (left && right) ailerons=brunner::AileronInputs{*left,*right};
-                }
-                if (flown.wing_root_sections) {
-                    const auto first=side((*flown.wing_root_sections)[0]),second=side((*flown.wing_root_sections)[1]);
-                    if (first && second) root_stall=std::array<brunner::AileronSide,2>{*first,*second};
-                }
-                // The tail's angle and stalled share over both its sections (decision 17).
-                if (flown.tail_sections)
-                    tail_read=brunner::tail_side(rho,speed.data(),area.data(),aoa.data(),stalled.data(),m,(*flown.tail_sections)[0],(*flown.tail_sections)[1]);
-            }
-            flight_sample={airspeed?XPLMGetDataf(airspeed):nan,XPLMGetDataf(sim_trim),flow,
-                XPLMGetDataf(pitch_value),XPLMGetDataf(roll_value),native_pitch?XPLMGetDataf(native_pitch):nan,
-                native_roll?XPLMGetDataf(native_roll):nan,clock,load_factor_ref?XPLMGetDataf(load_factor_ref):1.0,ailerons,tail_read};
-            flow_clock=clock;flow_stamp=now;
-        }
+    brunner::xplane::FrameSections sections;
+    sections.default_cessna=sim.default_cessna();sections.matched=flown.matched;
+    sections.tail=flown.tail_sections;sections.aileron=flown.aileron_sections;sections.wing_root=flown.wing_root_sections;
+    if (const auto frame=sim.observe_frame(enabled,now,sections)) {
+        flight_sample=frame->sample;root_stall=frame->root_stall;
     }
-    if (!enabled || !scenery_loading || !flight_clock) startup_readiness.reset();
-    else startup_readiness.observe(simulator_ready_for_start,XPLMGetDatai(scenery_loading)!=0,
-        XPLMGetDataf(flight_clock),brunner::Clock::now());
+    const auto ready=sim.readiness();
+    if (!enabled || !ready) startup_readiness.reset();
+    else startup_readiness.observe(simulator_ready_for_start,ready->scenery_busy,ready->flight_time,brunner::Clock::now());
     return -1.0f;
 }
 int recenter_handler(XPLMCommandRef,XPLMCommandPhase,void*);
@@ -954,7 +812,7 @@ void create_startup_notice() {
 // automatic operation when they end on their own.
 int reference_handler(XPLMCommandRef,XPLMCommandPhase phase,void*) {
     if (phase==xplm_CommandBegin && enabled) {
-        release_axes();
+        sim.release_axes();
         const bool accepted=reader.request_reference_test();
         if (accepted) yoke.developer_test();
         log(accepted?"Supervised reference test requested":"Reference request refused: reader unavailable or test active");
@@ -964,7 +822,7 @@ int reference_handler(XPLMCommandRef,XPLMCommandPhase phase,void*) {
 // Developer stop: motors off, reader disconnected, nothing automatic until the
 // pilot's Retry. The headless runner relies on this hard stop.
 int stop_handler(XPLMCommandRef,XPLMCommandPhase phase,void*) {
-    if (phase==xplm_CommandBegin) {yoke.stop();release_axes();reader.stop();log(reader.snapshot().message);}
+    if (phase==xplm_CommandBegin) {yoke.stop();sim.release_axes();reader.stop();log(reader.snapshot().message);}
     return 1;
 }
 // Pilot's stop: force feel off and any motor session ended cleanly, so pitch
@@ -1009,7 +867,7 @@ int reconnect_handler(XPLMCommandRef,XPLMCommandPhase phase,void*) {
     if (phase==xplm_CommandBegin && enabled) {
         const auto s=reader.snapshot();
         if (s.reference_active || s.loading_active) log("Reconnect refused during active test; use Stop first");
-        else {release_axes();reader.start();log("Reader reconnect requested; automatic operation resumes unless the yoke is stopped");}
+        else {sim.release_axes();reader.start();log("Reader reconnect requested; automatic operation resumes unless the yoke is stopped");}
     }
     return 1;
 }
@@ -1229,7 +1087,7 @@ PLUGIN_API int XPluginEnable() {
         output_folder=std::filesystem::path(system_path)/"Output"/"BrunnerDirect";
         recorder.start(output_folder);
         recorder.event("Plugin enabled; force settings preserved; HUD telemetry schema 1");
-        force_hud.show_hud();create_startup_notice();identify_aircraft();bind_surface_refs();
+        force_hud.show_hud();create_startup_notice();sim.identify_aircraft();sim.bind_surfaces();
         session_drag.reset();poll_profiles(brunner::Clock::now(),true);log_feel_events();
         XPLMCreateFlightLoop_t loop{sizeof(XPLMCreateFlightLoop_t),xplm_FlightLoop_Phase_AfterFlightModel,observe_completed_frame,nullptr};
         readiness_loop=XPLMCreateFlightLoop(&loop);
@@ -1257,7 +1115,7 @@ PLUGIN_API void XPluginDisable() {
     force_monitor.close();force_hud.close();
     diagnostic_trim.renew(0,false,brunner::Clock::now());
     yoke.stop();startup_readiness.reset();
-    release_axes();
+    sim.release_axes();
     if (enabled) XPLMUnregisterFlightLoopCallback(update,nullptr);
     enabled=false;simulator_ready_for_start=false;reader.stop();last_status.clear();
     recorder.event("Plugin disabled; reader stopped");recorder.stop();
@@ -1295,7 +1153,7 @@ PLUGIN_API void XPluginStop() {
 PLUGIN_API void XPluginReceiveMessage(XPLMPluginID,int message,void* parameter) {
     if (message==XPLM_MSG_PLANE_LOADED && reinterpret_cast<std::intptr_t>(parameter)==0) {
         diagnostic_trim.renew(0,false,brunner::Clock::now());
-        release_axes();startup_readiness.reset();simulator_ready_for_start=false;identify_aircraft();bind_surface_refs();
+        sim.release_axes();startup_readiness.reset();simulator_ready_for_start=false;sim.identify_aircraft();sim.bind_surfaces();
         poll_profiles(brunner::Clock::now(),true);log_feel_events();
         reader.simulator_update(false,false,{});
     }
