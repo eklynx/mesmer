@@ -15,7 +15,7 @@
 // the controller's own limit register (drive.hpp).
 #pragma once
 #include "json.hpp"
-#include "usb_ids.hpp"
+#include "hid/usb_ids.hpp"
 #include <algorithm>
 #include <cmath>
 #include <cstdint>

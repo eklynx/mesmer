@@ -1,5 +1,5 @@
 // SOURCE OF TRUTH for the seam between the portable reader (reader.cpp,
-// bridge.hpp) and an operating system's HID access (hid_win.cpp, hid_mac.cpp).
+// bridge.hpp) and an operating system's HID access (hid/win/hid_win.cpp, hid/mac/hid_mac.cpp).
 // Specification: docs/hid-bridge.md. Read this header, not the platform files,
 // to use or implement a HidDevice.
 //
@@ -18,7 +18,7 @@
 //   OperationCancelled  the reader was asked to stop between transfers.
 #pragma once
 #include "core.hpp"
-#include "usb_ids.hpp"
+#include "hid/usb_ids.hpp"
 #include <cstddef>
 #include <memory>
 #include <stdexcept>
@@ -71,7 +71,7 @@ public:
     virtual void flush() = 0;
 };
 
-// Implemented once per platform (hid_win.cpp, hid_mac.cpp). Only devices with one of
+// Implemented once per platform (hid/win/hid_win.cpp, hid/mac/hid_mac.cpp). Only devices with one of
 // `ids` are considered; BridgeAbsent if there is none.
 std::unique_ptr<HidDevice> open_bridge(const std::vector<UsbId>& ids);
 }

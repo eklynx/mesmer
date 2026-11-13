@@ -1,8 +1,8 @@
-// The portable request/reply layer over a HidDevice (hid_device.hpp). It is the
+// The portable request/reply layer over a HidDevice (hid/hid_device.hpp). It is the
 // `Transport` that reference.hpp, loading.hpp and buffet.hpp are templated over.
 // One outstanding request, one dedicated worker. No SDK calls on this thread.
 #pragma once
-#include "hid_device.hpp"
+#include "hid/hid_device.hpp"
 #include "loading.hpp"
 #include "reference.hpp"
 #include <algorithm>

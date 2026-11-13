@@ -1,5 +1,5 @@
 // macOS implementation of open_bridge() / HidDevice over IOKit's IOHIDManager.
-// Contract: hid_device.hpp (source of truth); notes: docs/hid-bridge.md.
+// Contract: hid/hid_device.hpp (source of truth); notes: docs/hid-bridge.md.
 //
 // The bridge is opened exclusively (kIOHIDOptionsTypeSeizeDevice), like the
 // Windows share-mode-0 open, so CLS2Sim or Simux holding it reads as BridgeBusy.
@@ -9,9 +9,9 @@
 //
 // Not yet run against hardware: the report-ID handling and the report-size
 // normalisation below are the assumptions the hardware smoke test checks.
-#include "hid_mac.hpp"
-#include "hid_device.hpp"
-#include "usb_ids.hpp"
+#include "hid/mac/hid_mac.hpp"
+#include "hid/hid_device.hpp"
+#include "hid/usb_ids.hpp"
 #include <CoreFoundation/CoreFoundation.h>
 #include <IOKit/hid/IOHIDLib.h>
 #include <algorithm>

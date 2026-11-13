@@ -1,7 +1,7 @@
-// Windows implementation of open_bridge() / HidDevice. Contract: hid_device.hpp.
+// Windows implementation of open_bridge() / HidDevice. Contract: hid/hid_device.hpp.
 // The enumeration, exclusive open and overlapped transfers are moved unchanged
 // from reader_win.cpp; the only difference is that matching is decided by
-// select_bridge over the ids in usb_ids.hpp.
+// select_bridge over the ids in hid/usb_ids.hpp.
 #define WIN32_LEAN_AND_MEAN
 #define NOMINMAX
 #include <windows.h>
@@ -9,8 +9,8 @@
 extern "C" {
 #include <hidsdi.h>
 }
-#include "hid_device.hpp"
-#include "usb_ids.hpp"
+#include "hid/hid_device.hpp"
+#include "hid/usb_ids.hpp"
 #include <string>
 #include <vector>
 

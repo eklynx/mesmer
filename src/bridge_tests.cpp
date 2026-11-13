@@ -1,8 +1,8 @@
-// Tests for the HID seam: the list of bridge ids (usb_ids.hpp), bridge
-// selection (hid_device.hpp) and the shared request/reply layer (bridge.hpp)
+// Tests for the HID seam: the list of bridge ids (hid/usb_ids.hpp), bridge
+// selection (hid/hid_device.hpp) and the shared request/reply layer (bridge.hpp)
 // over a fake HidDevice. No hardware, no OS HID API. Spec: docs/hid-bridge.md.
 #include "bridge.hpp"
-#include "usb_ids.hpp"
+#include "hid/usb_ids.hpp"
 #include <deque>
 #include <functional>
 #include <iostream>

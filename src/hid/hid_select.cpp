@@ -1,6 +1,6 @@
-// Platform-independent bridge selection. Contract: hid_device.hpp.
-#include "hid_device.hpp"
-#include "usb_ids.hpp"
+// Platform-independent bridge selection. Contract: hid/hid_device.hpp.
+#include "hid/hid_device.hpp"
+#include "hid/usb_ids.hpp"
 
 namespace brunner {
 namespace {

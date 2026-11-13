@@ -1,8 +1,8 @@
 // The portable yoke reader: sampling, the supervised reference/loading tests,
 // session and reconnect logic, and Reader's start/stop/run. It reaches the
-// yoke only through Bridge (bridge.hpp) over a HidDevice (hid_device.hpp), so it
+// yoke only through Bridge (bridge.hpp) over a HidDevice (hid/hid_device.hpp), so it
 // is identical on every platform. Moved unchanged from reader_win.cpp; the
-// operating system's HID access is in hid_win.cpp / hid_mac.cpp.
+// operating system's HID access is in hid/win/hid_win.cpp / hid/mac/hid_mac.cpp.
 #include "reader.hpp"
 #include "bridge.hpp"
 #include "reference.hpp"

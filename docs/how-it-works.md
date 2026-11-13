@@ -144,8 +144,8 @@ and the X-Plane glue is portable C++17 with tests that run on macOS and Windows.
 | `yoke_preset.hpp`, `drive.hpp` | What differs between yoke models, and the numbers the force models use ([spec](yoke-presets.md)) |
 | `readonly.hpp` | What happens on firmware the plugin does not drive: only reads, a learned travel for pitch and roll ([spec](read-only-mode.md)) |
 | `reader.cpp`, `bridge.hpp` | The reader thread and its request/reply layer; the same on every platform |
-| `hid_device.hpp`, `usb_ids.hpp`, `hid_select.cpp` | The seam to the operating system and the USB ids Mesmer opens ([spec](hid-bridge.md)) |
-| `hid_win.cpp`, `hid_mac.cpp` | The Windows and macOS HID access |
+| `hid/hid_device.hpp`, `hid/usb_ids.hpp`, `hid/hid_select.cpp` | The seam to the operating system and the USB ids Mesmer opens ([spec](hid-bridge.md)) |
+| `hid/win/hid_win.cpp`, `hid/mac/hid_mac.cpp` | The Windows and macOS HID access |
 | `plugin.cpp` | The X-Plane plugin: menu, commands, datarefs, the corner line |
 | `hud.hpp`, `tail.hpp`, `panel*.hpp` | The feel card and the force monitor windows |
 | `workbench*.hpp/.cpp`, `workbench.html` | The feel page and its small HTTP server |

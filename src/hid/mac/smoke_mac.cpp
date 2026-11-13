@@ -1,11 +1,11 @@
 // Explicit operator-run hardware integration test for macOS, never part of CTest.
-// Mirrors smoke_win.cpp: opens the yoke's bridge exclusively, reads status,
+// Mirrors hid/win/smoke_win.cpp: opens the yoke's bridge exclusively, reads status,
 // encoder and position from both controllers for 15 s, then closes it. It
 // never asks for force feel or any loading. Like the Windows test it is "read
 // only" in that sense; the reader's session start would still disable motors
 // it finds already enabled (for example after a power glitch).
 // Close X-Plane, CLS2Sim and Simux first: the open is exclusive.
-#include "hid_mac.hpp"
+#include "hid/mac/hid_mac.hpp"
 #include "reader.hpp"
 #include <iostream>
 int main(int argc,char**) {

@@ -2,7 +2,7 @@
 #include "core.hpp"
 #include "loading.hpp"
 #include "buffet.hpp"
-#include "hid_device.hpp"
+#include "hid/hid_device.hpp"
 #include "yoke_preset.hpp"
 #include <atomic>
 #include <functional>

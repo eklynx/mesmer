@@ -1,10 +1,10 @@
 # The yoke's HID bridge: specification
 
 How Mesmer finds and talks to the yoke's USB bridge, on every platform. The
-code it describes: `src/usb_ids.hpp` (which devices), `src/hid_device.hpp`
-(the seam; read it first), `src/hid_select.cpp` (which one), `src/bridge.hpp`
+code it describes: `src/hid/usb_ids.hpp` (which devices), `src/hid/hid_device.hpp`
+(the seam; read it first), `src/hid/hid_select.cpp` (which one), `src/bridge.hpp`
 (requests and replies), `src/reader.cpp` (the supervised reader), and one HID
-implementation per operating system: `src/hid_win.cpp` and `src/hid_mac.cpp`.
+implementation per operating system: `src/hid/win/hid_win.cpp` and `src/hid/mac/hid_mac.cpp`.
 `src/bridge_tests.cpp` checks every statement in the first four sections.
 
 Mesmer talks to the bridge directly. CLS2Sim is not needed and must be closed
@@ -12,7 +12,7 @@ Mesmer talks to the bridge directly. CLS2Sim is not needed and must be closed
 
 ## Which devices
 
-The bridge ids Mesmer will open are the ids the yoke presets name ([yoke-presets.md](yoke-presets.md); `usb_ids.hpp` holds the built-in models' ids):
+The bridge ids Mesmer will open are the ids the yoke presets name ([yoke-presets.md](yoke-presets.md); `hid/usb_ids.hpp` holds the built-in models' ids):
 
 | Vendor | Product | Notes |
 |---|---|---|
@@ -70,12 +70,12 @@ reported, never retried automatically.
 
 ## Windows
 
-`hid_win.cpp`: SetupDi enumeration, `CreateFileW` with share mode 0, overlapped
+`hid/win/hid_win.cpp`: SetupDi enumeration, `CreateFileW` with share mode 0, overlapped
 `ReadFile`/`WriteFile`, `HidD_FlushQueue`.
 
 ## macOS
 
-`hid_mac.cpp`: `IOHIDManager` enumeration matching every listed id, then
+`hid/mac/hid_mac.cpp`: `IOHIDManager` enumeration matching every listed id, then
 `IOHIDDeviceOpen` with `kIOHIDOptionsTypeSeizeDevice`. Input reports arrive by
 callback on a private run-loop thread into a queue; writes use
 `IOHIDDeviceSetReportWithCallback` so the timeout holds. Needs the frameworks

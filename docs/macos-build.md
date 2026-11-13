@@ -16,8 +16,8 @@ with the files the Windows release ships (`BrunnerDirect.ini`,
 - Exports `XPluginStart`, `XPluginEnable`, `XPluginDisable`, `XPluginStop`,
   `XPluginReceiveMessage`; links `XPLM.framework` at X-Plane's own path.
 - **Yoke reader: IOKit, not yet run on hardware.** Mesmer reads the yoke over
-  USB HID itself (no CLS2Sim). On macOS that is `src/hid_mac.cpp`, behind the
-  seam in `src/hid_device.hpp` (spec: [hid-bridge.md](hid-bridge.md)). The build
+  USB HID itself (no CLS2Sim). On macOS that is `src/hid/mac/hid_mac.cpp`, behind the
+  seam in `src/hid/hid_device.hpp` (spec: [hid-bridge.md](hid-bridge.md)). The build
   also makes `build/brunner_hardware_read_test`, a 15 s check to run first.
 
 ## Usage

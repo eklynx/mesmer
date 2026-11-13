@@ -1,8 +1,8 @@
-// macOS-only diagnostics for the IOKit HID device (hid_mac.cpp). Normal code
-// uses open_bridge() from hid_device.hpp, the source of truth; this exists so the
+// macOS-only diagnostics for the IOKit HID device (hid/mac/hid_mac.cpp). Normal code
+// uses open_bridge() from hid/hid_device.hpp, the source of truth; this exists so the
 // hardware smoke test can show what macOS reports before anything is opened.
 #pragma once
-#include "usb_ids.hpp"
+#include "hid/usb_ids.hpp"
 #include <string>
 #include <vector>
 
