@@ -142,13 +142,9 @@ std::string last_inspection;
 std::string last_loading;
 // Stored controller soft travel, with directions confirmed by the supervised
 // November 6 push/pull/right/left recording. End-to-end simulator check follows.
-// The CLS-E-flow input calibration: the active drive's travel either way, in its directions
-// (roll right positive, pitch forward positive). The CLS-E's is -13000..13000 reversed / -12000..12000.
-std::array<brunner::Calibration,2> calibration() {
-    const auto& d=brunner::active_drive();
-    const auto roll=static_cast<std::int32_t>(std::lround(d.roll_travel_counts)),pitch=static_cast<std::int32_t>(std::lround(d.pitch_travel_counts));
-    return {{{-roll,roll,d.roll_input_reverse,true},{-pitch,pitch,d.pitch_input_reverse,true}}};
-}
+// The CLS-E-flow input calibration: the active drive's own stops, in its directions (roll right positive,
+// pitch forward positive). The CLS-E's is -13000..13000 reversed / -12000..12000; the NG's are its measured stops.
+std::array<brunner::Calibration,2> calibration() {return brunner::input_calibration();}
 std::string last_input_status;
 // Read-only mode (brunner/readonly.hpp): the learned travel, where it is kept, and the surveys written.
 brunner::Travel read_only_travel;

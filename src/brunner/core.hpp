@@ -162,6 +162,13 @@ inline float normalize(std::int32_t counts, const Calibration& cal) {
     const auto ratio=std::clamp(static_cast<double>(counts)/span, -1.0, 1.0);
     return static_cast<float>(cal.reverse ? -ratio : ratio);
 }
+// The input scaling per axis (roll, pitch) from the active drive: the encoder's raw counts at the stops, so
+// the stops read -1 and +1 (the preset's *_input_low/high; the travel either way when a model gives none),
+// reversed as the drive says. Used for the yoke's own input to X-Plane once it is centred.
+inline std::array<Calibration,2> input_calibration() {
+    const auto& d=active_drive();
+    return {{{d.roll_input_low,d.roll_input_high,d.roll_input_reverse,true},{d.pitch_input_low,d.pitch_input_high,d.pitch_input_reverse,true}}};
+}
 // Bit 11 reports an internal limit, not loss of a completed reference. Keep
 // live position input at the end stop while still rejecting other state changes.
 inline bool referenced_stopped_status(std::uint16_t word) {return (word & ~0x0800u)==active_drive().status_stopped;}

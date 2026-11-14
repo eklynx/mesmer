@@ -6,6 +6,11 @@ provenance attestation.
 
 ## Unreleased
 
+- **Pitch and roll reach their real limits.** The position sent to X-Plane was scaled by the preset's travel,
+  which for the NG is how far the spring's centre may be written, not where the yoke stops. A model now
+  gives the raw encoder counts at each stop (`*_input_low`/`*_input_high`; the NG's measured, the CLS-E's
+  unchanged), and the feel page's percent follows the yoke's own travel instead of the CLS-E's 12000
+  counts, so the NG's marker and curves span the whole page.
 - **The NG's elevator weight pushes the right way.** Its pitch encoder runs the other way from the CLS-E's,
   but the plugin wrote the model's spring centre and constant force to the controller unchanged, so the
   weight pushed aft and no existing setting could fix it. A model now has `roll_spring_sign` and

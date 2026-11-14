@@ -561,6 +561,18 @@ int main() {
             apply_live_tuning(mirrored,held,held,not_stopped);                                         // and nothing is rewritten
         }
         check(controller_counts(2,500)==500 && controller_counts(1,500)==500);                        // the CLS-E is not mirrored
+        // The input to X-Plane is scaled by the model's own stops: the CLS-E's travel either way as always, the
+        // NG's measured stops (each side by its own span, reversed after).
+        {
+            const auto cls_e_cal=input_calibration();
+            check(cls_e_cal[0].lower==-13000 && cls_e_cal[0].upper==13000 && cls_e_cal[0].reverse && cls_e_cal[1].lower==-12000 && cls_e_cal[1].upper==12000 && !cls_e_cal[1].reverse);
+            ScopedDrive ng(make_drive(builtin_cls_e_ng(),2150,2250));
+            const auto cal=input_calibration();
+            check(cal[1].lower==-5446 && cal[1].upper==5461 && cal[1].reverse && cal[0].lower==-7641 && cal[0].upper==7649);
+            check(normalize(5461,cal[1])==-1.0f && normalize(-5446,cal[1])==1.0f && normalize(0,cal[1])==0.0f);   // reversed: the stops are exactly +-1
+            check(normalize(5300,cal[1])>-1.0f && normalize(5300,cal[1])<-0.97f);                             // the old +-5300 span would have said -1
+            check(normalize(7649,cal[0])==-1.0f && normalize(-7641,cal[0])==1.0f && normalize(9000,cal[0])==-1.0f);   // beyond a stop is clamped
+        }
         // Roll's centre moves under its deadband without a write, or even a
         // read, so pitch keeps its update rate; when roll is written, every
         // pitch write in that update has gone first.

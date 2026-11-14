@@ -61,6 +61,12 @@ struct YokePreset {
     std::vector<std::uint16_t> verified_firmware;
     // Travel either way from centre, in encoder counts. The force models scale by it.
     double roll_travel_counts=13000,pitch_travel_counts=12000;
+    // The encoder's raw counts at the two stops of each axis (low < 0 < high), which is what the
+    // position sent to X-Plane is scaled by: low reads -1 and high +1 (each side by its own span, from
+    // encoder zero). Unlike the travel above (how far the spring's centre may be written, and the
+    // force models' scale) these are where the yoke physically stops. 0 and 0 (unset) means
+    // -travel..+travel, the CLS-E's behaviour. Edit in BrunnerDirect.yokes.json.
+    int roll_input_low=0,roll_input_high=0,pitch_input_low=0,pitch_input_high=0;
     double wheel_deg=86;                    // the wheel's travel each way
     double pitch_travel_mm=0;               // information only (0: unknown)
     // Directions, three facts per axis. encoder_sign: the model's counts (forward / right positive,
@@ -126,6 +132,9 @@ inline YokePreset builtin_cls_e_ng() {
     // (pitch's clamp plus a 20 count overshoot), so roll's clamp is about 7392; 7350 stays under it. The
     // controller's end-stop flag is further out (roll +-7640, pitch +-5460). Edit in BrunnerDirect.yokes.json.
     p.roll_travel_counts=7350;p.pitch_travel_counts=5300;
+    // Where the yoke physically stops (the encoder's extremes with the yoke pushed to each stop, learned
+    // 2026-11-13; the controller's own end-stop flag sets at roll -7637/+7647 and pitch -5458/+5478).
+    p.roll_input_low=-7641;p.roll_input_high=7649;p.pitch_input_low=-5446;p.pitch_input_high=5461;
     p.wheel_deg=90;p.pitch_travel_mm=160;
     p.roll_ceiling_units=11000;p.pitch_ceiling_units=9500;
     p.target_torque=25;
@@ -167,6 +176,12 @@ inline void validate_preset(const YokePreset& p) {
     for (const auto f:p.verified_firmware) if (f==0) fail("a verified firmware version is zero");
     const auto in=[](double v,double lo,double hi) {return std::isfinite(v) && v>=lo && v<=hi;};
     if (!in(p.roll_travel_counts,1000,30000) || !in(p.pitch_travel_counts,1000,30000)) fail("travel counts must be 1000 to 30000");
+    const auto input_ends=[&](int low,int high,const char* axis) {
+        if (low==0 && high==0) return;   // unset: -travel..+travel
+        if (low>-1000 || low<-30000 || high<1000 || high>30000) fail(std::string(axis)+" input low must be -30000 to -1000 and high 1000 to 30000, or both left out");
+    };
+    input_ends(p.roll_input_low,p.roll_input_high,"roll");
+    input_ends(p.pitch_input_low,p.pitch_input_high,"pitch");
     if (!in(p.wheel_deg,10,180)) fail("wheel_deg must be 10 to 180");
     if (!in(p.pitch_travel_mm,0,1000)) fail("pitch_travel_mm must be 0 to 1000");
     if ((p.roll_encoder_sign!=1 && p.roll_encoder_sign!=-1) || (p.pitch_encoder_sign!=1 && p.pitch_encoder_sign!=-1)) fail("encoder signs must be 1 or -1");
@@ -213,7 +228,8 @@ inline void validate_presets(const std::vector<YokePreset>& presets) {
 // it gives. A new name must give its USB ids, both travels, both ceilings and
 // the target torque (nothing is assumed for an unknown model); it is unverified
 // unless it says otherwise. Fields: name, title, usb [{vendor,product}], verified,
-// verified_firmware [..], roll_travel_counts, pitch_travel_counts, wheel_deg,
+// verified_firmware [..], roll_travel_counts, pitch_travel_counts, roll_input_low, roll_input_high,
+// pitch_input_low, pitch_input_high, wheel_deg,
 // pitch_travel_mm, pitch_units_per_lb, roll_units_per_nm, roll_ceiling_units,
 // pitch_ceiling_units, margin_fraction, target_torque, centre_drift_percent, status_stopped,
 // status_ready_mask, status_acquired_mask, spring_mode, idle_enabled, rest {roll_curve, pitch_curve,
@@ -287,6 +303,10 @@ inline std::vector<YokePreset> parse_yoke_presets(std::string_view text,const st
                 }
             }
             else if (key=="roll_travel_counts") p.roll_travel_counts=number(v,what);
+            else if (key=="roll_input_low") p.roll_input_low=whole(v,what);
+            else if (key=="roll_input_high") p.roll_input_high=whole(v,what);
+            else if (key=="pitch_input_low") p.pitch_input_low=whole(v,what);
+            else if (key=="pitch_input_high") p.pitch_input_high=whole(v,what);
             else if (key=="pitch_travel_counts") p.pitch_travel_counts=number(v,what);
             else if (key=="wheel_deg") p.wheel_deg=number(v,what);
             else if (key=="pitch_travel_mm") p.pitch_travel_mm=number(v,what);

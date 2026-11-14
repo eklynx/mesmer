@@ -66,6 +66,12 @@ void units() {
     require(pa_from_kt(10)==16 && pa_from_kt(90)==1313,"halfway range in Pa");
     require(!airflow_kt(-1) && !airflow_kt(std::nan("")) && *airflow_kt(0)==0,"airflow null when X-Plane has none");
     require(travel_percent(-1200)==10 && travel_percent(12000)==-100,"the page's percent of travel is aft positive");
+    {
+        // The percent is of the active yoke's own travel: the NG's 5300 counts are the whole page.
+        ScopedDrive ng(make_drive(builtin_cls_e_ng(),2150,2250));
+        require(travel_percent(5300)==-100 && travel_percent(-5300)==100 && travel_percent(-530)==10 && counts_per_percent()==53,"the page's percent follows the yoke's travel");
+    }
+    require(counts_per_percent()==120,"and the CLS-E's is unchanged");
     const auto s=from_managed(FlightSettings{});
     require(s==Settings{} && s.pitch.units_per_lb==222 && s.pitch.drag_divisor==6 && s.pitch.move_back==180
         && s.pitch.figures.empty() && s.roll.units_per_nm==1000,"defaults: pitch 222 units/lb, drag 1/6 and 180; roll 1000 units/N·m; no firmest (decision 16)");

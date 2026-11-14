@@ -34,8 +34,9 @@ using Clock=std::chrono::steady_clock;
 
 // ---- Units (api.md "Units and signs") ----
 inline constexpr double sea_level_rho=1.225,metres_per_knot=0.514444;
-inline constexpr int travel_counts=12000;
-inline constexpr double counts_per_percent=120;
+// The page's percent is of the active yoke's own pitch travel (the force models' counts run to
+// +-full_travel_counts(), 12000 on the CLS-E, 5300 on the NG), forward positive counts, aft positive percent.
+inline double counts_per_percent() {return full_travel_counts()/100.0;}
 // The notices kept for the page's Details, newest last.
 inline constexpr std::size_t notice_limit=8;
 inline constexpr std::size_t undo_depth=32,mark_limit=100,history_samples=600,note_limit=200;
@@ -49,7 +50,7 @@ inline std::optional<int> airflow_kt(double pa) {
     return kt_from_pa(pa);
 }
 // The drive's counts (forward positive) as the page's percent of travel, aft positive.
-inline double travel_percent(double counts) {return -counts/counts_per_percent;}
+inline double travel_percent(double counts) {return -counts/counts_per_percent();}
 
 // ---- Settings object S ----
 // Pitch is the elevator model (decision 15): its knobs are the drive's, and
@@ -634,7 +635,7 @@ inline std::string pitch_json(const PitchLive& p) {
         const auto& s=*p.solution;
         o+="{\"weight_lb\":"+decimal_or_null(s.weight_lb)+",\"stiffness_lb_per_in\":"+decimal_or_null(s.stiffness_lb_per_in)
             +",\"centre_percent\":"+decimal_or_null(travel_percent(s.centre_counts))+",\"rest_percent\":"+decimal_or_null(travel_percent(s.rest_counts))
-            +",\"force_lb\":"+decimal_or_null(s.force_lb,2)+",\"slope_lb_per_percent\":"+decimal_or_null(s.slope_lb_per_count*counts_per_percent,3)
+            +",\"force_lb\":"+decimal_or_null(s.force_lb,2)+",\"slope_lb_per_percent\":"+decimal_or_null(s.slope_lb_per_count*counts_per_percent(),3)
             // The tail at the yoke: the angle the model takes; the
             // tail-plane's stall (X-Plane's) and the elevator's own (alpha +
             // tau*d), kept apart; the larger, which the hinge moment uses;
@@ -642,7 +643,7 @@ inline std::string pitch_json(const PitchLive& p) {
             +",\"tail\":{\"alpha_deg\":"+decimal_or_null(s.tail_alpha_deg,2)+",\"tail_stalled_xp\":"+decimal_or_null(s.tail_stalled_xp,2)
             +",\"elevator_stalled\":"+decimal_or_null(s.elevator_stalled,2)+",\"hinge_stalled\":"+decimal_or_null(s.hinge_stalled,2)
             +",\"reversed\":"+(s.tail_reversed?"true":"false")+",\"float_lb\":"+decimal_or_null(s.float_lb,2)+"}}";
-        const double unit=counts_per_percent;
+        const double unit=counts_per_percent();
         o+=",\"drive\":{\"strength_percent\":"+std::to_string(s.strength)+",\"ceiling_percent\":"+std::to_string(s.ceiling)
             +",\"centre_percent\":"+decimal_or_null(travel_percent(s.centre))
             +",\"bias_lb\":"+decimal_or_null(s.bias_lb,2)+",\"rest_percent\":"+decimal_or_null(travel_percent(s.drive_rest_counts))

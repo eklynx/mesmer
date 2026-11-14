@@ -176,7 +176,7 @@ int main(int argc,char** argv) {
         const double yoke=followed?followed->yoke:held_yoke?*held_yoke:15*std::sin(t/3);
         live.pitch.yoke_percent=yoke;live.pitch.inputs=in.inputs;live.pitch.tail_source=tail.source;
         if (applied.has_profile) {
-            live.pitch.solution=solve_pitch(applied.figures,in.inputs,-yoke*counts_per_percent,applied.knobs.units_per_lb);
+            live.pitch.solution=solve_pitch(applied.figures,in.inputs,-yoke*counts_per_percent(),applied.knobs.units_per_lb);
             if (session) {
                 live.pitch.now_percent=live.pitch.solution->strength;
                 live.pitch.phase=t<0.5?"blending":"following";live.pitch.update_hz=6;

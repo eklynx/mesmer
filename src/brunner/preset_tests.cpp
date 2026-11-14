@@ -60,6 +60,7 @@ bool same_preset(const YokePreset& a,const YokePreset& b) {
         && a.spring_mode==b.spring_mode && a.idle_enabled==b.idle_enabled && a.rest==b.rest
         && a.roll_encoder_sign==b.roll_encoder_sign && a.pitch_encoder_sign==b.pitch_encoder_sign
         && a.roll_spring_sign==b.roll_spring_sign && a.pitch_spring_sign==b.pitch_spring_sign
+        && a.roll_input_low==b.roll_input_low && a.roll_input_high==b.roll_input_high && a.pitch_input_low==b.pitch_input_low && a.pitch_input_high==b.pitch_input_high
         && a.roll_input_reverse==b.roll_input_reverse && a.pitch_input_reverse==b.pitch_input_reverse
         && a.pitch_units_per_lb==b.pitch_units_per_lb && a.roll_units_per_nm==b.roll_units_per_nm;
 }
@@ -202,6 +203,22 @@ void bounds_and_malformed_files() {
     threw=false;try {validate_presets(twice);} catch (const PresetError&) {threw=true;}
     check(threw);
 }
+// Where each yoke physically stops, which scales the input to X-Plane (the preset's *_input_low/high).
+void the_input_stops() {
+    const auto cls_e=builtin_cls_e(),ng=builtin_cls_e_ng();
+    check(cls_e.roll_input_low==0 && cls_e.roll_input_high==0 && cls_e.pitch_input_low==0 && cls_e.pitch_input_high==0);   // unset: the travel either way
+    check(ng.roll_input_low==-7641 && ng.roll_input_high==7649 && ng.pitch_input_low==-5446 && ng.pitch_input_high==5461);
+    const auto in_ng=[](const std::string& fields) {return R"({"schema":1,"yokes":[{"name":"cls-e-ng",)"+fields+"}]}";};
+    const auto patched=parse_yoke_presets(in_ng("\"pitch_input_low\":-5000,\"pitch_input_high\":5200"),builtin_yoke_presets());
+    check(named(patched,"cls-e-ng").pitch_input_low==-5000 && named(patched,"cls-e-ng").pitch_input_high==5200 && named(patched,"cls-e-ng").roll_input_low==-7641);
+    check(!refused(in_ng("\"pitch_input_low\":0,\"pitch_input_high\":0")));          // both unset is allowed: the travel
+    for (const auto* bad:{"\"pitch_input_low\":-5446,\"pitch_input_high\":0","\"pitch_input_low\":0,\"pitch_input_high\":5461",
+            "\"pitch_input_low\":5446,\"pitch_input_high\":5461","\"pitch_input_low\":-5446,\"pitch_input_high\":-5461",
+            "\"pitch_input_low\":-999,\"pitch_input_high\":5461","\"roll_input_low\":-7641,\"roll_input_high\":999",
+            "\"roll_input_low\":-30001,\"roll_input_high\":7649","\"roll_input_low\":-7641,\"roll_input_high\":30001",
+            "\"pitch_input_low\":\"-5446\",\"pitch_input_high\":5461"})
+        check(refused(in_ng(bad)));
+}
 // Changing one direction from the feel page (brunner/yoke_overrides.hpp).
 void changing_a_direction() {
     const std::vector<std::string> shipped{shipped_text("cls-e.json"),shipped_text("cls-e-ng.json")};
@@ -251,6 +268,7 @@ int main() {
         resting_settings();
         bounds_and_malformed_files();
         changing_a_direction();
+        the_input_stops();
         std::cout<<"preset tests passed\n";
         return 0;
     } catch (const std::exception& e) {std::cerr<<e.what()<<'\n';return 1;}

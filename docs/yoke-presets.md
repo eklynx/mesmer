@@ -25,6 +25,7 @@ Built in: `cls-e` (USB `25BB:0081`, verified on firmware 367) and `cls-e-ng`
 | `usb` | the bridges that identify the model: `[{"vendor":9659,"product":139}]` (decimal) |
 | `verified`, `verified_firmware` | see Gates |
 | `roll_travel_counts`, `pitch_travel_counts` | travel either way from centre, in encoder counts (1000 to 30000): **the range the controller holds a resting point in**, not necessarily its end stops. The force models never put the centre past it, and a write the controller would clamp is a read-back fault. The NG's are 5300 (pitch, measured: it clamps there) and 7350 (roll, inferred from its homing sweep) |
+| `roll_input_low`, `roll_input_high`, `pitch_input_low`, `pitch_input_high` | the encoder's raw counts at each stop (low below zero, high above), which scale the position sent to X-Plane: low reads -1 and high +1, each side by its own span. Leave all out (or 0) for -travel to +travel, the CLS-E's behaviour. The travel above is how far the spring's centre may be written and the force models' scale; these are where the yoke physically stops (the NG's: roll -7641/7649, pitch -5446/5461) |
 | `wheel_deg`, `pitch_travel_mm` | wheel travel each way; pitch travel (information only) |
 | `pitch_units_per_lb`, `roll_units_per_nm` | drive force units per physical unit (the same on both models so far) |
 | `roll_ceiling_units`, `pitch_ceiling_units` | the most force the model's spec allows, in drive force units |

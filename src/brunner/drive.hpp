@@ -41,6 +41,8 @@ struct Drive {
     RestSettings rest;                                     // what a rest leaves, see YokePreset
     int roll_encoder_sign=-1,pitch_encoder_sign=-1;       // model counts = sign * encoder (see YokePreset)
     int roll_spring_sign=-1,pitch_spring_sign=-1;         // controller spring frame = sign * encoder
+    // The encoder at each stop of each axis, what the input to X-Plane is scaled by (see YokePreset).
+    int roll_input_low=-13000,roll_input_high=13000,pitch_input_low=-12000,pitch_input_high=12000;
     bool roll_input_reverse=true,pitch_input_reverse=false;
     // What each controller's limit register read when this drive was made. The
     // plugin never writes it; the writes' checks compare against it.
@@ -60,7 +62,8 @@ struct Drive {
             && wheel_deg==o.wheel_deg && target_torque==o.target_torque && centre_drift_percent==o.centre_drift_percent && roll_encoder_sign==o.roll_encoder_sign && status_stopped==o.status_stopped
             && spring_mode==o.spring_mode && idle_enabled==o.idle_enabled && rest==o.rest
             && status_ready_mask==o.status_ready_mask && status_acquired_mask==o.status_acquired_mask
-            && pitch_encoder_sign==o.pitch_encoder_sign && roll_spring_sign==o.roll_spring_sign && pitch_spring_sign==o.pitch_spring_sign && roll_input_reverse==o.roll_input_reverse && pitch_input_reverse==o.pitch_input_reverse && roll_limit_register==o.roll_limit_register
+            && pitch_encoder_sign==o.pitch_encoder_sign && roll_spring_sign==o.roll_spring_sign && pitch_spring_sign==o.pitch_spring_sign
+            && roll_input_low==o.roll_input_low && roll_input_high==o.roll_input_high && pitch_input_low==o.pitch_input_low && pitch_input_high==o.pitch_input_high && roll_input_reverse==o.roll_input_reverse && pitch_input_reverse==o.pitch_input_reverse && roll_limit_register==o.roll_limit_register
             && pitch_limit_register==o.pitch_limit_register && roll_ceiling_units==o.roll_ceiling_units
             && pitch_ceiling_units==o.pitch_ceiling_units && limit_units==o.limit_units && margin_units==o.margin_units;
     }
@@ -82,6 +85,12 @@ inline Drive make_drive(const YokePreset& p,std::uint32_t roll_limit_register,st
     d.spring_mode=static_cast<std::uint16_t>(p.spring_mode);d.idle_enabled=p.idle_enabled;d.rest=p.rest;
     d.roll_encoder_sign=p.roll_encoder_sign;d.pitch_encoder_sign=p.pitch_encoder_sign;
     d.roll_spring_sign=p.roll_spring_sign;d.pitch_spring_sign=p.pitch_spring_sign;
+    // Unset input ends are the travel either way, the way the input has always been scaled.
+    const auto rounded_counts=[](double v) {return static_cast<int>(std::lround(v));};
+    d.roll_input_low=p.roll_input_low?p.roll_input_low:-rounded_counts(p.roll_travel_counts);
+    d.roll_input_high=p.roll_input_high?p.roll_input_high:rounded_counts(p.roll_travel_counts);
+    d.pitch_input_low=p.pitch_input_low?p.pitch_input_low:-rounded_counts(p.pitch_travel_counts);
+    d.pitch_input_high=p.pitch_input_high?p.pitch_input_high:rounded_counts(p.pitch_travel_counts);
     d.roll_input_reverse=p.roll_input_reverse;d.pitch_input_reverse=p.pitch_input_reverse;
     d.roll_limit_register=roll_limit_register;d.pitch_limit_register=pitch_limit_register;
     d.roll_ceiling_units=std::min<int>(p.roll_ceiling_units,static_cast<int>(roll_limit_register));
