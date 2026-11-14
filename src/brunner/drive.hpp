@@ -54,7 +54,7 @@ struct Drive {
     // For the log: what a rest writes.
     std::string rest_summary() const {
         std::string text="the model's resting settings (spring "+std::to_string(rest.roll_spring_percent)+"/"+std::to_string(rest.pitch_spring_percent)+" %";
-        if (rest.mode) text+=", force mode 0x"+[&] {char b[8];std::snprintf(b,sizeof(b),"%04x",static_cast<unsigned>(rest.mode));return std::string(b);}();
+        if (rest.mode) text+=", force mode 0x"+[&] {char b[16];std::snprintf(b,sizeof(b),"%04x",static_cast<unsigned>(rest.mode));return std::string(b);}();
         return text+")";
     }
     bool operator==(const Drive& o) const {
