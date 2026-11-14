@@ -19,7 +19,8 @@ goes for Simux and any other program that talks to the yoke.
 ## 2. Download and check
 
 From [Releases](https://github.com/antialias/mesmer/releases), download
-the latest pre-release's zip and its `SHA256SUMS`. Check the zip in
+the zip of the highest version and its `SHA256SUMS`. GitHub doesn't always
+list them in version order: 0.1.0 is newer than 0.1.0-alpha.3. Check the zip in
 PowerShell:
 
 ```powershell

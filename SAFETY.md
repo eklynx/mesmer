@@ -85,7 +85,7 @@ If a stop cannot be confirmed by the drive, the line reads
 
 ## No warranty
 
-Mesmer is alpha software, provided under the
+Mesmer is preview software, provided under the
 [Apache License 2.0](LICENSE) "as is", without warranties or conditions of any
 kind. You use it at your own risk. It is not made, endorsed or supported by
 Brunner Elektronik AG, and using it may affect your support from Brunner.

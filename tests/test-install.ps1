@@ -88,5 +88,18 @@ try { $env:LOCALAPPDATA = $local; & $installer -Zip $s.Zip -Sums $s.Sums -MoveCo
 Check (Test-Path (Join-Path $s.Plugins 'BrunnerDirect/win_x64/BrunnerDirect.xpl')) 'found X-Plane from x-plane_install_12.txt'
 Remove-Item -LiteralPath $s.Dir -Recurse -Force
 
+# The release it downloads: the highest version, whatever GitHub's order.
+$ast = [System.Management.Automation.Language.Parser]::ParseFile((Resolve-Path $installer), [ref]$null, [ref]$null)
+$fn = $ast.Find({ param($n) $n -is [System.Management.Automation.Language.FunctionDefinitionAst] -and $n.Name -eq 'Select-NewestRelease' }, $true)
+. ([scriptblock]::Create($fn.Extent.Text))
+function Rel([string]$Tag, [bool]$Draft = $false) { [pscustomobject]@{ tag_name = $Tag; draft = $Draft } }
+$github = @((Rel 'v0.1.0-alpha.3'), (Rel 'v0.1.0'), (Rel 'v0.1.0-alpha.2'), (Rel 'v0.1.0-alpha.1'))
+Check ((Select-NewestRelease $github).tag_name -eq 'v0.1.0') 'picks v0.1.0 over the alphas GitHub lists first'
+Check ((Select-NewestRelease @((Rel 'v0.1.0'), (Rel 'v0.10.0'), (Rel 'v0.2.0'), (Rel 'v0.1.1'))).tag_name -eq 'v0.10.0') 'compares version numbers as numbers'
+Check ((Select-NewestRelease @((Rel 'v0.1.0-alpha.2'), (Rel 'v0.1.0-alpha.10'), (Rel 'v0.1.0-beta.1'))).tag_name -eq 'v0.1.0-beta.1') 'alpha before beta, alpha.10 after alpha.2'
+Check ((Select-NewestRelease @((Rel 'v0.2.0' $true), (Rel 'v0.1.1'))).tag_name -eq 'v0.1.1') 'skips drafts'
+Check ((Select-NewestRelease @((Rel 'nightly'), (Rel 'v0.1.0'))).tag_name -eq 'v0.1.0') 'skips tags that are not versions'
+Check ($null -eq (Select-NewestRelease @())) 'no release, nothing picked'
+
 if ($failures) { Write-Host "$failures failed"; exit 1 }
 Write-Host 'all passed'

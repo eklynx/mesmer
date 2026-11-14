@@ -4,7 +4,7 @@
 
 .DESCRIPTION
     Finds X-Plane 12, checks that X-Plane and CLS2Sim are closed, downloads the
-    latest pre-release from GitHub (or uses -Zip), verifies it against the
+    highest-versioned release from GitHub (or uses -Zip), verifies it against the
     release's SHA256SUMS, and installs it as
     X-Plane 12\Resources\plugins\BrunnerDirect. An existing install is moved to
     X-Plane 12\Mesmer-backups first; your BrunnerDirect.ini and
@@ -25,7 +25,7 @@
     The SHA256SUMS file that lists -Zip.
 
 .PARAMETER Tag
-    Install this release tag (for example v0.1.0-alpha.1) instead of the newest.
+    Install this release tag (for example v0.1.0) instead of the newest.
 
 .PARAMETER MoveConnector
     Yes or No: move CLS2Sim's XPlane10Connector out of the plugins folder
@@ -85,6 +85,22 @@ function Assert-Closed {
 }
 
 # ---- 3. Get the release ----
+# The highest version among published releases, pre-releases included: GitHub's
+# "latest" skips pre-releases, and its list isn't in version order (on 2026-11-13
+# it put v0.1.0-alpha.3 above v0.1.0).
+function Select-NewestRelease($Releases) {
+    $ranked = foreach ($r in @($Releases)) {
+        if ($r.draft -or $r.tag_name -notmatch '^v(\d+)\.(\d+)\.(\d+)(?:-(alpha|beta|rc)\.(\d+))?$') { continue }
+        [pscustomobject]@{
+            Major = [int]$Matches[1]; Minor = [int]$Matches[2]; Patch = [int]$Matches[3]
+            Plain = [int](-not $Matches[4]); Label = [string]$Matches[4]; Number = [int]$Matches[5]
+            Release = $r
+        }
+    }
+    $newest = @($ranked | Sort-Object Major, Minor, Patch, Plain, Label, Number | Select-Object -Last 1)
+    if ($newest.Count) { $newest[0].Release }
+}
+
 function Get-Release([string]$Work) {
     if ($Zip) {
         if (-not $Sums) { Stop-Install '-Zip needs -Sums, the SHA256SUMS file that lists it.' }
@@ -95,9 +111,8 @@ function Get-Release([string]$Work) {
     if ($Tag) {
         $release = Invoke-RestMethod -Headers $headers -Uri "https://api.github.com/repos/$Repository/releases/tags/$Tag"
     } else {
-        # The newest release, pre-releases included (GitHub's "latest" skips them).
-        $release = @(Invoke-RestMethod -Headers $headers -Uri "https://api.github.com/repos/$Repository/releases?per_page=10" |
-            Where-Object { -not $_.draft }) | Select-Object -First 1
+        $releases = Invoke-RestMethod -Headers $headers -Uri "https://api.github.com/repos/$Repository/releases?per_page=100"
+        $release = Select-NewestRelease $releases
     }
     if (-not $release) { Stop-Install "no release found in $Repository." }
     $zipAsset = @($release.assets | Where-Object { $_.name -like '*.zip' })

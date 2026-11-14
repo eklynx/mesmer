@@ -2,7 +2,7 @@
 
 **The control surfaces, simulated. The yoke, solved.**
 
-![Status: alpha](https://img.shields.io/badge/status-alpha_preview-orange)
+![Status: preview](https://img.shields.io/badge/status-preview-orange)
 ![Licence: Apache-2.0](https://img.shields.io/badge/licence-Apache--2.0-blue)
 ![Platform: Windows](https://img.shields.io/badge/platform-Windows_x64-lightgrey)
 ![Simulator: X-Plane 12](https://img.shields.io/badge/simulator-X--Plane_12-informational)
@@ -17,7 +17,7 @@ resting position that put those loads in your hands, and sets the yoke's
 motors to them. One plugin, nothing else to install: no CLS2Sim, no
 bindings, no program running beside X-Plane.
 
-> **Alpha preview.** It works well on the one yoke it has been developed
+> **Preview.** It works well on the one yoke it has been developed
 > on. It has not been tried on yours yet. Read [What works today](#what-works-today)
 > and [SAFETY.md](SAFETY.md) before you install it.
 
@@ -97,7 +97,7 @@ This is a preview, so here is exactly where it stands.
 Before you start, close X-Plane and CLS2Sim. The plugin needs the yoke's USB
 bridge to itself.
 
-1. **By hand.** Download the latest pre-release zip from
+1. **By hand.** Download the zip of the highest version from
    [Releases](https://github.com/antialias/mesmer/releases), check its
    SHA-256 against `SHA256SUMS`, and unzip it so that you have
    `X-Plane 12/Resources/plugins/BrunnerDirect/`. Then move CLS2Sim's own
@@ -154,7 +154,7 @@ The yoke has motors that can push hard: the drive's own protection limit is
 roughly 20 lb at the grip. Keep your hands off when it centres. To stop force
 at once, use *Stop yoke motors* in the menu, bind the command
 `brunner_direct/stop_motors` to a button, or press *Stop yoke motors* on the
-feel page. Pitch and roll keep working with the motors off. This is alpha
+feel page. Pitch and roll keep working with the motors off. This is preview
 software with no warranty. Read [SAFETY.md](SAFETY.md).
 
 ## Help wanted

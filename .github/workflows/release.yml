@@ -53,7 +53,7 @@ jobs:
         env:
           TAG: ${{ github.ref_name }}
         run: |
-          if ($env:TAG -notmatch '^v(\d+\.\d+\.\d+(-(alpha|beta|rc)\.\d+)?)$') {throw "Tag $env:TAG is not v<version>"}
+          if ($env:TAG -notmatch '^v(\d+\.\d+\.\d+)$') {throw "Tag $env:TAG is not v<major.minor.patch>"}
           $version=$Matches[1]
           $updater=Get-Content -LiteralPath config/skunkcrafts_updater.cfg
           if ($updater -notcontains "version|$version") {throw "config/skunkcrafts_updater.cfg is not for $version"}

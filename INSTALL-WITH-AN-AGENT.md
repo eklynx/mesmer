@@ -36,9 +36,12 @@ Rules:
    because the plugin needs the yoke's USB bridge to itself. If CLS2Sim
    starts with Windows, tell me how to turn that off.
 
-3. Download the latest release, pre-releases included, from
-   https://api.github.com/repos/antialias/mesmer/releases (the first
-   one that is not a draft). It has exactly one .zip asset and a SHA256SUMS
+3. Download the newest release, pre-releases included, from
+   https://api.github.com/repos/antialias/mesmer/releases?per_page=100.
+   GitHub doesn't list them in version order, so skip drafts and take the
+   highest tag: compare vMAJOR.MINOR.PATCH as numbers, and a tag with
+   -alpha.N, -beta.N or -rc.N after it is older than the same number
+   without. It has exactly one .zip asset and a SHA256SUMS
    asset. Download both into a new, empty temporary folder. Tell me the
    release's tag.
 
