@@ -15,9 +15,9 @@ bool refused(const std::string& text) {
     try {parse_yoke_presets(text,builtin_yoke_presets());} catch (const PresetError&) {return true;} catch (...) {}
     return false;
 }
-const YokePreset& named(const std::vector<YokePreset>& v,const std::string& name) {
+const YokePreset& named(const std::vector<YokePreset>& v,const char* name) {
     for (const auto& p:v) if (p.name==name) return p;
-    throw std::runtime_error("no preset "+name);
+    throw std::runtime_error(std::string("no preset ")+name);
 }
 
 void the_built_ins() {
