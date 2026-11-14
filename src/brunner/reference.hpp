@@ -186,12 +186,12 @@ struct CenterEvidence {
     bool seen=false;
     bool observe(std::int32_t encoder,Clock::time_point now,std::int32_t tolerance=2) {
         const auto position=static_cast<std::int64_t>(encoder);
-        const bool near=position>=-200 && position<=200;
+        const bool centred=position>=-200 && position<=200;
         const bool started=stable_since!=Clock::time_point{};
-        if (near && started) {
+        if (centred && started) {
             const auto wander=position-anchor;
             if (wander<-tolerance || wander>tolerance) {stable_since=now;anchor=encoder;} // moved: the hold starts again here
-        } else if (near && seen) {
+        } else if (centred && seen) {
             const auto delta=position-previous;
             if (delta>=-tolerance && delta<=tolerance) {stable_since=now;anchor=encoder;}
         } else stable_since={};

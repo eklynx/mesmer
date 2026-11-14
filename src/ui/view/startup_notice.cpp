@@ -1,4 +1,5 @@
 // X-Plane implementation of StartupNotice. Contract: ui/view/startup_notice.hpp.
+#define NOMINMAX // the XPLM headers include <windows.h> on Windows; this file calls std::numeric_limits<>::max
 #include "ui/view/startup_notice.hpp"
 #include "XPLMDisplay.h"
 #include "XPLMGraphics.h"

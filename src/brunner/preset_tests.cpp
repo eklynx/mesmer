@@ -129,11 +129,11 @@ void a_new_model() {
         {"roll_ceiling_units","3000"},{"pitch_ceiling_units","3500"},{"target_torque","30"}};
     const auto entry=[&](const std::string& leave_out) {
         std::string text=R"({"schema":1,"yokes":[{"name":"gap-test")";
-        for (const auto& m:members) if (m.first!=leave_out) text+=",\""+m.first+"\":"+m.second;
+        for (const auto& member:members) if (member.first!=leave_out) text+=",\""+member.first+"\":"+member.second;
         return text+"}]}";
     };
     check(!refused(entry("")));
-    for (const auto& m:members) check(refused(entry(m.first)));
+    for (const auto& member:members) check(refused(entry(member.first)));
     // Claiming a built-in's USB id is refused: the model must follow from the device.
     check(refused(R"({"schema":1,"yokes":[{"name":"clash","usb":[{"vendor":9659,"product":139}],
         "roll_travel_counts":9000,"pitch_travel_counts":7000,"roll_ceiling_units":3000,"pitch_ceiling_units":3500,"target_torque":30}]})"));

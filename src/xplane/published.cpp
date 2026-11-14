@@ -1,4 +1,5 @@
 // X-Plane implementation of PublishedDatarefs. Contract: xplane/published.hpp.
+#define NOMINMAX // the XPLM headers include <windows.h> on Windows; this file calls std::min
 #include "xplane/published.hpp"
 #include "XPLMDataAccess.h"
 #include <algorithm>

@@ -19,6 +19,10 @@
 using namespace brunner;
 // The tests give the reader their own devices; the real one is never opened here.
 std::unique_ptr<HidDevice> brunner::open_bridge(const std::vector<UsbId>&,const std::vector<std::uint16_t>&) {throw BridgeAbsent{};}
+#ifdef _WIN32
+// Off Windows, hid/hid_select.cpp supplies this; on Windows it lives in hid/win/hid_win.cpp, which this test does not link.
+bool brunner::bridge_disabled_in_windows() {return false;}
+#endif
 namespace {
 void check_at(bool okay,int line) {if (!okay) throw std::runtime_error("check failed line "+std::to_string(line));}
 #define check(x) check_at((x),__LINE__)
@@ -415,7 +419,7 @@ void homing_is_neither_learned_nor_forwarded() {
     check(read_only_flight_input(with_status(0,0,0x1c27,0x1427),travel,forward,now).input.ready);
     // Fault and homing-error bits.
     Travel other;
-    for (const std::uint16_t bad:{0x142f,0x1527}) {
+    for (const std::uint16_t bad:std::initializer_list<std::uint16_t>{0x142f,0x1527}) {
         auto r=read_only_flight_input(with_status(100,100,bad,0x1427),other,forward,now);
         check(!r.input.ready && !r.widened && !other[0].seen && r.input.reason=="Controller fault");
     }

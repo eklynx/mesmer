@@ -567,11 +567,11 @@ int main() {
             const auto cls_e_cal=input_calibration();
             check(cls_e_cal[0].lower==-13000 && cls_e_cal[0].upper==13000 && cls_e_cal[0].reverse && cls_e_cal[1].lower==-12000 && cls_e_cal[1].upper==12000 && !cls_e_cal[1].reverse);
             ScopedDrive ng(make_drive(builtin_cls_e_ng(),2150,2250));
-            const auto cal=input_calibration();
-            check(cal[1].lower==-5446 && cal[1].upper==5461 && cal[1].reverse && cal[0].lower==-7641 && cal[0].upper==7649);
-            check(normalize(5461,cal[1])==-1.0f && normalize(-5446,cal[1])==1.0f && normalize(0,cal[1])==0.0f);   // reversed: the stops are exactly +-1
-            check(normalize(5300,cal[1])>-1.0f && normalize(5300,cal[1])<-0.97f);                             // the old +-5300 span would have said -1
-            check(normalize(7649,cal[0])==-1.0f && normalize(-7641,cal[0])==1.0f && normalize(9000,cal[0])==-1.0f);   // beyond a stop is clamped
+            const auto ng_cal=input_calibration();
+            check(ng_cal[1].lower==-5446 && ng_cal[1].upper==5461 && ng_cal[1].reverse && ng_cal[0].lower==-7641 && ng_cal[0].upper==7649);
+            check(normalize(5461,ng_cal[1])==-1.0f && normalize(-5446,ng_cal[1])==1.0f && normalize(0,ng_cal[1])==0.0f);   // reversed: the stops are exactly +-1
+            check(normalize(5300,ng_cal[1])>-1.0f && normalize(5300,ng_cal[1])<-0.97f);                             // the old +-5300 span would have said -1
+            check(normalize(7649,ng_cal[0])==-1.0f && normalize(-7641,ng_cal[0])==1.0f && normalize(9000,ng_cal[0])==-1.0f);   // beyond a stop is clamped
         }
         // Roll's centre moves under its deadband without a write, or even a
         // read, so pitch keeps its update rate; when roll is written, every
@@ -580,13 +580,13 @@ int main() {
             using Op=std::pair<unsigned,std::uint16_t>;
             LoadingTransport d;prepare_loading(d,not_stopped);d.enabled=true;d.writes.clear();d.order.clear();
             Tuning at;const auto reads=d.reads;
-            Tuning moved=at;moved.roll_trim=roll_centre_deadband-1;
-            check(!update_live_tuning(d,at,moved,not_stopped));
-            moved.roll_trim=-(roll_centre_deadband-1);
-            check(!update_live_tuning(d,at,moved,not_stopped));
+            Tuning moved_trim=at;moved_trim.roll_trim=roll_centre_deadband-1;
+            check(!update_live_tuning(d,at,moved_trim,not_stopped));
+            moved_trim.roll_trim=-(roll_centre_deadband-1);
+            check(!update_live_tuning(d,at,moved_trim,not_stopped));
             check(d.writes.empty() && d.reads==reads && at.roll_trim==0);
-            moved.pitch_trim=7; // something else to write: the held centre still is not
-            check(update_live_tuning(d,at,moved,not_stopped) && d.writes.size()==1 && (d.order.back()==Op{2,trim_position.index})
+            moved_trim.pitch_trim=7; // something else to write: the held centre still is not
+            check(update_live_tuning(d,at,moved_trim,not_stopped) && d.writes.size()==1 && (d.order.back()==Op{2,trim_position.index})
                 && at.roll_trim==0 && at.pitch_trim==7);
             d.writes.clear();d.order.clear();
             const Tuning all{41,41,9,-40,roll_centre_deadband};

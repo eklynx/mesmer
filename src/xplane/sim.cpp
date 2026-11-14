@@ -1,4 +1,5 @@
 // X-Plane implementation of Sim. Contract: xplane/sim.hpp.
+#define NOMINMAX // the XPLM headers include <windows.h> on Windows; this file calls std::min and std::max
 #include "xplane/sim.hpp"
 #include "XPLMDataAccess.h"
 #include "XPLMPlanes.h"

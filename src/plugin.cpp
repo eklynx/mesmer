@@ -723,7 +723,13 @@ void write_survey(const brunner::Snapshot& s) {
     surveys_written=s.surveys;
     char stamp[32]{};
     const std::time_t t=std::time(nullptr);
-    std::strftime(stamp,sizeof(stamp),"%Y%m%d-%H%M%S",std::localtime(&t));
+    std::tm local{};
+#ifdef _WIN32
+    localtime_s(&local,&t);
+#else
+    localtime_r(&t,&local);
+#endif
+    std::strftime(stamp,sizeof(stamp),"%Y%m%d-%H%M%S",&local);
     const auto path=output_folder/(std::string("survey-")+stamp+".json");
     std::ofstream out(path,std::ios::binary|std::ios::trunc);
     out<<s.survey<<'\n';
