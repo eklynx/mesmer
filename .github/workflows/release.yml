@@ -168,7 +168,7 @@ jobs:
           SIGNING_REPO: ${{ needs.plan.outputs.signing_repo }}
         run: |
           src/scripts/fetch_signed_plugin.sh --signing-repo "$SIGNING_REPO" --repo "$GITHUB_REPOSITORY" \
-            --sha "$GITHUB_SHA" --out dist/signed
+            --ref "$GITHUB_REF_NAME" --sha "$GITHUB_SHA" --out dist/signed
 
       - name: Keep the signed plugin
         uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2

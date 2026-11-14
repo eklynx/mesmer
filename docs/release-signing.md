@@ -43,32 +43,35 @@ Any repository that follows this can be named in `MACOS_SIGNING_REPO` (the refer
 [mesmer-buildtools](https://github.com/eklynx/mesmer-buildtools), whose `docs/signing.md` is the other half):
 
 - It has a workflow `sign-mesmer.yml`, started with the inputs `repo` (the repository being released) and
-  `ref` (the release commit's full SHA).
+  `ref` (the **name** of the tag or branch being released; a bare commit SHA must be refused, because a SHA
+  can be resolved from another fork of the repository's network). The caller, which knows the commit it
+  expects, checks the result's `provenance.json` against it.
 - The run's title is `sign <repo>@<ref>`, which is how the script finds its own run.
 - On success the run uploads the artifact `signed-plugin` holding `BrunnerDirect.xpl`,
-  `BrunnerDirect.xpl.sha256` and `provenance.json` with `source.repository`, `source.commit`,
+  `BrunnerDirect.xpl.sha256` and `provenance.json` with `source.repository`, `source.ref`, `source.commit`,
   `notarized`, `signer.authority` and `run`.
 - The file carries a build provenance attestation from the signing repository.
 
 ## The script
 
 ```
-src/scripts/fetch_signed_plugin.sh --signing-repo OWNER/NAME --repo OWNER/NAME --sha SHA --out DIR [--timeout-minutes N]
+src/scripts/fetch_signed_plugin.sh --signing-repo OWNER/NAME --repo OWNER/NAME --ref NAME --sha SHA --out DIR [--timeout-minutes N]
 ```
 
-`GH_TOKEN` is the token. On success `--out` holds the verified `BrunnerDirect.xpl` and `provenance.json`.
+`--ref` is the tag being released (the release passes `$GITHUB_REF_NAME`) and `--sha` the commit it must be at
+(`$GITHUB_SHA`). `GH_TOKEN` is the token. On success `--out` holds the verified `BrunnerDirect.xpl` and `provenance.json`.
 Every failure prints `fetch_signed_plugin.sh: <reason>`, exits non-zero and leaves `--out` empty:
 
 | Cause | Reason says |
 |---|---|
-| Unknown option, missing option, a SHA that is not 40 hex characters | `unknown option`, `--x is required`, `full 40-character` |
+| Unknown option, missing option, a SHA that is not 40 hex characters, a ref that is a SHA or not a plain name | `unknown option`, `--x is required`, `full 40-character`, `not a commit SHA` |
 | `GH_TOKEN` empty | names `MACOS_SIGNING_TOKEN` |
 | The signing workflow cannot be started (bad or unauthorised token) | `could not start sign-mesmer.yml` |
-| No run with the title appears within 3 minutes | `no run titled 'sign REPO@SHA' appeared` |
+| No run with the title appears within 3 minutes | `no run titled 'sign REPO@REF' appeared` |
 | The run does not finish within `--timeout-minutes` (default 60) | `did not finish within N minutes`, with the run URL |
 | The run ends in anything but success | `ended 'X', not success`, with the run URL |
 | The artifact is missing or lacks a file | `could not download the artifact`, `has no FILE` |
-| `provenance.json` names another repository or commit, or `notarized` is not true | `is for repository 'X'`, `is for commit 'X'`, `does not say ... notarized` |
+| `provenance.json` names another repository, ref or commit, or `notarized` is not true | `is for repository 'X'`, `is for ref 'X'`, `is for commit 'X'`, `does not say ... notarized` |
 | The file's SHA-256 differs from its `.sha256` | `SHA-256 is X, its .sha256 file says Y` |
 | The attestation is missing or from another repository | `is not attested by OWNER/NAME` |
 

@@ -3,11 +3,12 @@
 # docs/release-signing.md (the source of truth for the contract with the signing repository and for
 # every failure here). Tests: tests/test-fetch-signed-plugin.sh.
 #
-#   src/scripts/fetch_signed_plugin.sh --signing-repo OWNER/NAME --repo OWNER/NAME --sha SHA --out DIR \
-#       [--timeout-minutes N] [--help]
+#   src/scripts/fetch_signed_plugin.sh --signing-repo OWNER/NAME --repo OWNER/NAME --ref NAME --sha SHA \
+#       --out DIR [--timeout-minutes N] [--help]
 #
-# Starts the signing workflow, waits for its run, downloads the artifact `signed-plugin` and checks it
-# really is the signed plugin for this repository and commit. GH_TOKEN must be a token that may start
+# Starts the signing workflow for the tag or branch NAME (never a bare SHA: the signing repository
+# refuses those), waits for its run, downloads the artifact `signed-plugin` and checks it really is the
+# signed plugin for this repository, that ref and the commit SHA the caller expects. GH_TOKEN must be a token that may start
 # workflows and read artifacts in the signing repository (the release workflow passes the secret
 # MACOS_SIGNING_TOKEN). On success --out holds BrunnerDirect.xpl and provenance.json; on any failure it
 # is left empty. Written for bash 3.2 and Linux; needs gh and jq.
@@ -19,7 +20,7 @@ ARTIFACT="signed-plugin"
 POLL_SECONDS="${FETCH_POLL_SECONDS:-20}"
 FIND_SECONDS="${FETCH_FIND_SECONDS:-180}"
 
-signing_repo="" repo="" sha="" out=""
+signing_repo="" repo="" ref="" sha="" out=""
 timeout_minutes=60
 
 usage() {
@@ -28,7 +29,8 @@ usage() {
 
   --signing-repo OWNER/NAME   the repository whose $WORKFLOW signs
   --repo OWNER/NAME           the repository being released
-  --sha SHA                   the release commit (the full 40-character SHA)
+  --ref NAME                  the tag or branch being released (e.g. v1.2.3)
+  --sha SHA                   the commit that ref must be at (the full 40-character SHA)
   --out DIR                   where the verified files are put
   --timeout-minutes N         how long to wait for the signing run (default $timeout_minutes)
 EOF
@@ -38,19 +40,21 @@ die() { echo "fetch_signed_plugin.sh: $*" >&2; exit 1; }
 
 while [ $# -gt 0 ]; do
     case "$1" in
-        --signing-repo|--repo|--sha|--out|--timeout-minutes)
+        --signing-repo|--repo|--ref|--sha|--out|--timeout-minutes)
             [ $# -ge 2 ] || die "$1 needs a value"
-            case "$1" in --signing-repo) signing_repo="$2" ;; --repo) repo="$2" ;; --sha) sha="$2" ;; --out) out="$2" ;; --timeout-minutes) timeout_minutes="$2" ;; esac
+            case "$1" in --signing-repo) signing_repo="$2" ;; --repo) repo="$2" ;; --ref) ref="$2" ;; --sha) sha="$2" ;; --out) out="$2" ;; --timeout-minutes) timeout_minutes="$2" ;; esac
             shift 2 ;;
         --help|-h) usage; exit 0 ;;
         *) usage >&2; die "unknown option: $1" ;;
     esac
 done
 
-for need in signing_repo repo sha out; do
+for need in signing_repo repo ref sha out; do
     [ -n "${!need}" ] || die "--$(echo "$need" | tr '_' '-') is required"
 done
 echo "$sha" | grep -E -q '^[0-9a-f]{40}$' || die "--sha must be a full 40-character commit SHA"
+echo "$ref" | grep -E -q '^[A-Za-z0-9][A-Za-z0-9._/-]*$' || die "--ref '$ref' is not a plain branch or tag name"
+echo "$ref" | grep -E -q '^[0-9a-f]{40}$' && die "--ref must be a tag or branch name, not a commit SHA"
 echo "$timeout_minutes" | grep -E -q '^[0-9]+$' || die "--timeout-minutes must be a whole number"
 [ -n "${GH_TOKEN:-}" ] || die "GH_TOKEN is empty: the release needs the secret MACOS_SIGNING_TOKEN (a token with Actions read and write on $signing_repo) when MACOS_SIGNING_REPO is set"
 for tool in gh jq shasum; do command -v "$tool" >/dev/null 2>&1 || { [ "$tool" = shasum ] && command -v sha256sum >/dev/null 2>&1; } || die "$tool not found"; done
@@ -62,13 +66,13 @@ work="$(mktemp -d "${TMPDIR:-/tmp}/fetch-signed.XXXXXX")" || die "cannot make a 
 trap 'rm -rf "$work"' EXIT
 fail() { rm -rf "$out"; mkdir -p "$out"; die "$*"; }
 
-title="sign $repo@$sha"
+title="sign $repo@$ref"
 start_epoch="$(date +%s)"
 since="$(iso $((start_epoch - 30)))"   # a little slack for clock skew; the title already names the commit
 
-gh workflow run "$WORKFLOW" -R "$signing_repo" -f "repo=$repo" -f "ref=$sha" >/dev/null 2>"$work/err" \
+gh workflow run "$WORKFLOW" -R "$signing_repo" -f "repo=$repo" -f "ref=$ref" >/dev/null 2>"$work/err" \
     || fail "could not start $WORKFLOW in $signing_repo: $(head -c 300 "$work/err") (is the token valid and allowed to run workflows there?)"
-echo "started $WORKFLOW in $signing_repo for $repo@$sha"
+echo "started $WORKFLOW in $signing_repo for $repo@$ref ($sha)"
 
 # Find our run by its title.
 run_id=""
@@ -102,9 +106,11 @@ for f in BrunnerDirect.xpl BrunnerDirect.xpl.sha256 provenance.json; do
     [ -s "$work/dl/$f" ] || fail "the artifact has no $f ($run_url)"
 done
 got_repo="$(jq -r '.source.repository // empty' "$work/dl/provenance.json")"
+got_ref="$(jq -r '.source.ref // empty' "$work/dl/provenance.json")"
 got_sha="$(jq -r '.source.commit // empty' "$work/dl/provenance.json")"
 notarized="$(jq -r '.notarized // empty' "$work/dl/provenance.json")"
 [ "$got_repo" = "$repo" ] || fail "the signed plugin is for repository '$got_repo', not $repo ($run_url)"
+[ "$got_ref" = "$ref" ] || fail "the signed plugin is for ref '$got_ref', not $ref ($run_url)"
 [ "$got_sha" = "$sha" ] || fail "the signed plugin is for commit '$got_sha', not $sha ($run_url)"
 [ "$notarized" = true ] || fail "provenance.json does not say the plugin was notarized ($run_url)"
 want="$(awk '{print $1; exit}' "$work/dl/BrunnerDirect.xpl.sha256")"
@@ -114,4 +120,4 @@ gh attestation verify "$work/dl/BrunnerDirect.xpl" --repo "$signing_repo" >/dev/
     || fail "the plugin is not attested by $signing_repo: $(head -c 300 "$work/err")"
 
 cp "$work/dl/BrunnerDirect.xpl" "$work/dl/provenance.json" "$out/" || fail "cannot copy the verified files to $out"
-echo "signed plugin for $repo@$sha verified: $have  (signing run: $run_url)"
+echo "signed plugin for $repo@$ref ($sha) verified: $have  (signing run: $run_url)"
