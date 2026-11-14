@@ -140,6 +140,7 @@ std::array<XPLMCommandRef,3> trim_commands{};
 std::array<std::int32_t,3> trim_steps{{600,-600,0}};
 std::string last_inspection;
 std::string last_loading;
+std::string last_input_logged;
 // Stored controller soft travel, with directions confirmed by the supervised
 // November 6 push/pull/right/left recording. End-to-end simulator check follows.
 // The CLS-E-flow input calibration: the active drive's own stops, in its directions (roll right positive,
@@ -756,6 +757,9 @@ float update(float,float,int,void*) {
     if (s.read_only) {sim.leave_axes();last_input_status=input.reason;}
     else last_input_status=sim.apply_input(input);
     const bool axes_ready=brunner::axes_reaching_xplane(s.read_only,sim.owns_axes(),input.ready);
+    // Name why pitch and roll are not reaching X-Plane, once per change (the HUD line shows it too).
+    const std::string input_gap=axes_ready?std::string():last_input_status;
+    if (input_gap!=last_input_logged) {last_input_logged=input_gap;if (!input_gap.empty()) log("Yoke input not reaching X-Plane: "+input_gap);}
     const bool is_paused=sim.paused();
     const bool input_running=sim.pause_known() && !is_paused && sim.controls_available(s.read_only);
     // The model's inputs: trim, the tail's pressure (X-Plane's over the
@@ -812,7 +816,7 @@ float update(float,float,int,void*) {
     const bool lab_active=diagnostic_trim.active(enabled && !s.connected,now);
     brunner::YokeInputs inputs;
     inputs.snapshot=s;inputs.enabled=enabled;inputs.reader_running=reader.running();inputs.sim_steady=settled;
-    inputs.paused=is_paused;inputs.input_ready=axes_ready;inputs.force_feel=force_feel && !blocked;inputs.lab_lease=lab_active;inputs.now=now;
+    inputs.paused=is_paused;inputs.input_ready=axes_ready;inputs.input_reason=input_gap;inputs.force_feel=force_feel && !blocked;inputs.lab_lease=lab_active;inputs.now=now;
     if (s.connected) usb_turning_on_until={};
     inputs.usb_turning_on=now<usb_turning_on_until;
     decision=yoke.step(inputs);
@@ -845,6 +849,18 @@ float update(float,float,int,void*) {
     force_hud.observe_pitch(pitch_card(s,input,solution));
     log_feel_events();
     force_monitor.set_status(s.yoke_note.empty()?decision.status:decision.status+"  |  "+s.yoke_note);force_hud.set_status(decision.status,corner_reason);
+    // A connected reader whose sampling-pass count stops advancing (a HID read or write that never
+    // returns, a wedged yoke) looks healthy but feeds nothing; say so once, and once when it recovers.
+    static std::uint64_t seen_cycles=0;
+    static auto cycles_moved=brunner::Clock::time_point{};
+    static bool stall_logged=false;
+    if (!s.connected || s.cycles!=seen_cycles || cycles_moved==brunner::Clock::time_point{}) {
+        if (stall_logged && s.connected) log("Yoke reader sampling again (cycle="+std::to_string(s.cycles)+")");
+        stall_logged=false;seen_cycles=s.cycles;cycles_moved=now;
+    } else if (!stall_logged && now-cycles_moved>=std::chrono::seconds(2)) {
+        stall_logged=true;
+        log("Yoke reader stalled: connected but no sampling pass for 2 s (cycle="+std::to_string(s.cycles)+"); the yoke is not answering - if it repeats, switch the yoke off and on");
+    }
     // Log live evidence at one-second intervals without a companion recorder.
     static auto last_log=brunner::Clock::time_point{};
     if (s.connected && now-last_log>=std::chrono::seconds(1)) {

@@ -92,7 +92,7 @@ inline double c172_section_mean(const float* value,const float* area,int length,
     double weight=0,sum=0;
     for (const int wing:{first_wing,second_wing}) for (int i=wing*10;i<wing*10+9;++i) {
         if (!std::isfinite(value[i]) || !std::isfinite(area[i]) || area[i]<=0) return std::numeric_limits<double>::quiet_NaN();
-        weight+=area[i];sum+=area[i]*value[i];
+        weight+=area[i];sum+=static_cast<double>(area[i])*value[i];
     }
     return weight>0?sum/weight:std::numeric_limits<double>::quiet_NaN();
 }

@@ -526,6 +526,12 @@ void input_not_reaching_xplane() {
     sim.set_input_ready();
     d=sim.frame();
     require(d.status=="Ready - force feel off" && !d.show_notice,"Input back: line hidden");
+    require(input_lost_line("")==input_lost_text && input_lost_line("Pitch or roll is owned by another plugin")==input_lost_text,"The add-on hint only for an override or an unknown reason");
+    require(input_lost_line("Axis calibration not verified")=="Yoke not reaching X-Plane - Axis calibration not verified","Any other reason is named");
+    Sim named;
+    named.connect(0x0431);named.in.input_ready=false;named.in.input_reason="Axis calibration not verified";
+    for (int i=0;i<45;++i) d=named.frame();
+    require(d.status=="Yoke not reaching X-Plane - Axis calibration not verified" && d.show_notice,"A lasting gap shows its reason");
     std::cout<<"input not reaching X-Plane: ok\n";
 }
 }

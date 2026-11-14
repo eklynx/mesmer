@@ -41,6 +41,7 @@ struct YokeInputs {
     bool sim_steady=false; // physics advancing, unpaused, controls writable
     bool paused=false;
     bool input_ready=false; // pitch/roll currently reaching X-Plane
+    std::string input_reason; // why not, when input_ready is false (Sim::apply_input / stopped_flight_input); empty if unknown
     bool force_feel=false;
     bool lab_lease=false; // headless developer lease: no automatic hardware action
     bool usb_turning_on=false; // the pilot just asked Windows to turn the bridge back on
@@ -68,6 +69,12 @@ inline bool axes_reaching_xplane(bool read_only,bool plugin_owns_axes,bool input
     return read_only?true:plugin_owns_axes && input_ready;
 }
 inline constexpr char input_lost_text[]="Yoke not reaching X-Plane - another add-on may control pitch and roll";
+// The on-screen line for input_lost: the add-on hint only when another plugin really holds the
+// overrides (or the reason is unknown); otherwise the reason itself, which is what the pilot can act on.
+inline std::string input_lost_line(const std::string& reason) {
+    if (reason.empty() || reason.find("owned by another plugin")!=std::string::npos) return input_lost_text;
+    return "Yoke not reaching X-Plane - "+reason;
+}
 class YokeSupervisor {
 public:
     enum class Hold {none,stopped,fault};
@@ -203,7 +210,7 @@ public:
         const bool input_lost=input_missing && in.now-input_missing_since_>=input_grace;
         if (s.loading_active && s.flight_session) {
             if (!in.force_feel && request(in.now)) d.action=YokeAction::stop_forces;
-            if (input_lost) return finish(d,input_lost_text,true);
+            if (input_lost) return finish(d,input_lost_line(in.input_reason),true);
             return finish(d,in.force_feel?"Ready - force feel on":"Ready - force feel switching off",false);
         }
         std::string ready="Ready - force feel off";
@@ -212,7 +219,7 @@ public:
         // or a fresh connection, which clears the refusal.
         const bool refused=in.force_feel && !s.force_unavailable.empty() && !force_retry_;
         if (refused) {
-            if (input_lost) return finish(d,input_lost_text,true);
+            if (input_lost) return finish(d,input_lost_line(in.input_reason),true);
             return finish(d,s.force_unavailable,true,true);
         }
         if (in.force_feel) {
@@ -223,7 +230,7 @@ public:
                 ready="Ready - force feel starting";
             }
         }
-        if (input_lost) return finish(d,input_lost_text,true);
+        if (input_lost) return finish(d,input_lost_line(in.input_reason),true);
         return finish(d,std::move(ready),!in.input_ready);
     }
 private:

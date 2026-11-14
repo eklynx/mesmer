@@ -24,6 +24,8 @@ The first release numbered major.minor.patch. The plugin flies as 0.1.0-alpha.3 
 
 ## Unreleased
 
+- **A stalled yoke reader is logged.** If the yoke stays connected but stops answering (its sampling count stops advancing for 2 seconds), Log.txt says so, and says when it recovers; a power cycle of the yoke clears it.
+- **"Yoke not reaching X-Plane" now says why.** The line names the actual reason (for example an unverified axis calibration, a lost reference or stale yoke data) and the reason is written to Log.txt; the "another add-on" hint stays for the case where another plugin really holds pitch and roll.
 - **Releases can ship a signed and notarized macOS plugin.** Set the repository variable
   `MACOS_SIGNING_REPO` (and the secret `MACOS_SIGNING_TOKEN`) and the release workflow has a separate
   signing repository build, vet, sign and notarize the macOS plugin for the tagged commit, checks the
