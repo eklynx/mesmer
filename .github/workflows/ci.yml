@@ -41,7 +41,7 @@ jobs:
       - name: Build
         run: |
           cmake -S src -B build -DCMAKE_BUILD_TYPE=Release
-          cmake --build build --parallel --target brunner_core_test brunner_monitor_test brunner_hud_test brunner_yoke_test brunner_workbench_test
+          cmake --build build --parallel --target brunner_core_test brunner_monitor_test brunner_hud_test brunner_yoke_test brunner_drive_test brunner_preset_test brunner_readonly_test brunner_bridge_test brunner_workbench_test
       - name: Test
         run: ctest --test-dir build --output-on-failure
       - name: Test the release packaging script
