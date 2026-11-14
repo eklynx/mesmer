@@ -45,6 +45,10 @@ public:
     void stop();
     // The yoke models (presets), and so the USB ids to open; before the reader starts.
     void set_presets(std::vector<YokePreset> presets) {presets_=std::move(presets);usb_ids_=preset_usb_ids(presets_);}
+    // Replaces the models' settings while the reader runs (the feel page's direction edits): the next
+    // session start reads them, so a reconnect keeps the change. The USB ids are not touched, so `presets`
+    // must name the same ids. Safe from any thread.
+    void update_presets(std::vector<YokePreset> presets) {std::lock_guard<std::mutex> lock(presets_mutex_);presets_=std::move(presets);}
     // The owner's acknowledgement (Developer menu, brunner/owner_state.hpp): drive a model whose preset is not verified.
     void set_allow_unverified(bool allow) {allow_unverified_=allow;}
     // For tests: where the bridge comes from (default: open_bridge(ids), the real device).
@@ -132,6 +136,7 @@ private:
     void run();
     void session(Snapshot& s);
     void read_only_session(ReadOnlyBridge& bridge,Snapshot& s,const std::string& why);
+    std::mutex presets_mutex_;                  // guards presets_ once the reader runs (update_presets)
     std::vector<YokePreset> presets_=builtin_yoke_presets();
     bool allow_unverified_=false;
     std::vector<UsbId> usb_ids_=default_usb_ids();

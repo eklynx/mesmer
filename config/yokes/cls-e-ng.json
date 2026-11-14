@@ -59,9 +59,11 @@
         "mode": 9733
       },
       "roll_encoder_sign": -1,
-      "pitch_encoder_sign": -1,
+      "pitch_encoder_sign": 1,
+      "roll_spring_sign": -1,
+      "pitch_spring_sign": -1,
       "roll_input_reverse": true,
-      "pitch_input_reverse": false
+      "pitch_input_reverse": true
     }
   ]
 }

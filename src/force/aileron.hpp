@@ -134,12 +134,10 @@ inline double wheel_exact_counts(const AileronFigures& f,double t) {
 inline double wheel_rad(const AileronFigures& f,double counts) {
     return std::clamp(counts,-roll_travel_counts(),roll_travel_counts())/roll_travel_counts()*(f.wheel_deg*radians_per_degree);
 }
-// The wheel's position in the roll drive's spring counts (0x2116's frame,
-// right positive) from the roll encoder (0x6064), which turning right
-// decreases (plugin.cpp's roll calibration is reversed). The same relation
-// pitch assumes between its encoder and 0x2116 (drive_counts_from_encoder);
-// no powered check has confirmed it on either axis, and if the first one shows
-// the wheel pulled to its mirror image with no air, this sign is the one to flip.
+// The wheel's position in the force models' counts (right positive) from the roll
+// encoder (0x6064), which turning right decreases (plugin.cpp's roll calibration is
+// reversed). Reading only: writes to the spring registers go through controller_counts
+// (drive.hpp), which also uses roll_spring_sign.
 inline double roll_counts_from_encoder(std::int32_t encoder) {return active_drive().roll_encoder_sign*static_cast<double>(encoder);}
 // The roll drive's spring is the straight-line curve (model_curve): 1000
 // units 13000 counts from its centre at 100 %.

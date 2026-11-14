@@ -1,5 +1,6 @@
 // Tests for yoke presets (brunner/yoke_preset.hpp, spec docs/yoke-presets.md): the built-in
 // models, the presets file and every bound it must meet. No hardware.
+#include "brunner/yoke_overrides.hpp"
 #include "brunner/yoke_preset.hpp"
 #include <fstream>
 #include <functional>
@@ -58,6 +59,7 @@ bool same_preset(const YokePreset& a,const YokePreset& b) {
         && a.status_ready_mask==b.status_ready_mask && a.status_stopped==b.status_stopped && a.status_acquired_mask==b.status_acquired_mask
         && a.spring_mode==b.spring_mode && a.idle_enabled==b.idle_enabled && a.rest==b.rest
         && a.roll_encoder_sign==b.roll_encoder_sign && a.pitch_encoder_sign==b.pitch_encoder_sign
+        && a.roll_spring_sign==b.roll_spring_sign && a.pitch_spring_sign==b.pitch_spring_sign
         && a.roll_input_reverse==b.roll_input_reverse && a.pitch_input_reverse==b.pitch_input_reverse
         && a.pitch_units_per_lb==b.pitch_units_per_lb && a.roll_units_per_nm==b.roll_units_per_nm;
 }
@@ -88,14 +90,14 @@ void loading_the_models() {
     // A shipped file cannot patch another model by name: it is parsed against an empty set.
     check(!load_yoke_models({cls_e,"{\"schema\":1,\"yokes\":[{\"name\":\"cls-e\",\"verified\":false}]}"},std::nullopt).from_files);
     // The user's overrides patch a shipped model by name; a refused overrides file changes nothing.
-    const std::string patch="{\"schema\":1,\"yokes\":[{\"name\":\"cls-e-ng\",\"pitch_input_reverse\":true}]}";
+    const std::string patch="{\"schema\":1,\"yokes\":[{\"name\":\"cls-e-ng\",\"pitch_input_reverse\":false}]}";
     const auto patched=load_yoke_models({cls_e,ng},patch);
-    check(patched.from_files && patched.overrides_applied && named(patched.presets,"cls-e-ng").pitch_input_reverse && patched.presets.size()==2);
+    check(patched.from_files && patched.overrides_applied && !named(patched.presets,"cls-e-ng").pitch_input_reverse && patched.presets.size()==2);
     const auto refused_patch=load_yoke_models({cls_e,ng},std::string("{\"schema\":1,\"yokes\":[{\"name\":\"cls-e-ng\",\"nonsense\":1}]}"));
     check(refused_patch.from_files && !refused_patch.overrides_applied && refused_patch.notes.size()==1
-        && !named(refused_patch.presets,"cls-e-ng").pitch_input_reverse);
+        && named(refused_patch.presets,"cls-e-ng").pitch_input_reverse);
     // Overrides also patch the fallback.
-    check(named(load_yoke_models({},patch).presets,"cls-e-ng").pitch_input_reverse);
+    check(!named(load_yoke_models({},patch).presets,"cls-e-ng").pitch_input_reverse);
 }
 void an_edit_of_a_built_in() {
     const auto merged=parse_yoke_presets(R"({"schema":1,"yokes":[{"name":"cls-e-ng","roll_travel_counts":7800,"verified":true,"verified_firmware":[642,643]}]})",builtin_yoke_presets());
@@ -176,6 +178,7 @@ void bounds_and_malformed_files() {
             "\"margin_fraction\":0.01","\"margin_fraction\":0.51","\"target_torque\":0","\"target_torque\":1001",
             "\"verified_firmware\":[0]","\"verified_firmware\":[65536]","\"verified_firmware\":[1,2,3,4,5,6,7,8,9,10,11,12,13,14,15,16,17]",
             "\"usb\":[]","\"usb\":[{\"vendor\":0,\"product\":5}]","\"usb\":[{\"vendor\":5,\"product\":70000}]","\"usb\":[{\"vendor\":5}]","\"usb\":\"x\"",
+            "\"roll_spring_sign\":0","\"pitch_spring_sign\":2","\"pitch_spring_sign\":true","\"pitch_encoder_sign\":0",
             "\"roll_travel_counts\":\"7000\"","\"wheel_deg\":true","\"verified\":1","\"title\":5","\"target_torque\":25.5","\"mystery\":1"})
         check(refused(edit(bad)));
     // Names.
@@ -199,6 +202,44 @@ void bounds_and_malformed_files() {
     threw=false;try {validate_presets(twice);} catch (const PresetError&) {threw=true;}
     check(threw);
 }
+// Changing one direction from the feel page (brunner/yoke_overrides.hpp).
+void changing_a_direction() {
+    const std::vector<std::string> shipped{shipped_text("cls-e.json"),shipped_text("cls-e-ng.json")};
+    using F=DirectionChange::Field;
+    const DirectionChange pitch_encoder{true,F::encoder_sign,1},roll_reverse{false,F::input_reverse,0};
+    // No file yet: the change becomes the first entry, and loads as that value on top of the shipped model.
+    const auto first=patch_direction("",shipped,"cls-e-ng",pitch_encoder);
+    check(first.ok());
+    const auto loaded=load_yoke_models(shipped,first.text);
+    check(loaded.overrides_applied && named(loaded.presets,"cls-e-ng").pitch_encoder_sign==1 && named(loaded.presets,"cls-e-ng").roll_encoder_sign==-1);
+    // An existing file: the other keys, the other entries and an earlier change to another field all stay.
+    const std::string existing=R"({"schema":1,"yokes":[{"name":"cls-e","roll_travel_counts":12500},{"name":"cls-e-ng","roll_travel_counts":7000,"pitch_input_reverse":false}]})";
+    const auto second=patch_direction(existing,shipped,"cls-e-ng",roll_reverse);
+    check(second.ok());
+    const auto kept=load_yoke_models(shipped,second.text);
+    check(named(kept.presets,"cls-e-ng").roll_travel_counts==7000 && !named(kept.presets,"cls-e-ng").roll_input_reverse
+        && !named(kept.presets,"cls-e-ng").pitch_input_reverse && named(kept.presets,"cls-e").roll_travel_counts==12500);
+    // A key already in the entry is replaced in place, not repeated.
+    const auto third=patch_direction(second.text,shipped,"cls-e-ng",DirectionChange{true,F::input_reverse,1});
+    check(third.ok() && third.text.find("pitch_input_reverse")==third.text.rfind("pitch_input_reverse"));
+    check(named(load_yoke_models(shipped,third.text).presets,"cls-e-ng").pitch_input_reverse);
+    // Refusals leave the old file to stand: a bad value, bad JSON, no yokes list, a model nobody names.
+    check(!patch_direction("",shipped,"cls-e-ng",DirectionChange{true,F::encoder_sign,2}).ok());
+    check(!patch_direction("",shipped,"cls-e-ng",DirectionChange{true,F::encoder_sign,0}).ok());
+    check(!patch_direction("",shipped,"cls-e-ng",DirectionChange{true,F::input_reverse,-1}).ok());
+    check(!patch_direction("{not json",shipped,"cls-e-ng",pitch_encoder).ok());
+    check(!patch_direction("{\"schema\":1}",shipped,"cls-e-ng",pitch_encoder).ok());
+    check(!patch_direction("",shipped,"no-such-yoke",pitch_encoder).ok());
+    // A file the loader would refuse for another reason is not rewritten around.
+    check(!patch_direction(R"({"schema":1,"yokes":[{"name":"cls-e-ng","mystery":1}]})",shipped,"cls-e-ng",pitch_encoder).ok());
+    // The spring sign is its own field: the NG reads its pitch encoder +1 against a -1 spring frame, the CLS-E -1 and -1.
+    check(builtin_cls_e_ng().pitch_encoder_sign==1 && builtin_cls_e_ng().pitch_spring_sign==-1 && builtin_cls_e_ng().roll_spring_sign==-1);
+    check(builtin_cls_e().pitch_encoder_sign==-1 && builtin_cls_e().pitch_spring_sign==-1 && builtin_cls_e().roll_spring_sign==-1);
+    const auto spring=patch_direction("",shipped,"cls-e-ng",DirectionChange{true,F::spring_sign,1});
+    check(spring.ok() && named(load_yoke_models(shipped,spring.text).presets,"cls-e-ng").pitch_spring_sign==1 && direction_key(DirectionChange{false,F::spring_sign,1})=="roll_spring_sign");
+    check(!patch_direction("",shipped,"cls-e-ng",DirectionChange{true,F::spring_sign,0}).ok());
+    check(direction_key(pitch_encoder)=="pitch_encoder_sign" && direction_key(roll_reverse)=="roll_input_reverse");
+}
 }
 int main() {
     try {
@@ -209,6 +250,7 @@ int main() {
         a_new_model();
         resting_settings();
         bounds_and_malformed_files();
+        changing_a_direction();
         std::cout<<"preset tests passed\n";
         return 0;
     } catch (const std::exception& e) {std::cerr<<e.what()<<'\n';return 1;}

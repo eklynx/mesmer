@@ -340,10 +340,10 @@ template<class Transport> void verify_loading(Transport& bridge,unsigned node,co
     if (!valid_tuning(expected) || (node!=1 && node!=2)) throw std::invalid_argument("Invalid loading readback request");
     for (const auto reg:{force_limit,torque_limit})
         if (bridge.ref_read(node,reg,stop)!=expected_protection_limit(node)) throw std::runtime_error("Original controller protection limit changed");
-    if (decode_bias(bridge.ref_read(node,manual_force_bias,stop))!=(node==2?expected.pitch_bias:0)) throw std::runtime_error("Unexpected constant force (force bias)");
+    if (decode_bias(bridge.ref_read(node,manual_force_bias,stop))!=(node==2?controller_counts(2,expected.pitch_bias):0)) throw std::runtime_error("Unexpected constant force (force bias)");
     if (bridge.ref_read(node,target_torque,stop)!=fixed_target_torque()) throw std::runtime_error("Target torque changed");
     if (bridge.ref_read(node,force_scale,stop)!=static_cast<std::uint32_t>(node==1?expected.roll_percent:expected.pitch_percent)) throw std::runtime_error("Spring scale changed");
-    if (signed32(bridge.ref_read(node,trim_position,stop))!=(node==2?expected.pitch_trim:expected.roll_trim)
+    if (signed32(bridge.ref_read(node,trim_position,stop))!=controller_counts(node,node==2?expected.pitch_trim:expected.roll_trim)
         || bridge.ref_read(node,trim_offset,stop)!=0 || bridge.ref_read(node,center_mode,stop)!=0)
         throw std::runtime_error("Unexpected trim or position mode during spring test");
     const auto& curve=node==2?pitch.curve:pitch.roll_curve;
@@ -399,7 +399,7 @@ template<class Transport> void apply_live_tuning(Transport& bridge,Tuning& appli
     for (unsigned node=1;node<=2;++node) {
         const auto status=bridge.read(node,Object::status,stop);
         if (!status_ready(static_cast<std::uint16_t>(status)) || (status&0x2108)) throw std::runtime_error("Controller not ready for live tuning (node "+std::to_string(node)+" status "+status_hex(static_cast<std::uint16_t>(status))+")");
-        if (decode_bias(bridge.ref_read(node,manual_force_bias,stop))!=(node==2?applied.pitch_bias:0)
+        if (decode_bias(bridge.ref_read(node,manual_force_bias,stop))!=(node==2?controller_counts(2,applied.pitch_bias):0)
             || bridge.ref_read(node,trim_offset,stop)!=0 || bridge.ref_read(node,center_mode,stop)!=0)
             throw std::runtime_error("Unexpected constant force, coordinate offset or position mode during live tuning");
     }
@@ -415,9 +415,9 @@ template<class Transport> void apply_live_tuning(Transport& bridge,Tuning& appli
             case AxisRegister::strength:
                 checked_loading_write(bridge,node,{force_scale,static_cast<std::uint32_t>(w.value),0},stop);strength=w.value;break;
             case AxisRegister::centre:
-                checked_loading_write(bridge,node,{trim_position,static_cast<std::uint32_t>(w.value),0},stop);centre=w.value;break;
+                checked_loading_write(bridge,node,{trim_position,static_cast<std::uint32_t>(controller_counts(node,w.value)),0},stop);centre=w.value;break;
             case AxisRegister::bias:
-                checked_loading_write(bridge,node,{manual_force_bias,encode_bias(w.value),0},stop);applied.pitch_bias=w.value;break;
+                checked_loading_write(bridge,node,{manual_force_bias,encode_bias(controller_counts(2,w.value)),0},stop);applied.pitch_bias=w.value;break;
             }
         }
     };

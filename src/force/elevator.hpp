@@ -209,11 +209,11 @@ inline double elevator_rest_rad(const ElevatorState& s,double from_rad=std::nume
     }
     return rest;
 }
-// The yoke's position in the drive's spring counts (0x2116's frame, forward
-// positive) from the pitch encoder (0x6064, which pulling increases:
-// docs/brunner/firmware.md). Forward positive is the sign the trim path has
-// always written 0x2116 with; no powered check has confirmed it yet, and if
-// the first one shows the rest mirrored, this sign is the one to flip.
+// The yoke's position in the force models' counts (forward positive) from the pitch
+// encoder (0x6064). Reading only: what is written to the controller's spring registers
+// is converted by controller_counts (drive.hpp), which also uses the model's
+// pitch_spring_sign, so this sign alone cannot mirror the spring. The CLS-E's encoder
+// rises when the yoke is pulled (sign -1); the NG's falls (sign +1).
 inline double drive_counts_from_encoder(std::int32_t encoder) {return active_drive().pitch_encoder_sign*static_cast<double>(encoder);}
 // The drive's spring is the straight-line curve (model_curve in brunner/loading.hpp):
 // 1000 units 12000 counts from its centre at 100 %.

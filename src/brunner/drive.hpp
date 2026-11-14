@@ -39,7 +39,8 @@ struct Drive {
     std::uint16_t spring_mode=0x0205;                      // the resting force mode, see YokePreset
     bool idle_enabled=false;                               // idles with motors enabled, see YokePreset
     RestSettings rest;                                     // what a rest leaves, see YokePreset
-    int roll_encoder_sign=-1,pitch_encoder_sign=-1;       // spring frame = sign * encoder
+    int roll_encoder_sign=-1,pitch_encoder_sign=-1;       // model counts = sign * encoder (see YokePreset)
+    int roll_spring_sign=-1,pitch_spring_sign=-1;         // controller spring frame = sign * encoder
     bool roll_input_reverse=true,pitch_input_reverse=false;
     // What each controller's limit register read when this drive was made. The
     // plugin never writes it; the writes' checks compare against it.
@@ -59,7 +60,7 @@ struct Drive {
             && wheel_deg==o.wheel_deg && target_torque==o.target_torque && centre_drift_percent==o.centre_drift_percent && roll_encoder_sign==o.roll_encoder_sign && status_stopped==o.status_stopped
             && spring_mode==o.spring_mode && idle_enabled==o.idle_enabled && rest==o.rest
             && status_ready_mask==o.status_ready_mask && status_acquired_mask==o.status_acquired_mask
-            && pitch_encoder_sign==o.pitch_encoder_sign && roll_input_reverse==o.roll_input_reverse && pitch_input_reverse==o.pitch_input_reverse && roll_limit_register==o.roll_limit_register
+            && pitch_encoder_sign==o.pitch_encoder_sign && roll_spring_sign==o.roll_spring_sign && pitch_spring_sign==o.pitch_spring_sign && roll_input_reverse==o.roll_input_reverse && pitch_input_reverse==o.pitch_input_reverse && roll_limit_register==o.roll_limit_register
             && pitch_limit_register==o.pitch_limit_register && roll_ceiling_units==o.roll_ceiling_units
             && pitch_ceiling_units==o.pitch_ceiling_units && limit_units==o.limit_units && margin_units==o.margin_units;
     }
@@ -80,6 +81,7 @@ inline Drive make_drive(const YokePreset& p,std::uint32_t roll_limit_register,st
     d.status_acquired_mask=static_cast<std::uint16_t>(p.status_acquired_mask);
     d.spring_mode=static_cast<std::uint16_t>(p.spring_mode);d.idle_enabled=p.idle_enabled;d.rest=p.rest;
     d.roll_encoder_sign=p.roll_encoder_sign;d.pitch_encoder_sign=p.pitch_encoder_sign;
+    d.roll_spring_sign=p.roll_spring_sign;d.pitch_spring_sign=p.pitch_spring_sign;
     d.roll_input_reverse=p.roll_input_reverse;d.pitch_input_reverse=p.pitch_input_reverse;
     d.roll_limit_register=roll_limit_register;d.pitch_limit_register=pitch_limit_register;
     d.roll_ceiling_units=std::min<int>(p.roll_ceiling_units,static_cast<int>(roll_limit_register));
@@ -103,6 +105,17 @@ inline std::mutex& pool_mutex() {static std::mutex m;return m;}
 inline std::deque<Drive>& pool() {static std::deque<Drive> p;return p;}
 }
 inline const Drive& active_drive() {return *drive_detail::slot().load(std::memory_order_acquire);}
+// A value of the force models' frame (forward / right positive) as a controller's spring registers take
+// it, and back: the centre (0x2116) and the constant force (0x211a) of node 1 (roll) or 2 (pitch). It is
+// the model's value times encoder_sign * spring_sign (see YokePreset), which is 1 on the CLS-E and -1 on
+// the NG's pitch, so only a model whose encoder runs against its spring frame is mirrored. Every
+// write to and every read-back of those registers goes through it; nothing above this boundary sees the
+// controller's frame. A sign is +1 or -1, so each direction is the same product.
+inline std::int32_t controller_counts(unsigned node,std::int32_t model_counts) {
+    const auto& d=active_drive();
+    return model_counts*(node==1?d.roll_spring_sign*d.roll_encoder_sign:d.pitch_spring_sign*d.pitch_encoder_sign);
+}
+inline std::int32_t model_counts(unsigned node,std::int32_t controller_value) {return controller_counts(node,controller_value);}
 // Makes `d` the active drive and returns the process-lifetime copy now in force.
 inline const Drive& set_active_drive(const Drive& d) {
     std::lock_guard<std::mutex> lock(drive_detail::pool_mutex());

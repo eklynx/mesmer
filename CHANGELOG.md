@@ -6,6 +6,14 @@ provenance attestation.
 
 ## Unreleased
 
+- **The NG's elevator weight pushes the right way.** Its pitch encoder runs the other way from the CLS-E's,
+  but the plugin wrote the model's spring centre and constant force to the controller unchanged, so the
+  weight pushed aft and no existing setting could fix it. A model now has `roll_spring_sign` and
+  `pitch_spring_sign` (the controller's spring frame against the encoder, default -1); writes are the
+  model's times `encoder_sign` x `spring_sign`, which is 1 (unchanged) on the CLS-E and mirrors the NG's
+  pitch (`pitch_encoder_sign` is now +1 there).
+- **The CLS-E NG inverts pitch by default.** Its model now ships `pitch_input_reverse: true` (roll was
+  already reversed). Set it back to `false` for `cls-e-ng` in `BrunnerDirect.yokes.json` to undo it.
 - **The saved Developer choice moves to X-Plane's Output folder.** "Allow unverified yoke models" is
   now saved in `Output/BrunnerDirect/BrunnerDirect.state.json`, so updating the plugin does not
   replace it. An existing `BrunnerDirect.state.json` in the plugin folder is read once, saved to the

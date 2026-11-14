@@ -544,6 +544,23 @@ int main() {
         check(live.writes.empty());
         live.values[LoadingTransport::key(2,manual_force_bias)]=0;
         apply_live_tuning(live,applied,applied,not_stopped);check(live.writes.empty());
+        // The NG's pitch encoder runs against its spring frame (encoder sign +1, spring sign -1): the model's
+        // centre and constant force reach 0x2116 and 0x211a mirrored, read back mirrored, and roll's are not.
+        {
+            ScopedDrive ng(make_drive(builtin_cls_e_ng(),4500,4500));   // the fake's limit registers
+            check(controller_counts(2,500)==-500 && controller_counts(1,500)==500 && model_counts(2,controller_counts(2,-37))==-37);
+            LoadingTransport mirrored;mirrored.stopped_status=0x0421;                                // the NG's stopped word
+            for (unsigned node=1;node<=2;++node) mirrored.values[LoadingTransport::key(node,force_mode)]=0x0605;
+            prepare_loading(mirrored,not_stopped);mirrored.writes.clear();mirrored.enabled=true;
+            Tuning held;
+            apply_live_tuning(mirrored,held,{41,39,500,200},not_stopped);
+            check(same_tuning(held,{41,39,500,200}));
+            check(signed32(mirrored.values[LoadingTransport::key(2,trim_position)])==-500);
+            check(decode_bias(mirrored.values[LoadingTransport::key(2,manual_force_bias)])==-200);
+            verify_loading(mirrored,2,not_stopped,held);verify_loading(mirrored,1,not_stopped,held);   // read back in the controller's frame
+            apply_live_tuning(mirrored,held,held,not_stopped);                                         // and nothing is rewritten
+        }
+        check(controller_counts(2,500)==500 && controller_counts(1,500)==500);                        // the CLS-E is not mirrored
         // Roll's centre moves under its deadband without a write, or even a
         // read, so pitch keeps its update rate; when roll is written, every
         // pitch write in that update has gone first.

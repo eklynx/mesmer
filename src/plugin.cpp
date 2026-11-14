@@ -160,6 +160,8 @@ std::filesystem::path output_folder; // Output/BrunnerDirect, set when the plugi
 // The yoke models: the built-ins, plus anything BrunnerDirect.yokes.json adds or changes.
 std::vector<brunner::YokePreset> yoke_presets=brunner::builtin_yoke_presets();
 std::string last_yoke_note,last_yoke_model;
+std::vector<std::string> yoke_shipped_texts; // the yokes/ folder as read, kept to validate direction edits against
+std::string direction_note;                   // why the last direction change from the page failed
 // The owner's choice to drive a yoke model that is not verified (brunner/owner_state.hpp): off unless saved on.
 bool allow_unverified_yoke=false;
 enum class LiveField { roll_target,pitch_target,trim_target,roll_applied,pitch_applied,trim_applied,
@@ -502,7 +504,13 @@ void publish_feel(const brunner::Snapshot& s,const brunner::FlightInput& input,c
     if (s.connected && s.tuning_valid && age>=brunner::Clock::duration::zero() && age<=std::chrono::milliseconds(250)) {
         live.pitch.now_percent=s.applied_tuning.pitch_percent;live.roll.now_percent=s.applied_tuning.roll_percent;
     }
-    if (input.ready) {live.pitch.yoke_percent=100.0*input.pitch;live.roll.yoke_percent=100.0*input.roll;}
+    // Pitch's marker is where the force model takes the yoke (the encoder through its sign, in the page's
+    // percent of travel, aft positive), so Encoder sign mirrors it as it mirrors roll's wheel; roll's
+    // wheel graphic already follows its solution, which is built from the same counts.
+    if (input.ready) {
+        live.pitch.yoke_percent=wb::travel_percent(brunner::drive_counts_from_encoder(s.axes[1].encoder));
+        live.roll.yoke_percent=100.0*input.roll;
+    }
     const bool session=s.loading_active && s.flight_session;
     if (flow_valid) {
         live.pitch.inputs=bench_inputs.inputs;live.pitch.tail_source=flight_tail.source;
@@ -606,6 +614,7 @@ void load_yoke_presets() {
     std::sort(files.begin(),files.end());
     std::vector<std::string> shipped;
     for (const auto& f:files) shipped.push_back(read_text_file(f));
+    yoke_shipped_texts=shipped;
     std::optional<std::string> overrides;
     const auto overrides_path=plugin_folder/brunner::yokes_file;
     if (std::filesystem::exists(overrides_path,ec)) overrides=read_text_file(overrides_path);
@@ -620,6 +629,58 @@ void load_yoke_presets() {
     reader.set_presets(yoke_presets);
     load_owner_state();
     reader.set_allow_unverified(allow_unverified_yoke);
+}
+// The feel page's direction controls (brunner/yoke_overrides.hpp). A change is written to
+// BrunnerDirect.yokes.json first (atomically; a failed or refused write changes nothing in memory), then
+// made the model's preset for the next session and, if that model is the yoke now connected, its active
+// drive at once. An encoder sign applies while the spring is live, so the spring may kick once.
+void apply_direction(const brunner::DirectionChange& change) {
+    const auto model=reader.snapshot().model;
+    const auto fail=[&](const std::string& why) {direction_note=why;log("Direction change refused: "+why);};
+    if (model.empty() || !brunner::find_yoke_preset_named(yoke_presets,model)) return fail("no yoke model is active");
+    const auto path=plugin_folder/brunner::yokes_file;
+    std::error_code ec;
+    std::string current;
+    if (std::filesystem::exists(path,ec)) current=read_text_file(path);
+    const auto patch=brunner::patch_direction(current,yoke_shipped_texts,model,change);
+    if (!patch.ok()) return fail(patch.error);
+    const std::filesystem::path temp=path.string()+".tmp";
+    {
+        std::ofstream out(temp,std::ios::binary|std::ios::trunc);
+        out<<patch.text;
+        if (!out) return fail("could not write "+temp.string());
+    }
+    std::filesystem::rename(temp,path,ec);
+    if (ec) return fail("could not replace "+path.string()+": "+ec.message());
+    const auto loaded=brunner::load_yoke_models(yoke_shipped_texts,patch.text);
+    yoke_presets=loaded.presets;
+    reader.update_presets(yoke_presets);
+    auto drive=brunner::active_drive();
+    if (drive.model==model) {
+        using Field=brunner::DirectionChange::Field;
+        switch (change.field) {
+        case Field::input_reverse:(change.pitch?drive.pitch_input_reverse:drive.roll_input_reverse)=change.value==1;break;
+        case Field::spring_sign:(change.pitch?drive.pitch_spring_sign:drive.roll_spring_sign)=change.value;break;
+        case Field::encoder_sign:(change.pitch?drive.pitch_encoder_sign:drive.roll_encoder_sign)=change.value;break;
+        }
+        brunner::set_active_drive(drive);
+    }
+    direction_note.clear();
+    log("Direction changed: "+model+" "+brunner::direction_key(change)+" = "+std::to_string(change.value)+" (saved to "+path.string()+")");
+}
+void run_direction_changes() {
+    if (bench) for (const auto& change:bench->take_directions()) apply_direction(change);
+}
+// What the page shows: the connected yoke's directions, from the drive in force.
+void publish_directions() {
+    if (!bench) return;
+    wb::DirectionView v;
+    const auto model=reader.snapshot().model;
+    v.editable=!model.empty() && brunner::find_yoke_preset_named(yoke_presets,model)!=nullptr;
+    const auto& d=brunner::active_drive();
+    v.model=model;v.roll_sign=d.roll_encoder_sign;v.pitch_sign=d.pitch_encoder_sign;v.roll_spring=d.roll_spring_sign;v.pitch_spring=d.pitch_spring_sign;
+    v.roll_reverse=d.roll_input_reverse;v.pitch_reverse=d.pitch_input_reverse;v.note=direction_note;
+    bench->set_directions(v);
 }
 std::filesystem::path travel_file() {return output_folder/"read-only-travel.json";}
 // Written atomically (temp file, then rename), at most every 5 s and only when the range widened.
@@ -675,6 +736,8 @@ void write_survey(const brunner::Snapshot& s) {
 float update(float,float,int,void*) {
     sim.bind_controls();
     run_feel_commands();
+    run_direction_changes();
+    publish_directions();
     const auto now=brunner::Clock::now();
     retry_workbench(now);
     poll_profiles(now,false);
@@ -1037,7 +1100,7 @@ void stop_workbench() {
     workbench_retry_at={};workbench_failure_logged=false;
     if (workbench_server.running()) {workbench_server.stop();log("Feel tuning page stopped");}
     // Nothing asked before disable runs after the next enable.
-    if (bench) (void)bench->take_commands();
+    if (bench) {(void)bench->take_commands();(void)bench->take_directions();}
     log_feel_events();
     feel_menu_text="Feel tuning: off";
     yoke_menu.set_feel_text(feel_menu_text);

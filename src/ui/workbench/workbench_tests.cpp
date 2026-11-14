@@ -773,6 +773,26 @@ void http() {
     require(buffeted.status==200 && contains(buffeted.body,"\"buffet\":{\"on\":true,\"percent\":5,\"period\":100") && wb.buffet().on,"buffet on");
     require(wb.take_commands().empty(),"buffet is a knob, not a command");
     wb.set_buffet({false,10,80});require(!wb.buffet().on,"buffet off again");
+    // Direction controls: refused until the plugin says a yoke model is active, then queued for the sim thread.
+    require(contains(wb.state_json(now),"\"directions\":{\"editable\":false") && post("/api/direction","{\"axis\":\"pitch\",\"field\":\"input_reverse\",\"value\":true}").status==422,"no model, no direction change");
+    DirectionView shown_directions;shown_directions.editable=true;shown_directions.model="cls-e-ng";shown_directions.pitch_reverse=true;
+    wb.set_directions(shown_directions);
+    require(contains(wb.state_json(now),"\"directions\":{\"editable\":true,\"model\":\"cls-e-ng\",\"roll\":{\"encoder_sign\":-1,\"spring_sign\":-1,\"input_reverse\":false},\"pitch\":{\"encoder_sign\":-1,\"spring_sign\":-1,\"input_reverse\":true}"),"directions shown");
+    require(post("/api/direction","{\"axis\":\"yaw\",\"field\":\"input_reverse\",\"value\":true}").status==422
+        && post("/api/direction","{\"axis\":\"pitch\",\"field\":\"gain\",\"value\":true}").status==422
+        && post("/api/direction","{\"axis\":\"pitch\",\"field\":\"encoder_sign\",\"value\":2}").status==422
+        && post("/api/direction","{\"axis\":\"pitch\",\"field\":\"encoder_sign\",\"value\":true}").status==400
+        && post("/api/direction","{\"axis\":\"pitch\",\"field\":\"input_reverse\",\"value\":1}").status==400
+        && post("/api/direction","{\"axis\":\"pitch\",\"field\":\"input_reverse\"}").status==400
+        && wb.take_directions().empty(),"bad direction requests are refused and queue nothing");
+    require(post("/api/direction","{\"axis\":\"pitch\",\"field\":\"encoder_sign\",\"value\":1}").status==200
+        && post("/api/direction","{\"axis\":\"roll\",\"field\":\"input_reverse\",\"value\":false}").status==200,"good direction requests");
+    const auto asked=wb.take_directions();
+    require(asked.size()==2 && asked[0].pitch && !asked[0].input_reverse() && asked[0].value==1
+        && !asked[1].pitch && asked[1].input_reverse() && asked[1].value==0 && wb.take_directions().empty(),"directions queued in order for the sim thread");
+    require(wb.take_commands().empty(),"a direction is not a command");
+    require(post("/api/direction","{\"axis\":\"pitch\",\"field\":\"encoder_sign\",\"value\":1}","Content-Type: text/plain\r\nX-Workbench: 1\r\n").status==403,"direction POST needs JSON");
+    wb.set_directions({});
     require(respond(site,request("GET /api/marks HTTP/1.1\r\nHost: localhost\r\n\r\n"),now).body=="[]","no marks");
     std::cout<<"http: ok\n";
 }

@@ -4,6 +4,7 @@
 // two-minute history, the file formats, a small strict JSON reader and writer,
 // HTTP/1.1 parsing and the peer and Host checks. No sockets, no X-Plane SDK:
 // the sim thread and the server thread share one Workbench through its mutex.
+#include "brunner/yoke_overrides.hpp"
 #include "force/flight.hpp"
 #include "json.hpp"
 #include "force/profiles.hpp"
@@ -365,6 +366,13 @@ struct Live {
 // motors on. Not part of the kept feel: each X-Plane start takes it from the
 // feel settings file, where it is off unless the owner turns it on there.
 struct BuffetView {bool on=false;int percent=10,period=80;};
+// The active yoke's four direction fields as the page shows them (brunner/yoke_overrides.hpp says what
+// each means). `editable` is false when no preset names the yoke; `note` is why the last change failed.
+struct DirectionView {
+    bool editable=false;std::string model;
+    int roll_sign=-1,pitch_sign=-1,roll_spring=-1,pitch_spring=-1;bool roll_reverse=false,pitch_reverse=false;
+    std::string note;
+};
 inline bool valid_buffet_view(const BuffetView& b) {return b.percent>=0 && b.percent<=100 && b.period>=10 && b.period<=140;}
 // The plugin's one status line and reader state, as the page's `view`.
 struct ViewInputs {bool enabled=true,connected=false,retry_offered=false,lab_lease=false,flight_loading=false,force_feel=false;std::string status;};
@@ -843,6 +851,39 @@ public:
     }
     std::vector<std::string> take_events() {std::lock_guard<std::mutex> lock(mutex_);return std::exchange(events_,{});}
     BuffetView buffet() const {std::lock_guard<std::mutex> lock(mutex_);return buffet_;}
+    // Direction changes the page asked for, in order, for the sim thread to apply (it owns the presets
+    // file); the plugin then publishes the result with set_directions.
+    std::vector<DirectionChange> take_directions() {
+        std::lock_guard<std::mutex> lock(mutex_);
+        return std::exchange(direction_requests_,{});
+    }
+    void set_directions(const DirectionView& d) {std::lock_guard<std::mutex> lock(mutex_);directions_=d;}
+    // {"axis": "roll"|"pitch", "field": "encoder_sign"|"spring_sign"|"input_reverse", "value": +1|-1 or true|false}.
+    Outcome direction_request(const Json& body,Clock::time_point) {
+        const auto* axis=body.get("axis");const auto* field=body.get("field");const auto* value=body.get("value");
+        const char* shape="expected {\"axis\": \"roll\"|\"pitch\", \"field\": \"encoder_sign\"|\"spring_sign\"|\"input_reverse\", \"value\": 1|-1 or true|false}";
+        if (body.kind!=Json::Kind::object || body.members.size()!=3 || !axis || !field || !value
+            || axis->kind!=Json::Kind::string || field->kind!=Json::Kind::string) return bad_request(shape);
+        if (axis->text!="roll" && axis->text!="pitch") return out_of_bounds("axis is roll or pitch");
+        if (field->text!="encoder_sign" && field->text!="spring_sign" && field->text!="input_reverse") return out_of_bounds("field is encoder_sign, spring_sign or input_reverse");
+        DirectionChange c;
+        c.pitch=axis->text=="pitch";
+        c.field=field->text=="input_reverse"?DirectionChange::Field::input_reverse:field->text=="spring_sign"?DirectionChange::Field::spring_sign:DirectionChange::Field::encoder_sign;
+        if (c.input_reverse()) {
+            if (value->kind!=Json::Kind::boolean) return bad_request("input_reverse takes true or false");
+            c.value=value->boolean?1:0;
+        } else {
+            if (value->kind!=Json::Kind::integer) return bad_request("a sign takes 1 or -1");
+            if (value->integer!=1 && value->integer!=-1) return out_of_bounds("a sign is 1 or -1");
+            c.value=static_cast<int>(value->integer);
+        }
+        std::lock_guard<std::mutex> lock(mutex_);
+        if (!directions_.editable) return out_of_bounds("no yoke model is active to change");
+        if (direction_requests_.size()>=8) return {503,"Too many changes waiting. Try again."};
+        direction_requests_.push_back(c);
+        event("Feel workbench asked for "+std::string(c.pitch?"pitch ":"roll ")+(c.input_reverse()?"input reverse ":c.field==DirectionChange::Field::spring_sign?"spring sign ":"encoder sign ")+std::to_string(c.value));
+        return {};
+    }
     void set_buffet(const BuffetView& b) {if (valid_buffet_view(b)) {std::lock_guard<std::mutex> lock(mutex_);buffet_=b;}}
     // {"on": bool, "percent": 0..100, "period": 10..140}, all three.
     Outcome buffet_request(const Json& body,Clock::time_point) {
@@ -1049,6 +1090,10 @@ public:
             +",\"period\":"+std::to_string(buffet_.period)+",\"roll_units\":"+std::to_string(l.buffet_units[0])
             +",\"pitch_units\":"+std::to_string(l.buffet_units[1])+",\"uncleared\":"+(l.buffet_uncleared?"true":"false")
             +",\"time_unrestored\":["+unrestored(l.buffet_time_unrestored[0])+","+unrestored(l.buffet_time_unrestored[1])+"],\"tested_motors_on\":false}";
+        const auto axis_directions=[](int sign,int spring,bool reverse) {return "{\"encoder_sign\":"+std::to_string(sign)+",\"spring_sign\":"+std::to_string(spring)+",\"input_reverse\":"+(reverse?"true":"false")+'}';};
+        o+=",\"directions\":{\"editable\":"+std::string(directions_.editable?"true":"false")+",\"model\":"+json_string(directions_.model)
+            +",\"roll\":"+axis_directions(directions_.roll_sign,directions_.roll_spring,directions_.roll_reverse)+",\"pitch\":"+axis_directions(directions_.pitch_sign,directions_.pitch_spring,directions_.pitch_reverse)
+            +",\"note\":"+(directions_.note.empty()?std::string("null"):json_string(directions_.note))+'}';
         o+=",\"pitch_curve\":[";
         for (std::size_t i=0;i<l.pitch_curve.size();++i) o+=(i?",":"")+std::to_string(l.pitch_curve[i]);
         o+="],\"showing\":"+std::string(model_.showing_trying?"\"trying\"":"\"kept\"")+",\"kept\":"+settings_json(model_.kept)
@@ -1126,6 +1171,7 @@ private:
     std::optional<ElevatorInputs> sample_; // the last fresh one, kept through pauses and stale frames
     Live live_;bool has_live_=false;
     BuffetView buffet_{};
+    DirectionView directions_;std::vector<DirectionChange> direction_requests_;
     std::deque<Sample> history_;
     std::deque<Mark> marks_;int next_mark_=1;
     std::vector<Command> commands_;std::vector<std::string> events_;
@@ -1334,7 +1380,7 @@ inline Response respond(Site& site,const Request& r,Clock::time_point now) {
     struct Route {const char* path;const char* method;};
     static const Route routes[]{{"/","GET"},{"/api/state","GET"},{"/api/history","GET"},{"/api/marks","GET"},
         {"/api/settings","POST"},{"/api/show","POST"},{"/api/undo","POST"},{"/api/discard","POST"},{"/api/keep","POST"},
-        {"/api/mark","POST"},{"/api/note","POST"},{"/api/command","POST"},{"/api/buffet","POST"}};
+        {"/api/mark","POST"},{"/api/note","POST"},{"/api/command","POST"},{"/api/buffet","POST"},{"/api/direction","POST"}};
     const Route* route=nullptr;
     for (const auto& x:routes) if (r.path==x.path) route=&x;
     if (!route) return error_response(404,"No such page");
@@ -1364,6 +1410,7 @@ inline Response respond(Site& site,const Request& r,Clock::time_point now) {
     else if (r.path=="/api/mark") o=bare(&Workbench::mark_request);
     else if (r.path=="/api/note") o=wb.note(body,now);
     else if (r.path=="/api/buffet") o=wb.buffet_request(body,now);
+    else if (r.path=="/api/direction") o=wb.direction_request(body,now);
     else o=wb.command(body,now);
     if (o.status!=200) return error_response(o.status,o.error);
     return {200,"application/json",wb.state_json(now),{}};

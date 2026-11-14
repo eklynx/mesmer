@@ -4,6 +4,7 @@
 // is identical on every platform. Moved unchanged from reader_win.cpp; the
 // operating system's HID access is in hid/win/hid_win.cpp / hid/mac/hid_mac.cpp.
 #include "brunner/reader.hpp"
+#include <optional>
 #include "brunner/bridge.hpp"
 #include "brunner/reference.hpp"
 #include "brunner/loading.hpp"
@@ -165,11 +166,11 @@ void loading_test(Bridge& bridge,Snapshot& s,const std::atomic<bool>& stop,
     try {
         prepare_loading(bridge,stop,applied,pitch,&offset_off);
         if (start_centre!=0) {
-            checked_loading_write(bridge,2,{trim_position,static_cast<std::uint32_t>(start_centre),0},stop);
+            checked_loading_write(bridge,2,{trim_position,static_cast<std::uint32_t>(controller_counts(2,start_centre)),0},stop);
             applied.pitch_trim=start_centre;
         }
         if (roll_start_centre!=0) {
-            checked_loading_write(bridge,1,{trim_position,static_cast<std::uint32_t>(roll_start_centre),0},stop);
+            checked_loading_write(bridge,1,{trim_position,static_cast<std::uint32_t>(controller_counts(1,roll_start_centre)),0},stop);
             applied.roll_trim=roll_start_centre;
         }
         for (unsigned node=1;node<=2;++node) verify_loading(bridge,node,stop,applied,pitch);
@@ -343,7 +344,10 @@ void Reader::session(Snapshot& s) {
         s.axes[i].firmware=firmware[i];
     }
     // The model follows from the device that was opened (never from its firmware).
-    const YokePreset* preset=find_yoke_preset(presets_,bridge.id());
+    // A copy, so a preset replaced by update_presets while this session runs cannot change under it.
+    std::optional<YokePreset> chosen;
+    {std::lock_guard<std::mutex> lock(presets_mutex_);if (const auto* p=find_yoke_preset(presets_,bridge.id())) chosen=*p;}
+    const YokePreset* preset=chosen?&*chosen:nullptr;
     if (!preset && bridge.id().vendor!=brunner_vendor)
         throw std::runtime_error("No yoke preset for USB id "+usb_text(bridge.id())); // selection never opens another vendor's device; a factory that did is refused
     if (!preset) {

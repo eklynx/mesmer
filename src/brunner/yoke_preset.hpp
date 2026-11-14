@@ -63,11 +63,16 @@ struct YokePreset {
     double roll_travel_counts=13000,pitch_travel_counts=12000;
     double wheel_deg=86;                    // the wheel's travel each way
     double pitch_travel_mm=0;               // information only (0: unknown)
-    // Directions. The spring's frame (0x2116, "drive counts") is sign * the encoder (0x6064).
-    // The CLS-E's -1 on both axes has never been confirmed on a powered yoke, and a new
-    // model's is unknown: if the first powered check shows the rest mirrored, flip it
-    // here (no rebuild). input_reverse flips the pilot's input direction (right/forward positive).
+    // Directions, three facts per axis. encoder_sign: the model's counts (forward / right positive,
+    // what the force models and the page use) are sign * the encoder (0x6064); it only reads the
+    // encoder. spring_sign: the controller's spring frame (0x2116 and the constant force) is
+    // sign * the encoder, a fact about the hardware. Every value the plugin writes to those registers
+    // is the model's times encoder_sign * spring_sign (drive.hpp, controller_counts): the CLS-E's -1
+    // and -1 make that 1, a model whose encoder runs the other way (the NG's pitch: +1 and -1) mirrors
+    // its writes. None is confirmed on a powered yoke except where a model's notes say so; edit here
+    // (no rebuild). input_reverse flips the pilot's input direction (right/forward positive).
     int roll_encoder_sign=-1,pitch_encoder_sign=-1;
+    int roll_spring_sign=-1,pitch_spring_sign=-1;
     bool roll_input_reverse=true,pitch_input_reverse=false;
     // Drive force units per physical unit, the same on every model so far.
     int pitch_units_per_lb=222,roll_units_per_nm=1000;
@@ -133,6 +138,12 @@ inline YokePreset builtin_cls_e_ng() {
     p.status_stopped=0x0421;
     p.spring_mode=0x0605;
     p.idle_enabled=true;
+    // Its pitch encoder runs the other way from the CLS-E's: pulling lowers it. The model's forward is
+    // therefore +encoder (pitch_encoder_sign 1), the input is reversed, and the spring's frame stays
+    // -encoder (as the CLS-E's; the yoke held where it was when a centre of sign*encoder was written),
+    // so the plugin mirrors its pitch writes (spring_sign -1 against encoder_sign 1).
+    p.pitch_encoder_sign=1;p.pitch_spring_sign=-1;
+    p.pitch_input_reverse=true;
     // Its settings at rest, from the survey of 2026-11-12 (curve 50..950, spring 180 roll / 160 pitch, pitch
     // drag 1/3, move-back 200, cut-off 40, mode 0x2605). Writing the CLS-E's instead overwrote these, and the
     // NG kept them (with bit 13 cleared it no longer referenced itself at power-on).
@@ -159,6 +170,7 @@ inline void validate_preset(const YokePreset& p) {
     if (!in(p.wheel_deg,10,180)) fail("wheel_deg must be 10 to 180");
     if (!in(p.pitch_travel_mm,0,1000)) fail("pitch_travel_mm must be 0 to 1000");
     if ((p.roll_encoder_sign!=1 && p.roll_encoder_sign!=-1) || (p.pitch_encoder_sign!=1 && p.pitch_encoder_sign!=-1)) fail("encoder signs must be 1 or -1");
+    if ((p.roll_spring_sign!=1 && p.roll_spring_sign!=-1) || (p.pitch_spring_sign!=1 && p.pitch_spring_sign!=-1)) fail("spring signs must be 1 or -1");
     if (p.pitch_units_per_lb<50 || p.pitch_units_per_lb>1000) fail("pitch_units_per_lb must be 50 to 1000");
     if (p.roll_units_per_nm<100 || p.roll_units_per_nm>10000) fail("roll_units_per_nm must be 100 to 10000");
     if (p.roll_ceiling_units<100 || p.roll_ceiling_units>20000 || p.pitch_ceiling_units<100 || p.pitch_ceiling_units>20000)
@@ -207,7 +219,7 @@ inline void validate_presets(const std::vector<YokePreset>& presets) {
 // status_ready_mask, status_acquired_mask, spring_mode, idle_enabled, rest {roll_curve, pitch_curve,
 // roll_spring_percent, pitch_spring_percent, pitch_gain_denominator, pitch_move_back, pitch_cutoff, mode},
 // roll_encoder_sign,
-// pitch_encoder_sign, roll_input_reverse, pitch_input_reverse. Unknown fields are refused.
+// pitch_encoder_sign, roll_spring_sign, pitch_spring_sign, roll_input_reverse, pitch_input_reverse. Unknown fields are refused.
 namespace preset_detail {
 inline double number(const Json& j,const std::string& what) {
     if (j.kind==Json::Kind::integer) return static_cast<double>(j.integer);
@@ -314,6 +326,8 @@ inline std::vector<YokePreset> parse_yoke_presets(std::string_view text,const st
             }
             else if (key=="roll_encoder_sign") p.roll_encoder_sign=whole(v,what);
             else if (key=="pitch_encoder_sign") p.pitch_encoder_sign=whole(v,what);
+            else if (key=="roll_spring_sign") p.roll_spring_sign=whole(v,what);
+            else if (key=="pitch_spring_sign") p.pitch_spring_sign=whole(v,what);
             else if (key=="roll_input_reverse") p.roll_input_reverse=flag(v,what);
             else if (key=="pitch_input_reverse") p.pitch_input_reverse=flag(v,what);
             else throw PresetError(at+"unknown field \""+key+"\"");
@@ -370,6 +384,10 @@ inline LoadedYokes load_yoke_models(const std::vector<std::string>& shipped,cons
 }
 
 // ---- Lookup ----
+inline const YokePreset* find_yoke_preset_named(const std::vector<YokePreset>& presets,const std::string& name) {
+    for (const auto& p:presets) if (p.name==name) return &p;
+    return nullptr;
+}
 inline const YokePreset* find_yoke_preset(const std::vector<YokePreset>& presets,UsbId id) {
     for (const auto& p:presets) for (const auto& u:p.usb_ids) if (u.vendor==id.vendor && u.product==id.product) return &p;
     return nullptr;

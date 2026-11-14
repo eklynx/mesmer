@@ -37,6 +37,7 @@ void the_cls_e_drive_is_the_original_constants() {
 void the_ng_drive() {
     const auto d=ng_drive();
     check(d.model=="cls-e-ng" && d.roll_travel_counts==7350 && d.pitch_travel_counts==5300 && d.wheel_deg==90 && d.target_torque==25);
+    check(d.roll_input_reverse && d.pitch_input_reverse);   // the NG inverts pitch by default
     // The lower of the preset's ceiling (spec: 11000 / 9500) and the register (2150 / 2250) per axis,
     // then one budget from the lower axis, less the margin (the CLS-E's 500 of 4500).
     check(d.roll_ceiling_units==2150 && d.pitch_ceiling_units==2250 && d.limit_units==2150);
@@ -146,11 +147,11 @@ void the_writes_follow_the_drive() {
 void the_directions_come_from_the_preset() {
     check(roll_counts_from_encoder(7)==-7.0 && drive_counts_from_encoder(7)==-7.0);
     auto flipped=builtin_cls_e_ng();flipped.roll_encoder_sign=1;flipped.pitch_encoder_sign=-1;
-    flipped.roll_input_reverse=false;flipped.pitch_input_reverse=true;
+    flipped.roll_input_reverse=true;flipped.pitch_input_reverse=false;
     const auto d=make_drive(flipped,2150,2250);
     ScopedDrive scope(d);
     check(roll_counts_from_encoder(7)==7.0 && drive_counts_from_encoder(7)==-7.0);
-    check(!active_drive().roll_input_reverse && active_drive().pitch_input_reverse);
+    check(active_drive().roll_input_reverse && !active_drive().pitch_input_reverse);
     flipped.roll_encoder_sign=2;
     check(throws([&]{make_drive(flipped,2150,2250);}));   // only +1 or -1
 }

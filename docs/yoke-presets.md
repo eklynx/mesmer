@@ -35,8 +35,9 @@ Built in: `cls-e` (USB `25BB:0081`, verified on firmware 367) and `cls-e-ng`
 | `spring_mode` | the force mode (`0x2101:01`) the controllers rest in, without the flow's bits 13, 11, 6 and 5 (decimal; the CLS-E's is 517 = 0x0205, the NG's 1541 = 0x0605). Any other mode is refused |
 | `rest` | what the plugin leaves the controllers at between sessions (after force feel stops, before a centring, in recovery and in **Developer > Reset yoke**): `roll_curve`, `pitch_curve` (9 points each), `roll_spring_percent`, `pitch_spring_percent`, `pitch_gain_denominator`, `pitch_move_back`, `pitch_cutoff` (0: not written) and `mode` (the force mode left at rest, bit 13 included; 0: not written). The CLS-E's are the historical constants; the NG's are its own (survey of 2026-11-12, mode `0x2605`), because writing the CLS-E's to the NG overwrote them and the NG kept them. A **new model that gives no `rest`** has the plugin read these registers when a session starts and write exactly that back, so a yoke is left as it was found (settings it could not write back refuse the session before anything is written) |
 | `idle_enabled` | `true` for a model that idles with its motors enabled (the NG). Centring then shuts them down the standard way first instead of refusing; `false` (the CLS-E) keeps the refusal |
-| `roll_encoder_sign`, `pitch_encoder_sign` | the spring's frame is sign x encoder (+1 or -1) |
-| `roll_input_reverse`, `pitch_input_reverse` | flips the pilot's input direction |
+| `roll_encoder_sign`, `pitch_encoder_sign` | the model's counts (forward / right positive) are sign x the encoder (+1 or -1). Reading only: it is where the force models and the feel page think the yoke is |
+| `roll_spring_sign`, `pitch_spring_sign` | the controller's spring frame (the centre 0x2116 and the constant force) is sign x the encoder (+1 or -1, default -1): a fact about the hardware. Every value the plugin writes to those registers is the model's times `encoder_sign` x `spring_sign`, so it is mirrored only when the two differ. The CLS-E is -1 and -1 (never mirrored); the NG's pitch encoder runs the other way, so it is +1 and -1 and its pitch writes are mirrored (roll is -1 and -1) |
+| `roll_input_reverse`, `pitch_input_reverse` | flips the pilot's input direction (the CLS-E reverses roll; the NG reverses roll and pitch) |
 
 **The NG's numbers.** Travel is the midpoint of the controller's own limit flags
 (roll -7637/+7647, pitch -5458/+5478). The ceilings are the spec peaks converted
@@ -44,10 +45,10 @@ with the CLS-E's units (pitch 190 N / 0.02 N per unit = 9500; roll 11 N.m / 0.00
 N.m per unit = 11000). The ready mask is 0x1007 because the NG at rest reads
 `0x1427`; its "stopped" word is not yet known and is the CLS-E's until a run shows it.
 
-**Directions are unverified.** The CLS-E's `-1` encoder signs have never been
-confirmed on a powered yoke, and the NG's are unknown. If the first powered run
-shows the rest mirrored or the spring pushing the wrong way, flip the sign in the
-presets file; no rebuild.
+**Directions are unverified.** The CLS-E's `-1` signs have never been confirmed on a
+powered yoke, and the NG's are inferred from one log. If the first powered run shows
+the rest mirrored or the spring pushing the wrong way, flip `*_spring_sign` (the
+hardware's frame) in the presets file; no rebuild.
 
 ## The shipped models: the `yokes/` folder
 
