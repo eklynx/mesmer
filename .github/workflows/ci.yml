@@ -46,6 +46,8 @@ jobs:
         run: ctest --test-dir build --output-on-failure
       - name: Test the release packaging script
         run: bash tests/test-package-release.sh
+      - name: Test the signed-plugin fetch script
+        run: bash tests/test-fetch-signed-plugin.sh
 
   windows:
     if: ${{ vars.WINDOWS_BUILD != 'false' }}

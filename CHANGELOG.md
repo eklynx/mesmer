@@ -24,6 +24,12 @@ The first release numbered major.minor.patch. The plugin flies as 0.1.0-alpha.3 
 
 ## Unreleased
 
+- **Releases can ship a signed and notarized macOS plugin.** Set the repository variable
+  `MACOS_SIGNING_REPO` (and the secret `MACOS_SIGNING_TOKEN`) and the release workflow has a separate
+  signing repository build, vet, sign and notarize the macOS plugin for the tagged commit, checks the
+  result is for that commit, and packages it, so users no longer have to remove the quarantine flag. Off
+  unless the variable is set; with it set, a failed signing run fails the release
+  ([docs/release-signing.md](docs/release-signing.md)).
 - **macOS in CI and in the release.** `ci.yml` builds the universal plugin on macOS with
   `build_macos.sh` on every push (replacing the macOS core-tests-only job), and the release builds it
   too. The release zip now carries every platform's plugin (`win_x64/` and `mac_x64/`, `lin_x64/` once

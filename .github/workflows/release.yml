@@ -10,6 +10,12 @@
 # variable (the same three ci.yml reads):
 #   WINDOWS_BUILD, MACOS_BUILD   on unless the variable is exactly `false`
 #   LINUX_BUILD                  off unless the variable is exactly `true`
+#
+# The macOS plugin can be signed and notarized by a separate signing repository
+# (docs/release-signing.md). Off unless the repository variable MACOS_SIGNING_REPO
+# (OWNER/NAME of that repository) is set; then the secret MACOS_SIGNING_TOKEN is
+# required, the signing run must succeed for this exact commit, and the release ships
+# the signed plugin. With it set and signing failing, nothing is published.
 name: release
 
 on:
@@ -43,6 +49,8 @@ jobs:
       windows: ${{ steps.platforms.outputs.windows }}
       macos: ${{ steps.platforms.outputs.macos }}
       linux: ${{ steps.platforms.outputs.linux }}
+      sign_macos: ${{ steps.platforms.outputs.sign_macos }}
+      signing_repo: ${{ steps.platforms.outputs.signing_repo }}
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
@@ -65,7 +73,12 @@ jobs:
           WINDOWS_BUILD: ${{ vars.WINDOWS_BUILD }}
           MACOS_BUILD: ${{ vars.MACOS_BUILD }}
           LINUX_BUILD: ${{ vars.LINUX_BUILD }}
+          MACOS_SIGNING_REPO: ${{ vars.MACOS_SIGNING_REPO }}
         run: |
+          $signing=$env:MACOS_SIGNING_REPO
+          if ($signing -and $signing -notmatch '^[A-Za-z0-9._-]+/[A-Za-z0-9._-]+$') {throw "MACOS_SIGNING_REPO '$signing' is not OWNER/NAME"}
+          "sign_macos=$((($env:MACOS_BUILD -ne 'false') -and [bool]$signing).ToString().ToLowerInvariant())" >> $env:GITHUB_OUTPUT
+          "signing_repo=$signing" >> $env:GITHUB_OUTPUT
           "windows=$(($env:WINDOWS_BUILD -ne 'false').ToString().ToLowerInvariant())" >> $env:GITHUB_OUTPUT
           "macos=$(($env:MACOS_BUILD -ne 'false').ToString().ToLowerInvariant())" >> $env:GITHUB_OUTPUT
           "linux=$(($env:LINUX_BUILD -eq 'true').ToString().ToLowerInvariant())" >> $env:GITHUB_OUTPUT
@@ -134,6 +147,37 @@ jobs:
           if-no-files-found: error
           retention-days: 7
 
+  # Has the signing repository sign and notarize this commit's macOS plugin, then checks the
+  # result is for this repository and commit (docs/release-signing.md). Runs only after the
+  # macOS build and its tests passed, so only a commit that tests green is ever signed.
+  sign-macos:
+    needs: [plan, build-macos]
+    if: ${{ needs.plan.outputs.sign_macos == 'true' }}
+    runs-on: ubuntu-24.04
+    timeout-minutes: 75
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+
+      - name: Have the signing repository sign this commit
+        env:
+          GH_TOKEN: ${{ secrets.MACOS_SIGNING_TOKEN }}
+          SIGNING_REPO: ${{ needs.plan.outputs.signing_repo }}
+        run: |
+          src/scripts/fetch_signed_plugin.sh --signing-repo "$SIGNING_REPO" --repo "$GITHUB_REPOSITORY" \
+            --sha "$GITHUB_SHA" --out dist/signed
+
+      - name: Keep the signed plugin
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: plugin-mac-signed
+          path: dist/signed/
+          if-no-files-found: error
+          retention-days: 7
+
   # Stub, off until LINUX_BUILD is `true`. TODO(linux): build and test with the Linux
   # toolchain, then replace the failing step and upload build/.../BrunnerDirect.xpl
   # as `plugin-lin` (the same shape as plugin-win and plugin-mac). `package` already
@@ -153,7 +197,7 @@ jobs:
           exit 1
 
   package:
-    needs: [plan, build-windows, build-macos, build-linux]
+    needs: [plan, build-windows, build-macos, sign-macos, build-linux]
     # Runs when the builds finished one way or another, so a skipped build is judged
     # below (fine when `plan` turned it off, fatal when it was meant to run).
     if: ${{ !cancelled() && needs.plan.result == 'success' }}
@@ -173,9 +217,10 @@ jobs:
           WINDOWS: ${{ needs.plan.outputs.windows }} ${{ needs.build-windows.result }}
           MACOS: ${{ needs.plan.outputs.macos }} ${{ needs.build-macos.result }}
           LINUX: ${{ needs.plan.outputs.linux }} ${{ needs.build-linux.result }}
+          SIGNING: ${{ needs.plan.outputs.sign_macos }} ${{ needs.sign-macos.result }}
         run: |
           fail=0
-          for entry in "Windows:$WINDOWS" "macOS:$MACOS" "Linux:$LINUX"; do
+          for entry in "Windows:$WINDOWS" "macOS:$MACOS" "macOS signing:$SIGNING" "Linux:$LINUX"; do
             name="${entry%%:*}"; rest="${entry#*:}"; enabled="${rest%% *}"; result="${rest#* }"
             if [ "$enabled" = true ] && [ "$result" != success ]; then
               echo "::error::$name build was enabled but its result is $result; nothing is published"
@@ -192,10 +237,17 @@ jobs:
           path: dist/in/win
 
       - name: Download the macOS plugin
-        if: ${{ needs.plan.outputs.macos == 'true' }}
+        if: ${{ needs.plan.outputs.macos == 'true' && needs.plan.outputs.sign_macos != 'true' }}
         uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
         with:
           name: plugin-mac
+          path: dist/in/mac
+
+      - name: Download the signed macOS plugin
+        if: ${{ needs.plan.outputs.sign_macos == 'true' }}
+        uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
+        with:
+          name: plugin-mac-signed
           path: dist/in/mac
 
       - name: Download the Linux plugin
@@ -241,6 +293,13 @@ jobs:
           $text=($notes -join "`n").Trim()
           if (!$text) {throw "CHANGELOG.md has no entry for $env:VERSION"}
           [IO.File]::WriteAllText((Join-Path $env:RUNNER_TEMP 'notes.md'),$text+"`n")
+
+      - name: Say who signed the macOS plugin
+        if: ${{ needs.plan.outputs.sign_macos == 'true' }}
+        run: |
+          run_url="$(jq -r .run dist/in/mac/provenance.json)"
+          who="$(jq -r .signer.authority dist/in/mac/provenance.json)"
+          printf '\nThe macOS plugin is signed by %s and notarized by Apple (signing run: %s).\n' "$who" "$run_url" >> "$RUNNER_TEMP/notes.md"
 
       - name: Publish the pre-release
         env:

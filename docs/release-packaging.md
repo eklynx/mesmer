@@ -53,8 +53,9 @@ checked where the binary is built (`build_macos.sh`, `codesign --verify`), not h
   `installer`.
 - **`release.yml`** (a tag `v*`): `plan` checks the tag and `skunkcrafts_updater.cfg` and decides
   which platforms to build; `build-windows`, `build-macos` and `build-linux` (a stub) each build,
-  test and upload their `BrunnerDirect.xpl`; `package` downloads them, runs this script, attests
-  and publishes the pre-release.
+  test and upload their `BrunnerDirect.xpl`; optionally `sign-macos` has a separate signing
+  repository sign the macOS plugin ([release-signing.md](release-signing.md)); `package` downloads
+  them, runs this script, attests and publishes the pre-release.
 - **`package` publishes only if every platform that was enabled built and passed.** A build
   skipped because its platform is switched off is fine; one that was meant to run and did not
   succeed stops the release.
