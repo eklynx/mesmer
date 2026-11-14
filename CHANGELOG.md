@@ -6,6 +6,10 @@ pre-release with one zip for every platform, its SHA-256 in `SHA256SUMS`, and a 
 provenance attestation. The first previews were numbered 0.1.0-alpha.1 to
 0.1.0-alpha.3; 0.1.0 follows them.
 
+## 0.0.2
+
+Test release for the fork's CI: not a real version. Checks that the Windows and macOS builds package into one zip.
+
 ## 0.1.1
 
 This release fixes how the installer picks a release when you don't name one. The plugin flies as it does in 0.1.0.
