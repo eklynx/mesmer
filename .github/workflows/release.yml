@@ -1,7 +1,15 @@
-# A tag v* builds the plugin on Windows from this tree, runs its tests and
-# publishes Mesmer-<version>.zip, its SHA256SUMS and a build provenance
-# attestation as a GitHub pre-release, with the CHANGELOG entry as its notes.
-# The tag and its commit come from flightsim's publish; nothing here edits code.
+# A tag v* builds the plugin on every enabled platform from this tree (Windows and
+# macOS now; Linux is a disabled stub), runs each one's tests, merges the builds into
+# one Mesmer-<version>.zip with src/scripts/package_release.sh, and publishes it, its
+# SHA256SUMS and a build provenance attestation as a GitHub pre-release, with the
+# CHANGELOG entry as its notes. Nothing is published unless every enabled platform
+# built and passed. The tag and its commit come from flightsim's publish; nothing here
+# edits code. Specification: docs/release-packaging.md.
+#
+# Each platform can be switched off without editing this file, by a repository
+# variable (the same three ci.yml reads):
+#   WINDOWS_BUILD, MACOS_BUILD   on unless the variable is exactly `false`
+#   LINUX_BUILD                  off unless the variable is exactly `true`
 name: release
 
 on:
@@ -22,16 +30,19 @@ env:
   XPLANE_SDK_SHA256: b9875ab27b593927b4f9b3e0ddfffe7401ee5dce6d86b50aea0da65f70ff7816
 
 jobs:
-  release:
-    runs-on: windows-2022
-    timeout-minutes: 30
-    permissions:
-      contents: write
-      id-token: write
-      attestations: write
+  # The tag, the version and which platforms this run builds. The outputs are the one
+  # list the build jobs and `package` agree on.
+  plan:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 5
     defaults:
       run:
         shell: pwsh
+    outputs:
+      version: ${{ steps.version.outputs.version }}
+      windows: ${{ steps.platforms.outputs.windows }}
+      macos: ${{ steps.platforms.outputs.macos }}
+      linux: ${{ steps.platforms.outputs.linux }}
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
@@ -47,6 +58,31 @@ jobs:
           $updater=Get-Content -LiteralPath config/skunkcrafts_updater.cfg
           if ($updater -notcontains "version|$version") {throw "config/skunkcrafts_updater.cfg is not for $version"}
           "version=$version" >> $env:GITHUB_OUTPUT
+
+      - name: Platforms to build
+        id: platforms
+        env:
+          WINDOWS_BUILD: ${{ vars.WINDOWS_BUILD }}
+          MACOS_BUILD: ${{ vars.MACOS_BUILD }}
+          LINUX_BUILD: ${{ vars.LINUX_BUILD }}
+        run: |
+          "windows=$(($env:WINDOWS_BUILD -ne 'false').ToString().ToLowerInvariant())" >> $env:GITHUB_OUTPUT
+          "macos=$(($env:MACOS_BUILD -ne 'false').ToString().ToLowerInvariant())" >> $env:GITHUB_OUTPUT
+          "linux=$(($env:LINUX_BUILD -eq 'true').ToString().ToLowerInvariant())" >> $env:GITHUB_OUTPUT
+          Get-Content $env:GITHUB_OUTPUT
+
+  build-windows:
+    needs: plan
+    if: ${{ needs.plan.outputs.windows == 'true' }}
+    runs-on: windows-2022
+    timeout-minutes: 30
+    defaults:
+      run:
+        shell: pwsh
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
 
       - name: Download and verify the X-Plane SDK
         run: |
@@ -67,24 +103,120 @@ jobs:
       - name: Test
         run: ctest --test-dir build -C Release --output-on-failure
 
+      # Only the platform's binary: the shared files come from the repository in `package`.
+      - name: Keep the plugin
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: plugin-win
+          path: build/Release/BrunnerDirect.xpl
+          if-no-files-found: error
+          retention-days: 7
+
+  build-macos:
+    needs: plan
+    if: ${{ needs.plan.outputs.macos == 'true' }}
+    runs-on: macos-15
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+
+      # Universal, -Werror, ad hoc signed and verified, ctest: docs/macos-build.md.
+      - name: Build and test
+        run: src/scripts/build_macos.sh
+
+      - name: Keep the plugin
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: plugin-mac
+          path: build/stage/BrunnerDirect/mac_x64/BrunnerDirect.xpl
+          if-no-files-found: error
+          retention-days: 7
+
+  # Stub, off until LINUX_BUILD is `true`. TODO(linux): build and test with the Linux
+  # toolchain, then replace the failing step and upload build/.../BrunnerDirect.xpl
+  # as `plugin-lin` (the same shape as plugin-win and plugin-mac). `package` already
+  # takes it.
+  build-linux:
+    needs: plan
+    if: ${{ needs.plan.outputs.linux == 'true' }}
+    runs-on: ubuntu-24.04
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - name: Linux plugin build (not written yet)
+        run: |
+          echo "::error::LINUX_BUILD is true but the Linux plugin build is not written yet (TODO(linux) in release.yml)"
+          exit 1
+
+  package:
+    needs: [plan, build-windows, build-macos, build-linux]
+    # Runs when the builds finished one way or another, so a skipped build is judged
+    # below (fine when `plan` turned it off, fatal when it was meant to run).
+    if: ${{ !cancelled() && needs.plan.result == 'success' }}
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
+    permissions:
+      contents: write
+      id-token: write
+      attestations: write
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+
+      - name: Every enabled platform built and passed
+        env:
+          WINDOWS: ${{ needs.plan.outputs.windows }} ${{ needs.build-windows.result }}
+          MACOS: ${{ needs.plan.outputs.macos }} ${{ needs.build-macos.result }}
+          LINUX: ${{ needs.plan.outputs.linux }} ${{ needs.build-linux.result }}
+        run: |
+          fail=0
+          for entry in "Windows:$WINDOWS" "macOS:$MACOS" "Linux:$LINUX"; do
+            name="${entry%%:*}"; rest="${entry#*:}"; enabled="${rest%% *}"; result="${rest#* }"
+            if [ "$enabled" = true ] && [ "$result" != success ]; then
+              echo "::error::$name build was enabled but its result is $result; nothing is published"
+              fail=1
+            fi
+          done
+          exit $fail
+
+      - name: Download the Windows plugin
+        if: ${{ needs.plan.outputs.windows == 'true' }}
+        uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
+        with:
+          name: plugin-win
+          path: dist/in/win
+
+      - name: Download the macOS plugin
+        if: ${{ needs.plan.outputs.macos == 'true' }}
+        uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
+        with:
+          name: plugin-mac
+          path: dist/in/mac
+
+      - name: Download the Linux plugin
+        if: ${{ needs.plan.outputs.linux == 'true' }}
+        uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
+        with:
+          name: plugin-lin
+          path: dist/in/lin
+
       - name: Package
         env:
-          VERSION: ${{ steps.version.outputs.version }}
+          VERSION: ${{ needs.plan.outputs.version }}
+          WINDOWS: ${{ needs.plan.outputs.windows }}
+          MACOS: ${{ needs.plan.outputs.macos }}
+          LINUX: ${{ needs.plan.outputs.linux }}
         run: |
-          $stage=Join-Path $env:RUNNER_TEMP 'stage'
-          $plugin=Join-Path $stage 'BrunnerDirect'
-          New-Item -ItemType Directory -Path (Join-Path $plugin 'win_x64') | Out-Null
-          Copy-Item -LiteralPath build/Release/BrunnerDirect.xpl -Destination (Join-Path $plugin 'win_x64')
-          foreach ($file in 'config/BrunnerDirect.ini','config/BrunnerDirect.profiles.json','config/skunkcrafts_updater.cfg','README.md','LICENSE','NOTICE','SAFETY.md') {
-            Copy-Item -LiteralPath $file -Destination $plugin
-          }
-          Copy-Item -LiteralPath config/yokes -Destination (Join-Path $plugin 'yokes') -Recurse
-          New-Item -ItemType Directory -Path dist | Out-Null
-          $zip="dist/Mesmer-$env:VERSION.zip"
-          Compress-Archive -Path $plugin -DestinationPath $zip
-          $hash=(Get-FileHash -LiteralPath $zip -Algorithm SHA256).Hash.ToLowerInvariant()
-          [IO.File]::WriteAllText((Join-Path $PWD 'dist/SHA256SUMS'),"$hash  Mesmer-$env:VERSION.zip`n")
-          Get-Content dist/SHA256SUMS
+          args=(--version "$VERSION" --out dist)
+          [ "$WINDOWS" = true ] && args+=(--win dist/in/win)
+          [ "$MACOS" = true ] && args+=(--mac dist/in/mac)
+          [ "$LINUX" = true ] && args+=(--linux dist/in/lin)
+          src/scripts/package_release.sh "${args[@]}"
 
       # GitHub attests only public repositories on personal plans, so a release
       # staged while the repository is private has none.
@@ -92,11 +224,12 @@ jobs:
         if: ${{ !github.event.repository.private }}
         uses: actions/attest-build-provenance@4d101475d8b20a2381f78447822ac1eab6504dd8 # v4.2.2
         with:
-          subject-path: dist/Mesmer-${{ steps.version.outputs.version }}.zip
+          subject-path: dist/Mesmer-${{ needs.plan.outputs.version }}.zip
 
       - name: Release notes from CHANGELOG.md
+        shell: pwsh
         env:
-          VERSION: ${{ steps.version.outputs.version }}
+          VERSION: ${{ needs.plan.outputs.version }}
         run: |
           $lines=Get-Content -LiteralPath CHANGELOG.md
           $heading='^##\s+\[?v?'+[regex]::Escape($env:VERSION)+'\]?(\s|\]|$)'
@@ -113,7 +246,6 @@ jobs:
         env:
           GH_TOKEN: ${{ github.token }}
           TAG: ${{ github.ref_name }}
-          VERSION: ${{ steps.version.outputs.version }}
+          VERSION: ${{ needs.plan.outputs.version }}
         run: |
-          gh release create $env:TAG "dist/Mesmer-$env:VERSION.zip" dist/SHA256SUMS --prerelease --verify-tag --title "Mesmer $env:VERSION" --notes-file (Join-Path $env:RUNNER_TEMP 'notes.md')
-          if ($LASTEXITCODE) {exit $LASTEXITCODE}
+          gh release create "$TAG" "dist/Mesmer-$VERSION.zip" dist/SHA256SUMS --prerelease --verify-tag --title "Mesmer $VERSION" --notes-file "$RUNNER_TEMP/notes.md"

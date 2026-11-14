@@ -35,7 +35,7 @@ from with `gh attestation verify <zip> --repo antialias/mesmer`.
 
 ## 3. Unzip into X-Plane's plugins folder
 
-The zip holds one folder, `BrunnerDirect`. Put it in
+The zip holds one folder, `BrunnerDirect`, with a plugin for each supported platform (`win_x64`, `mac_x64`). Put it in
 `X-Plane 12\Resources\plugins\`, so that you have:
 
 ```
@@ -49,7 +49,9 @@ X-Plane 12\
           cls-e.json                   yoke model: CLS-E
           cls-e-ng.json                yoke model: CLS-E NG
         win_x64\
-          BrunnerDirect.xpl            the plugin
+          BrunnerDirect.xpl            the plugin (Windows)
+        mac_x64\
+          BrunnerDirect.xpl            the plugin (macOS; X-Plane loads the one for its platform)
 ```
 
 Not sure where X-Plane is? `%LOCALAPPDATA%\x-plane_install_12.txt` lists every

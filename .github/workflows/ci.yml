@@ -1,5 +1,12 @@
-# Every push and pull request: the plugin's core tests on Linux and macOS, and
-# the full Windows build (the plugin itself is Windows-only) with its tests.
+# Every push and pull request: the plugin's core tests on Linux and the packaging
+# script's tests, the full Windows and macOS (universal) builds with their tests, and
+# the installer. A Linux plugin build is a disabled stub until Linux builds.
+#
+# Each platform build can be switched off without editing this file, by a repository
+# variable (Settings > Secrets and variables > Actions > Variables):
+#   WINDOWS_BUILD, MACOS_BUILD   on unless the variable is exactly `false`
+#   LINUX_BUILD                  off unless the variable is exactly `true`
+# release.yml reads the same three; docs/release-packaging.md is the specification.
 name: ci
 
 on:
@@ -24,7 +31,7 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        os: [ubuntu-24.04, macos-15]
+        os: [ubuntu-24.04] # macOS runs the full build in `macos`; Linux's plugin build is `linux`
     runs-on: ${{ matrix.os }}
     timeout-minutes: 20
     steps:
@@ -37,8 +44,11 @@ jobs:
           cmake --build build --parallel --target brunner_core_test brunner_monitor_test brunner_hud_test brunner_yoke_test brunner_workbench_test
       - name: Test
         run: ctest --test-dir build --output-on-failure
+      - name: Test the release packaging script
+        run: bash tests/test-package-release.sh
 
   windows:
+    if: ${{ vars.WINDOWS_BUILD != 'false' }}
     runs-on: windows-2022
     timeout-minutes: 30
     defaults:
@@ -64,6 +74,40 @@ jobs:
           if ($LASTEXITCODE) {exit $LASTEXITCODE}
       - name: Test
         run: ctest --test-dir build -C Release --output-on-failure
+
+  # The universal (arm64 + x86_64) plugin through the same script a person runs by hand
+  # (docs/macos-build.md): -Werror, both slices, ad hoc signature, ctest. The script
+  # downloads the SDK and checks it against the same pin as XPLANE_SDK_* above.
+  macos:
+    if: ${{ vars.MACOS_BUILD != 'false' }}
+    runs-on: macos-15
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - name: Build and test
+        run: src/scripts/build_macos.sh
+      - name: Test the build and install scripts (no SDK, no X-Plane)
+        run: |
+          tests/test-build-macos.sh
+          tests/test-install-macos.sh
+
+  # Stub, off until LINUX_BUILD is `true`. TODO(linux): build with the Linux toolchain and
+  # test, then replace the failing step with the build; release.yml's `build-linux` needs
+  # the same, and package_release.sh already takes the result (lin_x64/BrunnerDirect.xpl).
+  linux:
+    if: ${{ vars.LINUX_BUILD == 'true' }}
+    runs-on: ubuntu-24.04
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - name: Linux plugin build (not written yet)
+        run: |
+          echo "::error::LINUX_BUILD is true but the Linux plugin build is not written yet (TODO(linux) in ci.yml)"
+          exit 1
 
   # The installer against a fake X-Plane folder and a fake release zip (no network).
   # The README runs it with Windows PowerShell 5.1, so it must also parse there.

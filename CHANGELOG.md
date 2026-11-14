@@ -1,11 +1,19 @@
 # Changelog
 
 Versions are `0.1.0-alpha.N` while Mesmer is a preview. Each is a GitHub
-pre-release with a Windows zip, its SHA-256 in `SHA256SUMS`, and a build
+pre-release with one zip for every platform, its SHA-256 in `SHA256SUMS`, and a build
 provenance attestation.
 
 ## Unreleased
 
+- **macOS in CI and in the release.** `ci.yml` builds the universal plugin on macOS with
+  `build_macos.sh` on every push (replacing the macOS core-tests-only job), and the release builds it
+  too. The release zip now carries every platform's plugin (`win_x64/` and `mac_x64/`, `lin_x64/` once
+  Linux builds) in one `BrunnerDirect/` folder, merged by `src/scripts/package_release.sh`
+  ([release-packaging.md](docs/release-packaging.md)); nothing is published unless every enabled platform
+  built and passed. The repository variables `WINDOWS_BUILD`, `MACOS_BUILD` (on unless `false`) and
+  `LINUX_BUILD` (on only when `true`, a stub for now) switch a platform's build off or on in both
+  workflows.
 - **Pitch and roll reach their real limits.** The position sent to X-Plane was scaled by the preset's travel,
   which for the NG is how far the spring's centre may be written, not where the yoke stops. A model now
   gives the raw encoder counts at each stop (`*_input_low`/`*_input_high`; the NG's measured, the CLS-E's

@@ -40,7 +40,11 @@ as relative to where you ran it.
 The SDK comes from `--sdk`, else `$XPLANE_SDK`, else the pinned download
 (`XPSDK430.zip`, into `build/sdk/`). The download is verified against its
 SHA-256 before it is unpacked, and the pin equals the one in
-`.github/workflows/release.yml`.
+`.github/workflows/release.yml` and `ci.yml`.
+
+CI runs this script on every push (`ci.yml`, job `macos`), and the release builds the macOS
+plugin with it before it is merged into the release zip
+([release-packaging.md](release-packaging.md)).
 
 `build/` is ignored by git. The tests (`ctest`) are the portable core tests and
 run on the host's architecture.

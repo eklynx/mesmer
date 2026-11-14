@@ -10,7 +10,7 @@
 set -euo pipefail
 
 # The X-Plane SDK pin. Keep it equal to XPLANE_SDK_URL / XPLANE_SDK_SHA256 in
-# .github/workflows/release.yml. The overrides exist for tests/test-build-macos.sh.
+# .github/workflows/release.yml and ci.yml. The overrides exist for tests/test-build-macos.sh.
 SDK_URL="${MESMER_SDK_URL:-https://developer.x-plane.com/wp-content/plugins/code-sample-generation/sdk_zip_files/XPSDK430.zip}"
 SDK_SHA256="${MESMER_SDK_SHA256:-b9875ab27b593927b4f9b3e0ddfffe7401ee5dce6d86b50aea0da65f70ff7816}"
 DEPLOYMENT_TARGET="11.0"
