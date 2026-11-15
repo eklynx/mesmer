@@ -53,6 +53,16 @@ brunner::monitor::Window force_monitor,force_hud{true};
 brunner::recording::Recorder recorder;
 // The yoke's buttons on a virtual joystick (Windows only; hid/yoke_buttons.hpp), pressed on this thread.
 brunner::YokeButtons yoke_buttons;
+// Which of the two the yoke's buttons go through: BrunnerDirect.ini's windows_button_style (config.hpp). macOS has
+// only the joystick's HID reports (button_runner); Windows has the virtual joystick (yoke_buttons) unless the ini says HID.
+brunner::WindowsButtonStyle windows_button_style=brunner::WindowsButtonStyle::virtual_joystick;
+bool buttons_from_hid_reports() {
+#ifdef _WIN32
+    return windows_button_style==brunner::WindowsButtonStyle::hid_reports;
+#else
+    return true;
+#endif
+}
 XPLMCommandRef hud_command=nullptr,pin_command=nullptr,move_command=nullptr;
 struct HudDataref {const char* name;int* value;int low,high;};
 HudDataref hud_datarefs[]{
@@ -810,7 +820,7 @@ float update(float,float,int,void*) {
     retry_workbench(now);
     poll_profiles(now,false);
     const auto s=reader.snapshot();
-    yoke_buttons.update(s,now,log);
+    if (!buttons_from_hid_reports()) yoke_buttons.update(s,now,log);
     run_button_presses(now);
     if (!s.loading_result.empty() && s.loading_result!=last_loading) {log(s.loading_result);last_loading=s.loading_result;}
     if (!s.loading_inspection.empty() && s.loading_inspection!=last_inspection) {log("Loading inspection: "+s.loading_inspection);last_inspection=s.loading_inspection;}
@@ -1244,7 +1254,7 @@ PLUGIN_API int XPluginStart(char* name,char* signature,char* description) {
             reader.request_tuning(brunner::TuningField::roll_percent,config.tuning.roll_percent);
             reader.request_tuning(brunner::TuningField::pitch_percent,config.tuning.pitch_percent);
             reader.request_tuning(brunner::TuningField::pitch_trim,config.tuning.pitch_trim);
-            flight_settings=config.flight;workbench_port=config.workbench_port;
+            flight_settings=config.flight;workbench_port=config.workbench_port;windows_button_style=config.windows_button_style;
             log("Loaded managed yoke defaults from BrunnerDirect.ini");
             for (const auto& key:config.retired) log("BrunnerDirect.ini: "+key+" is retired and ignored"+(key=="allow_unverified_yoke"?" (use Developer > Allow unverified yoke models; it is off until you turn it on)":""));
         } else {flight_settings.auto_start=0;log("No startup defaults file; the yoke waits for Re-centre in the plugin menu");}
@@ -1345,7 +1355,16 @@ PLUGIN_API int XPluginEnable() {
         if (!flight_settings.auto_start) yoke.stop();
         reader.start();startup_readiness.reset();
         // The joystick interface is only opened when some button has a command to run: with none, Mesmer touches nothing but the bridge.
-        if (button_commands.size()) button_runner.start();else log("Joystick buttons: no button_commands configured; the yoke's joystick interface is not opened");
+        // On Windows it is opened only with windows_button_style=HID; with VJoy the buttons go to the virtual joystick instead.
+#ifdef _WIN32
+        log(buttons_from_hid_reports()
+            ?"Yoke buttons: the yoke's joystick HID reports run button_commands (windows_button_style=HID in BrunnerDirect.ini); vJoy is not used"
+            :"Yoke buttons: the virtual joystick, vJoy device 1 (windows_button_style=VJoy in BrunnerDirect.ini); the yoke's joystick interface is not opened");
+#endif
+        if (buttons_from_hid_reports()) {
+            if (button_commands.size()) button_runner.start();
+            else log("Joystick buttons: no button_commands configured; the yoke's joystick interface is not opened");
+        }
         simulator_ready_for_start=false;enabled=true;
         XPLMRegisterFlightLoopCallback(update,0.1f,nullptr);XPLMScheduleFlightLoop(readiness_loop,-1.0f,1);
         start_workbench();

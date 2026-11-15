@@ -35,8 +35,8 @@ C++17 with tests that run on macOS and Windows.
 | `brunner/readonly.hpp` | What happens with a yoke the plugin does not drive (an unknown model, or an unverified one): only reads, a learned travel for pitch and roll ([spec](read-only-mode.md)) |
 | `brunner/reader.cpp`, `brunner/bridge.hpp` | The reader thread and its request/reply layer; the same on every platform |
 | `hid/hid_device.hpp`, `hid/usb_ids.hpp`, `hid/hid_select.cpp` | The seam to the operating system and the USB ids Mesmer opens ([spec](hid-bridge.md)) |
-| `hid/win/hid_win.cpp`, `hid/mac/hid_mac.cpp` | The Windows and macOS HID access |
-| `hid/joystick_device.hpp`, `hid/report_decoder.hpp`, `hid/mac/joystick_mac.cpp` | The yoke's joystick interface, observed read-only: the seam, the descriptor-driven report decoder and the macOS implementation ([spec](button-commands.md)) |
+| `hid/win/hid_win.cpp`, `hid/mac/hid_mac.cpp`, `hid/win/hid_common_win.hpp` | The Windows and macOS HID access; the Windows HID walk and handle the bridge and the joystick reader share |
+| `hid/joystick_device.hpp`, `hid/report_decoder.hpp`, `hid/mac/joystick_mac.cpp`, `hid/win/joystick_win.cpp` | The yoke's joystick interface, observed read-only: the seam, the shared report decoder (from the descriptor on macOS, from Windows' parse on Windows) and the two implementations; Windows uses it only with `windows_button_style=HID` ([spec](button-commands.md)) |
 | `brunner/yoke_profile.hpp`, `brunner/button_input.hpp`, `brunner/button_runner.hpp` | Which reports are genuine, press detection, the button-to-command map and the thread that runs them ([spec](button-commands.md)) |
 | `plugin.cpp` | The X-Plane plugin's glue: commands, the flight loop, start and stop, and what the menu, the corner line and the datarefs show |
 | `xplane/sim.hpp`, `xplane/published.hpp` | Every X-Plane dataref the plugin reads or writes, and the `brunner_direct/...` datarefs it publishes |

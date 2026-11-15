@@ -30,8 +30,8 @@ std::size_t select_bridge(const std::vector<HidCandidate>& candidates,const std:
     throw BridgeAbsent{};
 }
 }
-#ifndef __APPLE__
-// Only macOS observes the joystick interface so far (hid/joystick_device.hpp); other platforms say there is none.
+#if !defined(__APPLE__) && !defined(_WIN32)
+// macOS and Windows observe the joystick interface (hid/joystick_device.hpp); other platforms say there is none.
 namespace hid {
 std::unique_ptr<JoystickDevice> open_joystick(std::uint16_t,std::string& why) {why="not implemented on this platform";return nullptr;}
 }

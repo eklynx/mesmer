@@ -57,7 +57,7 @@ void ButtonRunner::run() {
             wait_retry();
             continue;
         }
-        const auto layout = hid::parse_report_layout(device->descriptor());
+        const auto layout = device->layout();
         if (!layout) {
             set_status("Joystick buttons: the joystick interface has no buttons or hat; not used");
             wait_retry();

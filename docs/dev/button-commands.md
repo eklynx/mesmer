@@ -15,7 +15,7 @@ The NG's USB presents two HID interfaces ([hid-bridge.md](hid-bridge.md) covers 
 | Interface | Usage | Mesmer |
 |---|---|---|
 | Bridge | vendor page `0xFF00` / `0xFF02`, 64-byte reports | Seized; the controller protocol |
-| Joystick | Generic Desktop `0x01` / Joystick `0x04`, 6-byte reports, no report ID | Observed: shared (`kIOHIDOptionsTypeNone`), read-only, never written. X-Plane keeps reading the same reports |
+| Joystick | Generic Desktop `0x01` / Joystick `0x04`, 6-byte reports, no report ID | Observed: shared (`kIOHIDOptionsTypeNone` on macOS, `GENERIC_READ` shared both ways on Windows), read-only, never written. X-Plane keeps reading the same reports |
 
 The joystick interface is found by Brunner's vendor id (`0x25BB`) **and** its top-level usage, in the OS's own
 match, so the bridge is never touched by the search; the search's shared open is released again before the joystick
@@ -24,6 +24,22 @@ opens nothing but the bridge, and `Log.txt` says so once at start. (That also me
 once there is something bound.) More than one
 match is refused ("found several"); none, or no permission, is not an error: Mesmer looks again every two seconds
 and `Log.txt` says why when the OS says.
+
+On Windows this is the button path only when `BrunnerDirect.ini` says `windows_button_style=HID`
+([advanced configuration](advanced-configuration.md#windows-button-style)). With `VJoy`, the default, Windows feeds the vJoy virtual joystick instead
+([buttons.md](../buttons.md)) and the joystick interface is never opened, whatever `button_commands` holds. macOS
+has no choice to make. Either way the reader still reads node 2's button word over the bridge each cycle.
+
+On Windows the same code is used for everything except opening the interface and reading from it
+(`src/hid/win/joystick_win.cpp`). The interface is found through the same HID walk the bridge uses
+(`src/hid/win/hid_common_win.hpp`) and opened `GENERIC_READ`, shared both ways: Windows gives every program that
+opens a joystick its own copy of each report, so X-Plane still gets them. Windows gives no program the raw report
+descriptor, so the layout comes from Windows' own parse of it instead. Each input usage is written all ones into an
+empty report (`HidP_SetUsages`, `HidP_SetUsageValue`), and the bits that change are that usage's.
+`layout_from_fields` (`src/hid/report_decoder.hpp`) turns those bits into the same `ReportLayout` that
+`parse_report_layout` gets from the descriptor. On the NG they match bit for bit (checked with
+`brunner_joystick_probe`, built with the Windows tools). Windows starts every report with a report-ID byte, 0
+when the device uses none, and the payload is what follows it.
 
 ## Report layout (from the descriptor, not fixed offsets)
 
@@ -53,7 +69,7 @@ profile says so. The default profile, used for every model, drops a report with:
 Every dropped report is counted by rule, and at most every 10 seconds `Log.txt` says
 `Joystick buttons: dropped N glitched reports (rule: count, ...)`, **whether or not `debug_log` is on** (the line is
 also in the recording when `debug_log=1`). Nothing is logged in a period with no drops. Other operating systems have
-no joystick reader yet; the decoder, profile and filter are the same code, so one only needs a `JoystickDevice`.
+no joystick reader yet; the decoder, profile and filter are the same code, so one only needs a `JoystickDevice`. (macOS and Windows have one.)
 
 Because Mesmer cannot stop X-Plane seeing the same reports, **leave X-Plane's own bindings for these
 buttons and the hat unset** and bind commands in `button_commands` instead.
