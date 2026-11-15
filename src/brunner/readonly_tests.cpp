@@ -445,18 +445,44 @@ void the_supervisor_asks_for_nothing() {
     yoke.retry();yoke.force_feel_switched_on();in.force_feel=true;in.input_ready=true;quiet();   // nothing the pilot asks makes it act
     yoke.stop();quiet();
 }
-// The owner's saved choice: only an exact, literal "true" in a file of this version turns it on.
+// The owner's saved state. Unverified: only an exact, literal "true" turns it on. The startup overrides
+// (auto_start, force_feel) are absent unless a literal true or false. Each key is judged alone; a file that is
+// not a JSON object of this version is ignored whole.
+OwnerState unverified(bool allow) {OwnerState s;s.allow_unverified_yoke=allow;return s;}
 void the_saved_owner_state() {
-    check(!OwnerState{}.allow_unverified_yoke);
-    check(parse_owner_state(serialize_owner_state({true})).allow_unverified_yoke);
-    check(!parse_owner_state(serialize_owner_state({false})).allow_unverified_yoke);
-    check(serialize_owner_state({true})==std::string("{\"version\":1,\"allow_unverified_yoke\":true}\n"));
-    for (const auto* doubtful:{"","not json","{}","[]","null","true","{\"version\":1}","{\"allow_unverified_yoke\":true}",
-            "{\"version\":2,\"allow_unverified_yoke\":true}","{\"version\":\"1\",\"allow_unverified_yoke\":true}","{\"version\":1.5,\"allow_unverified_yoke\":true}",
-            "{\"version\":1,\"allow_unverified_yoke\":\"true\"}","{\"version\":1,\"allow_unverified_yoke\":1}","{\"version\":1,\"allow_unverified_yoke\":null}",
-            "{\"version\":1,\"allow_unverified_yoke\":\"yes\"}","{\"version\":1,\"allow_unverified_yoke\":true,\"other\":1}",
-            "{\"version\":1,\"allow_unverified_yoke\":true} trailing","{\"version\":1,\"allow_unverified_yoke\":tru"})
-        check(!parse_owner_state(doubtful).allow_unverified_yoke);     // any doubt is off
+    check(!OwnerState{}.allow_unverified_yoke && !OwnerState{}.auto_start && !OwnerState{}.force_feel);
+    check(parse_owner_state(serialize_owner_state(unverified(true))).allow_unverified_yoke);
+    check(!parse_owner_state(serialize_owner_state(unverified(false))).allow_unverified_yoke);
+    check(serialize_owner_state(unverified(true))==std::string("{\"version\":1,\"allow_unverified_yoke\":true}\n"));   // the original form, without overrides
+    // Overrides: written only when set, read back, and kept whatever the unverified choice does.
+    OwnerState both;both.allow_unverified_yoke=true;both.auto_start=true;both.force_feel=false;
+    check(serialize_owner_state(both)==std::string("{\"version\":1,\"allow_unverified_yoke\":true,\"auto_start\":true,\"force_feel\":false}\n"));
+    check(read_owner_state(serialize_owner_state(both)).state==both && read_owner_state(serialize_owner_state(both)).notes.empty());
+    OwnerState only_feel;only_feel.force_feel=true;
+    check(serialize_owner_state(only_feel)==std::string("{\"version\":1,\"allow_unverified_yoke\":false,\"force_feel\":true}\n"));
+    check(read_owner_state("{\"version\":1,\"auto_start\":false}").state.auto_start==std::optional<bool>(false));   // every key but version is optional
+    check(read_owner_state("{\"version\":1}").state==OwnerState{} && read_owner_state("{\"version\":1}").notes.empty());
+    // A wrong key is ignored and named; the others still apply.
+    for (const auto* bad:{"\"yes\"","1","null","\"true\"","[true]","{}"}) {
+        const auto r=read_owner_state(std::string("{\"version\":1,\"allow_unverified_yoke\":true,\"auto_start\":")+bad+",\"force_feel\":true}");
+        check(r.state.allow_unverified_yoke && !r.state.auto_start && r.state.force_feel==std::optional<bool>(true));
+        check(r.notes.size()==1 && r.notes[0].find("auto_start must be true or false")!=std::string::npos);
+    }
+    {   // an unverified value that is wrong stays off, and an unknown key is ignored and named
+        const auto r=read_owner_state("{\"version\":1,\"allow_unverified_yoke\":\"true\",\"mystery\":1,\"force_feel\":true}");
+        check(!r.state.allow_unverified_yoke && r.state.force_feel==std::optional<bool>(true) && r.notes.size()==2);
+        check(r.notes[0].find("allow_unverified_yoke must be true or false")!=std::string::npos && r.notes[1].find("unknown key \"mystery\"")!=std::string::npos);
+    }
+    // A file that is not this version's object is ignored whole, with one note, even when it says true.
+    for (const auto* doubtful:{"","not json","{}","[]","null","true","{\"allow_unverified_yoke\":true,\"auto_start\":true}",
+            "{\"version\":2,\"allow_unverified_yoke\":true,\"auto_start\":true}","{\"version\":\"1\",\"allow_unverified_yoke\":true}","{\"version\":1.5,\"allow_unverified_yoke\":true}",
+            "{\"version\":1,\"allow_unverified_yoke\":true} trailing","{\"version\":1,\"allow_unverified_yoke\":tru"}) {
+        const auto r=read_owner_state(doubtful);
+        check(r.state==OwnerState{} && r.notes.size()==1 && r.notes[0].find("ignored")!=std::string::npos);
+    }
+    // Precedence: an override beats the ini's value; none leaves it.
+    check(applied(true,0)==1 && applied(false,1)==0 && applied(true,1)==1 && applied(false,0)==0);
+    check(applied(std::nullopt,0)==0 && applied(std::nullopt,1)==1);
 }
 // What the menu toggle does to the reader: stop it, change the choice, start it again.
 void the_toggle_restarts_the_reader_with_the_new_choice() {

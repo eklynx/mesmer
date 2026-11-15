@@ -10,6 +10,9 @@ set it up:
 The yoke models (`yokes/*.json`) and your optional overrides of them are developer
 settings: see [advanced configuration](dev/advanced-configuration.md).
 
+Your own startup choices that an update must not replace go in
+[`BrunnerDirect.state.json`](#brunnerdirectstatejson), in X-Plane's `Output` folder.
+
 A third, `BrunnerDirect.feel.ini`, is written by the feel page's *Save*
 button. It overlays the drive calibration and the elevator figures you saved
 there on top of the two files above, each time X-Plane starts. Delete it to
@@ -29,8 +32,8 @@ that `auto_start` is 0 and the feel page is off.
 | Key | Release | Bounds | What it does |
 |---|---|---|---|
 | `schema_version` | 6 | 2 to 6 | The file's format. Required. |
-| `auto_start` | **0** | 0 or 1 | 0: after X-Plane starts, the yoke waits for your *Retry* before it moves for the first time. 1: the plugin centres the yoke by itself as soon as X-Plane is steady and the yoke is still. Either way, after the first centring it looks after the yoke by itself. |
-| `force_feel` | **0** | 0 or 1 | Whether force feel is on when X-Plane starts. Pitch and roll work either way. Optional; 0 if missing. |
+| `auto_start` | **0** | 0 or 1 | 0: after X-Plane starts, the yoke waits for your *Retry* before it moves for the first time. 1: the plugin centres the yoke by itself as soon as X-Plane is steady and the yoke is still. Either way, after the first centring it looks after the yoke by itself. [`BrunnerDirect.state.json`](#brunnerdirectstatejson) can override it. |
+| `force_feel` | **0** | 0 or 1 | Whether force feel is on when X-Plane starts. Pitch and roll work either way. Optional; 0 if missing. [`BrunnerDirect.state.json`](#brunnerdirectstatejson) can override it. |
 | `workbench_port` | 8087 | 0, or 1024 to 65535 | The feel page's port on your local network. 0 turns the page off. If the port is taken, the menu says *Feel tuning unavailable: port 8087 in use* and the plugin tries again every 5 seconds. |
 | `pitch_force_units_per_lb` | 222 | 50 to 1000 | How hard: the drive's force units per pound at the grip. Worked out from CLS2Sim's display units, not measured. It changes how hard the yoke pushes, never where it rests. |
 | `roll_torque_units_per_nm` | 1000 | 100 to 10000 | The same for roll: drive units per N·m at the wheel. Worked out, not measured. |
@@ -45,6 +48,34 @@ that `auto_start` is 0 and the feel page is off.
 Keys from older versions of the plugin (`roll_spring_percent`,
 `pitch_spring_percent`, `minimum_spring_percent` and others) are accepted,
 ignored, and listed in `Log.txt` as *retired and ignored* (see [advanced configuration](dev/advanced-configuration.md)).
+
+## BrunnerDirect.state.json
+
+Your own startup choices, in `X-Plane 12/Output/BrunnerDirect/BrunnerDirect.state.json`. Unlike
+`BrunnerDirect.ini`, this file is not in the plugin folder, so updating or reinstalling the plugin
+never replaces it. It is optional and you write it by hand; the plugin reads it once, when X-Plane
+starts, after the ini.
+
+```json
+{"version":1,"auto_start":true,"force_feel":true}
+```
+
+| Key | Values | What it does |
+|---|---|---|
+| `version` | 1 | Required. A file without `"version":1` is ignored whole. |
+| `auto_start` | `true` or `false` | Overrides the ini's `auto_start`. With `true` the plugin centres the yoke by itself soon after X-Plane starts, so **keep clear of the yoke and read [SAFETY.md](../SAFETY.md) first**. |
+| `force_feel` | `true` or `false` | Overrides the ini's `force_feel`: whether force feel is on when X-Plane starts. |
+
+A key you leave out keeps the ini's value, so the ini is still where the defaults are and the state
+file only changes what you name. The values are the words `true` and `false`, not 1, 0 or text.
+A wrong value, or a key this version does not know, is ignored on its own and the other keys still
+apply; `Log.txt` says which, for example
+`BrunnerDirect.state.json: auto_start must be true or false; ignored`. When an override is in effect
+the log says so: `auto_start 1 from BrunnerDirect.state.json (BrunnerDirect.ini: 0)`.
+
+The plugin never changes your two settings: switching force feel on or off in the menu is for
+this session only. The file also holds a developer setting the plugin writes itself; it keeps your
+keys when it does ([advanced configuration](dev/advanced-configuration.md)).
 
 ## BrunnerDirect.profiles.json
 

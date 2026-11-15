@@ -161,6 +161,9 @@ std::vector<std::string> yoke_shipped_texts; // the yokes/ folder as read, kept 
 std::string direction_note;                   // why the last direction change from the page failed
 // The owner's choice to drive a yoke model that is not verified (brunner/owner_state.hpp): off unless saved on.
 bool allow_unverified_yoke=false;
+// The whole saved state (brunner/owner_state.hpp): the unverified choice above is its menu-written part; the
+// startup overrides in it are hand-edited, applied once after the ini, and written back unchanged on every save.
+brunner::OwnerState owner_state;
 enum class LiveField { roll_target,pitch_target,trim_target,roll_applied,pitch_applied,trim_applied,
     connected,reference_active,referenced,loading_active,tuning_valid,remaining,sample_age,
     roll_encoder,pitch_encoder,roll_status,pitch_status,last_write_accepted,rejected_writes,
@@ -549,20 +552,30 @@ void save_owner_state();
 // exactly what is written is ignored and means off, and the log says so. An older install kept
 // the file in the plugin folder: it is read when the new place has none, and saved to the new place.
 void load_owner_state() {
-    allow_unverified_yoke=false;
+    allow_unverified_yoke=false;owner_state={};
     const auto path=owner_state_path();
     bool moved=false;
     std::ifstream in(path,std::ios::binary);
     if (!in) {in.clear();in.open(plugin_folder/brunner::state_file,std::ios::binary);moved=static_cast<bool>(in);}
     if (in) {
         std::stringstream text;text<<in.rdbuf();
-        const auto state=brunner::parse_owner_state(text.str());
-        allow_unverified_yoke=state.allow_unverified_yoke;
-        if (!allow_unverified_yoke && text.str()!=brunner::serialize_owner_state({}))
-            log(std::string("Ignored ")+brunner::state_file+": not valid, so unverified yoke models stay off");
+        const auto read=brunner::read_owner_state(text.str());
+        owner_state=read.state;allow_unverified_yoke=owner_state.allow_unverified_yoke;
+        for (const auto& note:read.notes) log(note);
         if (moved) {log("Found "+std::string(brunner::state_file)+" in the plugin folder; saving it to "+path.string());save_owner_state();}
     }
     log(std::string("Allow unverified yoke models: ")+(allow_unverified_yoke?"ON":"off")+" (Developer menu)");
+}
+// The startup overrides in the state file beat BrunnerDirect.ini's auto_start and force_feel (the ini is read
+// first, then this). Each one in effect is logged with the ini's value, so Log.txt says where a setting came from.
+void apply_owner_overrides() {
+    const auto apply=[&](const char* key,const std::optional<bool>& wanted,int& setting) {
+        const int ini=setting;
+        setting=brunner::applied(wanted,ini);
+        if (wanted) log(std::string(key)+" "+std::to_string(setting)+" from "+brunner::state_file+" (BrunnerDirect.ini: "+std::to_string(ini)+")");
+    };
+    apply("auto_start",owner_state.auto_start,flight_settings.auto_start);
+    apply("force_feel",owner_state.force_feel,flight_settings.force_feel);
 }
 // Written atomically (temp file, then rename) into Output/BrunnerDirect. A failed save is logged and the
 // choice still holds for this run.
@@ -573,7 +586,8 @@ void save_owner_state() {
     const std::filesystem::path temp=path.string()+".tmp";
     {
         std::ofstream out(temp,std::ios::binary|std::ios::trunc);
-        out<<brunner::serialize_owner_state({allow_unverified_yoke});
+        auto saved=owner_state;saved.allow_unverified_yoke=allow_unverified_yoke;   // the hand-edited overrides are kept as read
+        out<<brunner::serialize_owner_state(saved);
         if (!out) {log("Could not save "+path.string()+": the choice holds for this run only");return;}
     }
     std::filesystem::rename(temp,path,ec);
@@ -1184,7 +1198,7 @@ PLUGIN_API int XPluginStart(char* name,char* signature,char* description) {
         for (const auto& line:wb::managed_adjustments(flight_settings)) log(line);
         bench=std::make_unique<wb::Workbench>(wb::from_managed(flight_settings));
         for (const auto& line:bench->load(plugin_folder)) log(line);
-        load_yoke_presets();
+        load_yoke_presets();apply_owner_overrides();
         sync_feel(brunner::Clock::now());
     } catch (const std::exception& e) {log(std::string("Configuration invalid; plugin not started: ")+e.what());return 0;}
     yoke_menu.create({menu_action,[](const std::string& line) {log(line);}},feel_menu_text);

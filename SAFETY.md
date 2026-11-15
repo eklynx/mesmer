@@ -48,7 +48,8 @@ If a stop cannot be confirmed by the drive, the line reads
   After that first centring the plugin looks after the yoke by itself for the
   rest of the session: it centres it again, without asking, after a power
   cycle or a replugged cable. You can change this with `auto_start` in
-  [configuration](docs/configuration.md).
+  [configuration](docs/configuration.md) (in `BrunnerDirect.ini`, or in `BrunnerDirect.state.json`,
+  which an update does not replace).
 - **Force feel is off.** With force feel off the motors are off after
   centring and the yoke moves freely. Force feel comes on only when you
   switch it on, and it is off again at the next X-Plane start.

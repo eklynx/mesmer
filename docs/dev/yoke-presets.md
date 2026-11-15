@@ -98,8 +98,8 @@ model with less travel has a proportionally stiffer spring per count.
 - **A model that is not `verified`** is read-only unless **Developer > Allow
   unverified yoke models** in the Yoke (Brunner) menu is on (see
   [read-only-mode.md](read-only-mode.md)). The choice is saved in
-  `Output/BrunnerDirect/BrunnerDirect.state.json` in X-Plane's folder (an older copy in the plugin folder is read once and saved there), is off by default, and anything
-  doubtful in that file means off. Flipping it takes effect at once: the reader
+  `Output/BrunnerDirect/BrunnerDirect.state.json` in X-Plane's folder (an older copy in the plugin folder is read once and saved there), is off by default, and only a literal
+  `true` turns it on (the file's other rules: [advanced configuration](advanced-configuration.md#the-state-file)). Flipping it takes effect at once: the reader
   restarts, so turning it off stops force feel and returns to read-only, and turning
   it on starts the test write and then the normal flow (which stops the motors and
   centres the yoke: it moves). The older `allow_unverified_yoke` key in

@@ -89,4 +89,5 @@ the airspeed, power and what the feel page showed.
 
 Force feel is off again the next time X-Plane starts. To start every flight
 with it on, set `force_feel=1` in `BrunnerDirect.ini`; to skip the first
-*Retry*, set `auto_start=1`. See [configuration](configuration.md).
+*Retry*, set `auto_start=1`. Both can also go in `BrunnerDirect.state.json`, which an
+update does not replace. See [configuration](configuration.md).
