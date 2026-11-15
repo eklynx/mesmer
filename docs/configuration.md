@@ -39,6 +39,7 @@ that `auto_start` is 0 and the feel page is off.
 | `roll_torque_units_per_nm` | 1000 | 100 to 10000 | The same for roll: drive units per N·m at the wheel. Worked out, not measured. |
 | `pitch_force_gain_divisor` | 6 | 1 to 6 | The drive's own drag on pitch (its force gain is 1/this). 6 is the drive's own setting; lower values are untested. |
 | `pitch_move_back_gain` | 180 | 180 to 720 | The drive's move-back gain on pitch. 180 is its own; higher values are untested. |
+| `debug_log` | **0** | 0 or 1 | 1: write a session recording, `ffb-*.jsonl` files in `Output/BrunnerDirect` (16 MB each, the newest 16 kept), which the HUD and force monitor label *Debug log: recording*. For diagnosing a problem; turn it on when asked to send one. 0: nothing is recorded (*Debug log: off*). Optional; 0 if missing. |
 | `buffet` | 0 | 0 or 1 | A shake at the stall through the drive's vibration generator. Untested with the motors on. Optional. |
 | `buffet_percent` | 10 | 0 to 100 | Buffet's strength, as a share of the plugin's own ceiling for it. Optional. |
 | `buffet_period` | 80 | 10 to 140 | The vibration generator's raw time setting; its frequency is not confirmed. Optional. |

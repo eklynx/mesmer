@@ -17,6 +17,7 @@ struct FlightSettings {
     // aileron model is force-exact below it). Kept for the panel's line.
     int roll_minimum_percent=softest_spring_percent;
     int force_feel=0; // startup default for the pilot's force-feel switch; off until Step 1 flips it
+    int debug_log=0;  // 1: write the session recorder's Output/BrunnerDirect/ffb-*.jsonl files; off by default (BrunnerDirect.ini)
     // Roll drive torque units per N·m at the wheel. DERIVED from CLS2Sim's
     // display factor for this yoke's roll, 0.001 N·m per unit
     // (docs/brunner/calibration-control.md): 1000. Unmeasured, as pitch's is;
@@ -40,7 +41,7 @@ struct FlightSettings {
     int read_only_roll_reverse=0,read_only_pitch_reverse=0;
 };
 inline bool valid_flight_settings(const FlightSettings& c) {
-    return (c.auto_start==0 || c.auto_start==1) && (c.force_feel==0 || c.force_feel==1)
+    return (c.auto_start==0 || c.auto_start==1) && (c.force_feel==0 || c.force_feel==1) && (c.debug_log==0 || c.debug_log==1)
         && c.roll_torque_units_per_nm>=100 && c.roll_torque_units_per_nm<=10000
         && c.pitch_force_units_per_lb>=50 && c.pitch_force_units_per_lb<=1000
         && c.pitch_force_gain_divisor>=1 && c.pitch_force_gain_divisor<=6 && c.pitch_move_back_gain>=180 && c.pitch_move_back_gain<=720

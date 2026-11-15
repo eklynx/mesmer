@@ -1273,7 +1273,11 @@ PLUGIN_API int XPluginEnable() {
     try {
         char system_path[1024]{};XPLMGetSystemPath(system_path);
         output_folder=std::filesystem::path(system_path)/"Output"/"BrunnerDirect";
-        recorder.start(output_folder);
+        // The session recorder's ffb-*.jsonl files are off unless BrunnerDirect.ini says debug_log=1; while it is not
+        // running its observe() and event() do nothing and the HUD reads "Debug log: off".
+        if (flight_settings.debug_log) recorder.start(output_folder);
+        log(flight_settings.debug_log?"Debug log: on (debug_log=1 in BrunnerDirect.ini); writing ffb-*.jsonl to "+output_folder.string()
+                                     :"Debug log: off (debug_log=0 in BrunnerDirect.ini); no ffb-*.jsonl files are written");
         recorder.event("Plugin enabled; force settings preserved; HUD telemetry schema 1");
         force_hud.show_hud();create_startup_notice();sim.identify_aircraft();sim.bind_surfaces();
         session_drag.reset();poll_profiles(brunner::Clock::now(),true);log_feel_events();

@@ -791,6 +791,14 @@ int main() {
         check((managed.retired==std::vector<std::string>{"maximum_trim_counts","minimum_spring_percent","pitch_spring_percent","roll_spring_percent"}));
         std::istringstream crlf("# managed\r\n schema_version = 2\r\nroll_spring_percent=20\r\npitch_spring_percent=100\r\npitch_trim_counts=-600\r\n"+flight_config);
         check(same_tuning(parse_configuration(crlf).tuning,{40,40,-600}));
+        // The debug log (the recorder's ffb-*.jsonl files): off unless the file turns it on; 0 or 1 only.
+        check(managed.flight.debug_log==0);
+        {
+            std::istringstream on(config+"debug_log=1\n"),off(config+"debug_log=0\n");
+            check(parse_configuration(on).flight.debug_log==1 && parse_configuration(off).flight.debug_log==0);
+            for (const auto* refused_line:{"debug_log=2\n","debug_log=-1\n","debug_log=\n"})
+                rejects([&]{std::istringstream stream(config+refused_line);parse_configuration(stream);});
+        }
         // Buffet: off unless the file turns it on; its knobs held to their bounds.
         check(managed.flight.buffet==0 && managed.flight.buffet_percent==10 && managed.flight.buffet_period==80);
         {
