@@ -6,23 +6,9 @@ pre-release with one zip for every platform, its SHA-256 in `SHA256SUMS`, and a 
 provenance attestation. The first previews were numbered 0.1.0-alpha.1 to
 0.1.0-alpha.3; 0.1.0 follows them.
 
-## 0.1.1
+## 0.0.6
 
-This release fixes how the installer picks a release when you don't name one. The plugin flies as it does in 0.1.0.
-
-- **The installer takes the highest version.** GitHub doesn't list releases in version order. After 0.1.0 was published it listed v0.1.0-alpha.3 above v0.1.0, so `install.ps1` without `-Tag` could install 0.1.0-alpha.3 instead of 0.1.0. It now reads up to 100 releases and skips drafts and tags that aren't versions. It then takes the highest vMAJOR.MINOR.PATCH, comparing the numbers as numbers, and counts a tag ending in -alpha.N, -beta.N or -rc.N as older than the same number without it. If you ran it that way after 0.1.0 came out, run it again to get the newest release.
-- **Installing with an agent.** [INSTALL-WITH-AN-AGENT.md](INSTALL-WITH-AN-AGENT.md) now tells the agent to skip drafts and take the highest tag by the same rule, not the first release GitHub lists.
-- **Installing by hand.** [The README](README.md) and [docs/install.md](docs/install.md) now say to download the zip of the highest version, not the latest pre-release. docs/install.md also notes that 0.1.0 is newer than 0.1.0-alpha.3.
-
-## 0.1.0
-
-The first release numbered major.minor.patch. The plugin flies as 0.1.0-alpha.3 does.
-
-- **New version numbers.** 0.1.0 follows 0.1.0-alpha.3. From now on the patch number goes up for fixes and the minor number for anything new. Below 1.0.0 Mesmer is still a preview, and each release is still a GitHub pre-release. The opening paragraph of [the changelog](CHANGELOG.md) explains the scheme.
-- **"Preview" where it said "alpha".** The badge and the warning box near the top of [the README](README.md), the safety paragraph near its end, and the "No warranty" section of [SAFETY.md](SAFETY.md) now call Mesmer preview software. So does the header comment of `config/BrunnerDirect.ini`. The help for `install.ps1 -Tag` now gives `v0.1.0` as its example, and so does the Mesmer version field of the bug report form. Only the wording changed.
-- **Release tags.** [The release workflow](.github/workflows/release.yml) now builds only from tags of the form `v<major.minor.patch>`. It stops at any other tag with "is not v<major.minor.patch>".
-
-## Unreleased
+A release for the fork (eklynx/mesmer), numbered in its own 0.0.x series. It carries everything since 0.1.1 in the original project:
 
 - **The `ffb-*.jsonl` debug log is off by default.** The session recorder used to write `Output/BrunnerDirect/ffb-*.jsonl` (up to 256 MB) on every run. It now writes nothing unless `BrunnerDirect.ini` has the new optional key `debug_log=1`; `Log.txt` says which at startup and the HUD reads *Debug log: off*. See [configuration](docs/configuration.md).
 - **`BrunnerDirect.state.json` can override `auto_start` and `force_feel`.** The file in X-Plane's `Output/BrunnerDirect` folder, which an update never replaces, now takes optional `"auto_start"` and `"force_feel"` values (`true` or `false`) that beat the same keys in `BrunnerDirect.ini`. A wrong value or unknown key is ignored on its own and named in `Log.txt`, and each override in effect is logged. The plugin never writes them and keeps them when it saves the Developer toggle. A file that has an unknown key no longer switches off `allow_unverified_yoke` as a whole; only that key is ignored. See [configuration](docs/configuration.md#brunnerdirectstatejson).
@@ -142,6 +128,22 @@ The first release numbered major.minor.patch. The plugin flies as 0.1.0-alpha.3 
   classic `Volume:Folder:` paths), and `Log.txt` now says why a yoke was
   refused. The reader is split so the Windows and macOS HID access are small separate files; see
   `docs/dev/hid-bridge.md`.
+
+## 0.1.1
+
+This release fixes how the installer picks a release when you don't name one. The plugin flies as it does in 0.1.0.
+
+- **The installer takes the highest version.** GitHub doesn't list releases in version order. After 0.1.0 was published it listed v0.1.0-alpha.3 above v0.1.0, so `install.ps1` without `-Tag` could install 0.1.0-alpha.3 instead of 0.1.0. It now reads up to 100 releases and skips drafts and tags that aren't versions. It then takes the highest vMAJOR.MINOR.PATCH, comparing the numbers as numbers, and counts a tag ending in -alpha.N, -beta.N or -rc.N as older than the same number without it. If you ran it that way after 0.1.0 came out, run it again to get the newest release.
+- **Installing with an agent.** [INSTALL-WITH-AN-AGENT.md](INSTALL-WITH-AN-AGENT.md) now tells the agent to skip drafts and take the highest tag by the same rule, not the first release GitHub lists.
+- **Installing by hand.** [The README](README.md) and [docs/install.md](docs/install.md) now say to download the zip of the highest version, not the latest pre-release. docs/install.md also notes that 0.1.0 is newer than 0.1.0-alpha.3.
+
+## 0.1.0
+
+The first release numbered major.minor.patch. The plugin flies as 0.1.0-alpha.3 does.
+
+- **New version numbers.** 0.1.0 follows 0.1.0-alpha.3. From now on the patch number goes up for fixes and the minor number for anything new. Below 1.0.0 Mesmer is still a preview, and each release is still a GitHub pre-release. The opening paragraph of [the changelog](CHANGELOG.md) explains the scheme.
+- **"Preview" where it said "alpha".** The badge and the warning box near the top of [the README](README.md), the safety paragraph near its end, and the "No warranty" section of [SAFETY.md](SAFETY.md) now call Mesmer preview software. So does the header comment of `config/BrunnerDirect.ini`. The help for `install.ps1 -Tag` now gives `v0.1.0` as its example, and so does the Mesmer version field of the bug report form. Only the wording changed.
+- **Release tags.** [The release workflow](.github/workflows/release.yml) now builds only from tags of the form `v<major.minor.patch>`. It stops at any other tag with "is not v<major.minor.patch>".
 
 ## 0.1.0-alpha.3
 
