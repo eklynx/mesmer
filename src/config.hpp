@@ -5,6 +5,7 @@
 #include <charconv>
 #include <istream>
 #include <map>
+#include <optional>
 #include <string>
 #include <vector>
 
@@ -27,9 +28,22 @@ inline std::string config_trim(const std::string& text) {
 // still parse, so a new plugin starts on an install's older file: retired
 // keys are accepted and ignored (listed in `retired` for the log), in every
 // schema.
-struct Configuration {Tuning tuning;FlightSettings flight;int workbench_port=0;std::vector<std::string> retired;};
+// windows_button_style (optional, every schema; the one key whose value is a word, not a number): how the yoke's
+// buttons reach X-Plane on Windows (hid/yoke_buttons.hpp, docs/dev/button-commands.md), in any case. VJoy, the
+// default: Brunner's virtual joystick, fed from node 2's button word over the bridge. HID: the yoke's own joystick
+// HID reports into button_commands, as on macOS. Anything else fails closed like any bad value. macOS ignores it.
+enum class WindowsButtonStyle {virtual_joystick,hid_reports};
+inline WindowsButtonStyle parse_windows_button_style(const std::string& value) {
+    std::string lower;
+    for (const char c:value) lower+=static_cast<char>(c>='A' && c<='Z'?c-'A'+'a':c);
+    if (lower=="vjoy") return WindowsButtonStyle::virtual_joystick;
+    if (lower=="hid") return WindowsButtonStyle::hid_reports;
+    throw std::invalid_argument("Brunner windows_button_style must be VJoy or HID");
+}
+struct Configuration {Tuning tuning;FlightSettings flight;int workbench_port=0;WindowsButtonStyle windows_button_style=WindowsButtonStyle::virtual_joystick;std::vector<std::string> retired;};
 inline Configuration parse_configuration(std::istream& input) {
     std::map<std::string,int> values;
+    std::optional<WindowsButtonStyle> button_style;
     std::string line;
     while (std::getline(input,line)) {
         line=config_trim(line);
@@ -37,7 +51,8 @@ inline Configuration parse_configuration(std::istream& input) {
         const auto equals=line.find('=');
         if (equals==std::string::npos) throw std::invalid_argument("Malformed Brunner configuration line");
         const auto key=config_trim(line.substr(0,equals)),value=config_trim(line.substr(equals+1));
-        if (values.count(key)) throw std::invalid_argument("Duplicate Brunner configuration key: "+key);
+        if (values.count(key) || (key=="windows_button_style" && button_style)) throw std::invalid_argument("Duplicate Brunner configuration key: "+key);
+        if (key=="windows_button_style") {button_style=parse_windows_button_style(value);continue;}
         int number=0;
         const auto parsed=std::from_chars(value.data(),value.data()+value.size(),number);
         if (parsed.ec!=std::errc{} || parsed.ptr!=value.data()+value.size()) throw std::invalid_argument("Invalid integer for "+key);
@@ -90,6 +105,7 @@ inline Configuration parse_configuration(std::istream& input) {
         if (result.workbench_port!=0 && (result.workbench_port<1024 || result.workbench_port>65535))
             throw std::invalid_argument("Brunner workbench_port must be 0 or 1024-65535");
     }
+    if (button_style) result.windows_button_style=*button_style;
     if (!valid_flight_settings(result.flight)) throw std::invalid_argument("Flight defaults outside validated bounds");
     return result;
 }

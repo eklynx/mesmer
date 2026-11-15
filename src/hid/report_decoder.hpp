@@ -7,6 +7,8 @@
 // report) then turns each input report into a JoystickState: the pressed buttons as a bitmask (bit n-1 is
 // button n), the hat as 0 (centred) or 1..8 (1 up, clockwise), and whether every padding bit was zero.
 //
+// Windows gives no program the raw descriptor; layout_from_fields builds the same layout from its parse.
+//
 // Error cases (none thrown):
 //   parse_report_layout  returns nullopt when the descriptor has no Button usages and no Hat Switch (not a
 //                        joystick), is malformed, or is truncated. A descriptor that has more than 32 buttons
@@ -44,5 +46,20 @@ struct JoystickState {
     }
 };
 std::optional<ReportLayout> parse_report_layout(const std::vector<std::uint8_t>& descriptor);
+// Where one input usage's bits sit in the report payload, as an operating system that parses the descriptor
+// itself reports them (Windows' HidP calls, hid/win/joystick_win.cpp). bits are payload bit numbers, least
+// significant first; logical_min/max are the field's logical range.
+struct UsageBits {
+    int usage_page = 0;
+    int usage = 0;
+    std::vector<int> bits;
+    int logical_min = 0, logical_max = 0;
+};
+// The same ReportLayout parse_report_layout builds, from every input usage's bits instead of the raw descriptor:
+// Button-page usages 1, 2, ... (up to the first one missing, at most 32, each exactly one bit) are buttons 1, 2, ...;
+// the first Hat Switch on contiguous bits is the hat; every payload bit no usage claims is padding.
+// Error cases (none thrown): nullopt when report_bits is not positive, a claimed bit lies outside the payload, or
+// there are no buttons and no hat.
+std::optional<ReportLayout> layout_from_fields(const std::vector<UsageBits>& usages, int report_bits, bool has_report_id);
 std::optional<JoystickState> decode_report(const ReportLayout& layout, const std::uint8_t* report, std::size_t length);
 }

@@ -59,6 +59,35 @@ void reports_are_decoded() {
     check(decode({0x7d,0x00,0x05,0x00,0x00,0x00})->padding_clear==false);   // the captured glitch
     check(!decode({0x00,0x00}).has_value());                // too short
 }
+// Windows gives the bits of each usage, not the descriptor (hid/win/joystick_win.cpp): from the NG's usages as
+// Windows' parse places them, layout_from_fields builds exactly the layout the descriptor parses to.
+void the_layout_is_built_from_usage_bits() {
+    const auto run=[](int first,int count) {std::vector<int> bits;for (int b=first;b<first+count;++b) bits.push_back(b);return bits;};
+    std::vector<hid::UsageBits> usages;
+    for (int n=6;n>=1;--n) usages.push_back({0x09,n,{n-1},0,1});   // in any order
+    usages.push_back({0x01,0x39,run(8,4),1,8});
+    usages.push_back({0x01,0x30,run(16,16),0,65535});
+    usages.push_back({0x01,0x31,run(32,16),0,65535});
+    const auto built=hid::layout_from_fields(usages,48,false);
+    check(built.has_value());
+    const auto& parsed=layout();
+    check(built->has_report_id==parsed.has_report_id && built->report_bits==parsed.report_bits);
+    check(built->buttons.size()==parsed.buttons.size());
+    for (std::size_t n=0;n<parsed.buttons.size();++n) check(built->buttons[n].first_bit==parsed.buttons[n].first_bit && built->buttons[n].bit_count==1);
+    check(built->hat && built->hat->first_bit==parsed.hat->first_bit && built->hat->bit_count==parsed.hat->bit_count);
+    check(built->hat_logical_min==parsed.hat_logical_min && built->hat_logical_max==parsed.hat_logical_max);
+    check(built->padding.size()==parsed.padding.size());
+    for (std::size_t k=0;k<parsed.padding.size();++k)
+        check(built->padding[k].first_bit==parsed.padding[k].first_bit && built->padding[k].bit_count==parsed.padding[k].bit_count);
+    // The captured glitch sets a padding bit either way.
+    const std::vector<std::uint8_t> glitch{0x7d,0x00,0x05,0x00,0x00,0x00};
+    check(!hid::decode_report(*built,glitch.data(),glitch.size())->padding_clear);
+    // Buttons stop at the first missing usage; no buttons and no hat is no joystick; a bit outside the payload is refused.
+    check(hid::layout_from_fields({{0x09,1,{0},0,1},{0x09,3,{2},0,1}},8,false)->buttons.size()==1);
+    check(!hid::layout_from_fields({{0x01,0x30,run(0,16),0,65535}},16,false).has_value());
+    check(!hid::layout_from_fields({{0x09,1,{8},0,1}},8,false).has_value());
+    check(!hid::layout_from_fields({{0x09,1,{0},0,1}},0,false).has_value());
+}
 void the_glitch_is_dropped() {
     check(profile().invalid_reason(state((1u<<3)|(1u<<4))).size()>0);                 // the rocker, both sides
     check(profile().invalid_reason(state((1u<<4)|(1u<<5))).empty());                  // rocker up with the hat pushed in is a real press
@@ -287,6 +316,7 @@ int main() {
     try {
         the_descriptor_is_parsed();
         reports_are_decoded();
+        the_layout_is_built_from_usage_bits();
         the_glitch_is_dropped();
         presses_fire_once();
         a_vanished_yoke_releases_everything();

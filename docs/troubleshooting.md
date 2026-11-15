@@ -93,7 +93,14 @@ firmware.
 
 ### The yoke's buttons don't reach X-Plane
 
-Search `Log.txt` for `Yoke buttons`. While they work it reads
+Search `Log.txt` for `Yoke buttons`. Its first line when the plugin is enabled says which way the buttons go on
+Windows, set by `windows_button_style` in `BrunnerDirect.ini`
+([advanced configuration](dev/advanced-configuration.md#windows-button-style)). With `HID`, the buttons run the
+commands in `button_commands` and vJoy is not used: if nothing runs, check that `button_commands` has entries
+(`Log.txt` says `Joystick buttons: no button_commands configured` when it has none) and look for other
+`Joystick buttons:` lines. The rest of this section is about `VJoy`, the default.
+
+While they work it reads
 `Yoke buttons: pressing vJoy device 1's 32 buttons`; otherwise
 `Yoke buttons off:` says why, and the plugin tries again every 5 seconds.
 

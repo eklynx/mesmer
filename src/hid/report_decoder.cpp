@@ -79,6 +79,42 @@ std::optional<ReportLayout> parse_report_layout(const std::vector<std::uint8_t>&
     return layout;
 }
 
+std::optional<ReportLayout> layout_from_fields(const std::vector<UsageBits>& usages, int report_bits, bool has_report_id) {
+    if (report_bits <= 0) return std::nullopt;
+    ReportLayout layout;
+    layout.has_report_id = has_report_id;
+    layout.report_bits = report_bits;
+    std::vector<bool> claimed(static_cast<std::size_t>(report_bits), false);
+    std::vector<int> button_bit(max_buttons + 1, -1);
+    for (const auto& u : usages) {
+        for (const int b : u.bits) {
+            if (b < 0 || b >= report_bits) return std::nullopt;
+            claimed[static_cast<std::size_t>(b)] = true;
+        }
+        if (u.usage_page == usage_page_button && u.usage >= 1 && u.usage <= max_buttons && u.bits.size() == 1)
+            button_bit[static_cast<std::size_t>(u.usage)] = u.bits.front();
+        else if (u.usage_page == usage_page_generic_desktop && u.usage == usage_hat_switch && !layout.hat && !u.bits.empty()) {
+            bool contiguous = true;
+            for (std::size_t k = 1; k < u.bits.size(); ++k) contiguous = contiguous && u.bits[k] == u.bits[k - 1] + 1;
+            if (contiguous) {
+                layout.hat = BitField{u.bits.front(), static_cast<int>(u.bits.size())};
+                layout.hat_logical_min = u.logical_min;
+                layout.hat_logical_max = u.logical_max;
+            }
+        }
+    }
+    for (int n = 1; n <= max_buttons && button_bit[static_cast<std::size_t>(n)] >= 0; ++n)
+        layout.buttons.push_back({button_bit[static_cast<std::size_t>(n)], 1});
+    for (int b = 0; b < report_bits;) {
+        if (claimed[static_cast<std::size_t>(b)]) { ++b; continue; }
+        const int first = b;
+        while (b < report_bits && !claimed[static_cast<std::size_t>(b)]) ++b;
+        layout.padding.push_back({first, b - first});
+    }
+    if (layout.buttons.empty() && !layout.hat) return std::nullopt;
+    return layout;
+}
+
 std::optional<JoystickState> decode_report(const ReportLayout& layout, const std::uint8_t* report, std::size_t length) {
     if (length < layout.payload_bytes()) return std::nullopt;
     JoystickState state;

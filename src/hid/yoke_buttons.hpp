@@ -3,7 +3,9 @@
 // driver); the logic is in hid/win/buttons.hpp, the vJoy feeder in hid/win/vjoy_win.hpp,
 // the owner of both in hid/win/yoke_buttons.cpp. Everywhere else every call below does
 // nothing (hid/hid_select.cpp), so no caller has a platform branch. Pitch, roll and force
-// feel never go through here. The NG's own HID joystick is X-Plane's, not ours.
+// feel never go through here. The plugin calls update() only with windows_button_style=VJoy
+// (config.hpp, the default); with HID the yoke's own joystick reports run button_commands
+// instead (hid/joystick_device.hpp, brunner/button_runner.hpp), as on macOS.
 //
 // Thread: YokeButtons runs on X-Plane's thread only. sample_buttons runs on the reader's.
 #pragma once

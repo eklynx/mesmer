@@ -1,7 +1,7 @@
 # Advanced configuration
 
 Settings that are not part of standard use: the yoke models, their overrides, the owner's
-saved choice, and the `BrunnerDirect.ini` keys that only matter to developers. Standard
+saved choice, Windows' button style, and the `BrunnerDirect.ini` keys that only matter to developers. Standard
 settings are in [configuration](../configuration.md).
 
 ## Yoke models and overrides
@@ -56,7 +56,8 @@ Rules:
 The CLS-E NG's six buttons and eight hat positions can each run an X-Plane command. Source of truth:
 [button-commands.md](button-commands.md). Add a `button_commands` object to `BrunnerDirect.state.json`; every
 entry is optional, and anything you leave out (or set to `null` or `""`) does nothing. It is read when the plugin
-loads, so restart X-Plane after editing. **Leave X-Plane's own bindings for these controls unset**: X-Plane sees
+loads, so restart X-Plane after editing. On Windows they run only with `windows_button_style=HID` in
+`BrunnerDirect.ini` ([below](#windows-button-style)). **Leave X-Plane's own bindings for these controls unset**: X-Plane sees
 the same joystick, and the yoke sometimes sends glitched reports that Mesmer ignores but X-Plane does not.
 
 A press runs the command once; holding does not repeat. To run something when a control is *released*, use the
@@ -132,6 +133,24 @@ commands. The diagonals of the hat combine the directions as there is no diagona
   }
 }
 ```
+
+## Windows button style
+
+`windows_button_style` in `BrunnerDirect.ini` chooses how the yoke's buttons reach X-Plane on Windows. Source of
+truth: `src/config.hpp`. It is the one ini key whose value is a word, `VJoy` or `HID`, in any case (`hid`, `Hid`,
+`VJOY` and `vjoy` all count). Anything else, a number included, is a bad value: the plugin does not start and
+`Log.txt` says `Brunner windows_button_style must be VJoy or HID`. It is read when X-Plane starts.
+
+| Value | The buttons | Uses |
+|---|---|---|
+| `VJoy` (the default, also with the key missing) | The plugin presses the matching buttons of vJoy device 1, which you bind in X-Plane's Joystick screen ([The yoke's buttons](../buttons.md)). The yoke's joystick interface is never opened, and `button_commands` does nothing. | Brunner's vJoy driver |
+| `HID` | The plugin reads the yoke's own joystick reports and runs the X-Plane commands in [`button_commands`](#button-commands), with the same code and the same glitch filter as macOS ([button-commands.md](button-commands.md)). vJoy is not touched. With no `button_commands`, nothing is opened and nothing runs. | A yoke whose USB has a joystick interface, such as the CLS-E NG |
+
+When the plugin is enabled, `Log.txt` says which is in use: `Yoke buttons: the virtual joystick, vJoy device 1
+(windows_button_style=VJoy in BrunnerDirect.ini)` or `Yoke buttons: the yoke's joystick HID reports run
+button_commands (windows_button_style=HID in BrunnerDirect.ini); vJoy is not used`. macOS ignores the key: it
+always reads the joystick reports. With `HID`, leave X-Plane's own bindings for the yoke's buttons unset, as on
+macOS: X-Plane sees the same joystick.
 
 ## `BrunnerDirect.ini` keys that are developer-only or retired
 
