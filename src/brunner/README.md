@@ -8,5 +8,5 @@ the supervisor and its status texts (`yoke.hpp`), and what differs between model
 
 Sources of truth: `yoke_preset.hpp` (the model format and loader; the models themselves are `config/yokes/*.json`), `drive.hpp` (the numbers the force models
 use), `readonly.hpp` (a yoke the plugin does not drive), `bridge.hpp` (the controller
-transport). Specs: `docs/yoke-presets.md`, `docs/read-only-mode.md`, `docs/hid-bridge.md`.
+transport). Specs: `docs/dev/yoke-presets.md`, `docs/dev/read-only-mode.md`, `docs/dev/hid-bridge.md`.
 Tests: `*_tests.cpp` here, and `../tests.cpp`.

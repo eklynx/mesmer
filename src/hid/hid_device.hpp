@@ -1,6 +1,6 @@
 // SOURCE OF TRUTH for the seam between the portable reader (brunner/reader.cpp,
 // brunner/bridge.hpp) and an operating system's HID access (hid/win/hid_win.cpp, hid/mac/hid_mac.cpp).
-// Specification: docs/hid-bridge.md. Read this header, not the platform files,
+// Specification: docs/dev/hid-bridge.md. Read this header, not the platform files,
 // to use or implement a HidDevice.
 //
 // Happy path: open_bridge(ids) finds exactly one yoke bridge among the given USB

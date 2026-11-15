@@ -105,4 +105,7 @@ if(APPLE)
   # Needs no X-Plane SDK: the macOS yoke reader and its read-only hardware check.
   add_executable(brunner_hardware_read_test hid/mac/smoke_mac.cpp brunner/reader.cpp hid/hid_select.cpp hid/mac/hid_mac.cpp)
   target_link_libraries(brunner_hardware_read_test PRIVATE Threads::Threads "${IOKIT_FRAMEWORK}" "${COREFOUNDATION_FRAMEWORK}")
+  # Operator-run: opens the yoke read-only and prints its register survey (force mode included). Not a CTest.
+  add_executable(brunner_hardware_query hid/mac/query_mac.cpp brunner/reader.cpp hid/hid_select.cpp hid/mac/hid_mac.cpp)
+  target_link_libraries(brunner_hardware_query PRIVATE Threads::Threads "${IOKIT_FRAMEWORK}" "${COREFOUNDATION_FRAMEWORK}")
 endif()

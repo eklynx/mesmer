@@ -750,7 +750,7 @@ float update(float,float,int,void*) {
     if (!s.loading_inspection.empty() && s.loading_inspection!=last_inspection) {log("Loading inspection: "+s.loading_inspection);last_inspection=s.loading_inspection;}
     const auto input=current_input(s,now);
     write_survey(s);
-    if (s.model!=last_yoke_model) {last_yoke_model=s.model;if (!s.model.empty()) log("Yoke model: "+s.model_title+" (USB "+brunner::status_hex(s.usb_vendor)+":"+brunner::status_hex(s.usb_product)+")");}
+    if (s.model!=last_yoke_model) {last_yoke_model=s.model;if (!s.model.empty()) log("Yoke model: "+s.model_title+" (USB "+brunner::usb_text({s.usb_vendor,s.usb_product})+")");}
     if (s.yoke_note!=last_yoke_note) {last_yoke_note=s.yoke_note;if (!s.yoke_note.empty()) log("Yoke firmware note: "+s.yoke_note);}
     // Read-write: the plugin feeds pitch and roll (both overrides at 1). Read-only: both overrides at 0,
     // so X-Plane reads the yoke's own USB joystick.

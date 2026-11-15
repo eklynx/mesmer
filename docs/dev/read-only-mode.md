@@ -20,10 +20,10 @@ A yoke is read-only in exactly two cases, and **firmware is never one of them**
    preset needs. Another vendor's device is never opened.
 2. **Unverified model.** A known model whose **preset is not verified**, until the owner
    turns on **Developer > Allow unverified yoke models** (saved in
-   `Output/BrunnerDirect/BrunnerDirect.state.json` in X-Plane's folder; off by default). Today that is the
-   **CLS-E NG** (`25BB:008B`); the original CLS-E is verified and always driven. With the
-   key on, the NG is driven; its first writes are one setting written back unchanged (see
-   the presets spec).
+   `Output/BrunnerDirect/BrunnerDirect.state.json` in X-Plane's folder; off by default). No built-in model is unverified now: the original CLS-E (firmware 367) and
+   the **CLS-E NG** (`0x25BB:0x008B`, firmware 642) are verified and always driven. A model you add
+   with `verified` left out or false is read-only until the key is on, and then its first
+   writes are one setting written back unchanged (see the presets spec).
 
 The model follows from the USB id, never from the firmware. A firmware outside a preset's
 verified list is **information only**: it is noted in the log and the Force Monitor and
@@ -44,7 +44,7 @@ changes nothing.
 
 ## What it does
 
-1. **Shows the state.** The status line says why: *Unknown yoke USB id 25BB:00FF:
+1. **Shows the state.** The status line says why: *Unknown yoke USB id 0x25BB:0x00FF:
    read-only. Add it to BrunnerDirect.yokes.json to drive it*, or *Yoke model ... is not
    verified: read-only* with the menu item that turns it on, and, until the travel is
    learned, how far each axis has come.
@@ -91,7 +91,7 @@ axis's travel by watching the encoder's extremes:
   finish*.
 - **Direction** is not detectable. If an axis is backwards, set
   `read_only_roll_reverse=1` or `read_only_pitch_reverse=1` in
-  `BrunnerDirect.ini` (see [configuration.md](configuration.md)).
+  `BrunnerDirect.ini` (see [configuration.md](../configuration.md)).
 
 ### Remembered range
 
@@ -100,18 +100,18 @@ written atomically at most every five seconds and only when it widened, and
 when the plugin is disabled:
 
 ```json
-{"version":3,"usb":[9659,139],"roll":{"low":-9000,"high":9100},"pitch":{"low":-7000,"high":7200}}
+{"version":4,"usb":{"vendorId":"0x25BB","productId":"0x008B"},"roll":{"low":-9000,"high":9100},"pitch":{"low":-7000,"high":7200}}
 ```
 
-At start it is used as the starting range, only if it is well-formed, **version 3**
-(a file without a version was learned while the homing sweep still counted, and version 2 was
-keyed by firmware; both are ignored), for the **same USB id** (vendor and product), and sane
+At start it is used as the starting range, only if it is well-formed, **version 4**
+(a file without a version was learned while the homing sweep still counted, version 2 was
+keyed by firmware, and version 3 wrote the USB id as decimal numbers; all are ignored), for the **same USB id** (vendor and product), and sane
 (low <= high, within one billion counts); anything else is ignored. Delete the file to start
 over. The range belongs to a yoke model, so a firmware update keeps it.
 
 ## Known limits
 
-- Experimental: the NG's encoder scale, direction and end-stop behaviour are
+- Experimental: although the NG preset is marked verified, the NG's encoder scale, direction and end-stop behaviour are
   unverified. The NG also presents a standard USB joystick that X-Plane can use
   without Mesmer.
 - A controller fault stops the input (nothing reaches X-Plane) but nothing is

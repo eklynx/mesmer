@@ -4,7 +4,7 @@
 # SHA256SUMS and a build provenance attestation as a GitHub pre-release, with the
 # CHANGELOG entry as its notes. Nothing is published unless every enabled platform
 # built and passed. The tag and its commit come from flightsim's publish; nothing here
-# edits code. Specification: docs/release-packaging.md.
+# edits code. Specification: docs/dev/release-packaging.md.
 #
 # Each platform can be switched off without editing this file, by a repository
 # variable (the same three ci.yml reads):
@@ -12,7 +12,7 @@
 #   LINUX_BUILD                  off unless the variable is exactly `true`
 #
 # The macOS plugin can be signed and notarized by a separate signing repository
-# (docs/release-signing.md). Off unless the repository variable MACOS_SIGNING_REPO
+# (docs/dev/release-signing.md). Off unless the repository variable MACOS_SIGNING_REPO
 # (OWNER/NAME of that repository) is set; then the secret MACOS_SIGNING_TOKEN is
 # required, the signing run must succeed for this exact commit, and the release ships
 # the signed plugin. With it set and signing failing, nothing is published.
@@ -135,7 +135,7 @@ jobs:
         with:
           persist-credentials: false
 
-      # Universal, -Werror, ad hoc signed and verified, ctest: docs/macos-build.md.
+      # Universal, -Werror, ad hoc signed and verified, ctest: docs/dev/macos-build.md.
       - name: Build and test
         run: src/scripts/build_macos.sh
 
@@ -148,7 +148,7 @@ jobs:
           retention-days: 7
 
   # Has the signing repository sign and notarize this commit's macOS plugin, then checks the
-  # result is for this repository and commit (docs/release-signing.md). Runs only after the
+  # result is for this repository and commit (docs/dev/release-signing.md). Runs only after the
   # macOS build and its tests passed, so only a commit that tests green is ever signed.
   sign-macos:
     needs: [plan, build-macos]

@@ -4,12 +4,12 @@
     {
       "name": "cls-e-ng",
       "title": "Brunner CLS-E NG",
-      "verified": false,
-      "verified_firmware": [],
+      "verified": true,
+      "verified_firmware": [642],
       "usb": [
         {
-          "vendor": 9659,
-          "product": 139
+          "vendorId": "0x25BB",
+          "productId": "0x008B"
         }
       ],
       "roll_travel_counts": 7350,
@@ -31,6 +31,7 @@
       "status_ready_mask": 4103,
       "status_acquired_mask": 4100,
       "spring_mode": 1541,
+      "power_on_spring_mode": 517,
       "idle_enabled": true,
       "rest": {
         "roll_curve": [

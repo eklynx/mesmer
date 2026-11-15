@@ -110,7 +110,7 @@ src/scripts/build_macos.sh --sdk /path/to/SDK --no-test
 
 The result is `build/stage/BrunnerDirect/mac_x64/BrunnerDirect.xpl`, ad hoc
 signed; copy the `BrunnerDirect` folder into `Resources/plugins/`. What the
-script promises and how it fails is in [docs/macos-build.md](docs/macos-build.md);
+script promises and how it fails is in [docs/dev/macos-build.md](docs/dev/macos-build.md);
 `tests/test-build-macos.sh` checks it.
 
 ## Writing an aircraft profile

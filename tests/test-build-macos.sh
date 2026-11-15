@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# Tests build_macos.sh against docs/macos-build.md. The failure paths need no
+# Tests build_macos.sh against docs/dev/macos-build.md. The failure paths need no
 # network and no X-Plane SDK: the script is copied into a sandbox and the SDK
 # download is pointed at a local file:// zip. The full universal build runs only
 # when MESMER_TEST_SDK names an unpacked SDK directory (the one with CHeaders/).

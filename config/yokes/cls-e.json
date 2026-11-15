@@ -6,7 +6,12 @@
       "title": "Brunner CLS-E",
       "verified": true,
       "verified_firmware": [367],
-      "usb": [{"vendor": 9659, "product": 129}],
+      "usb": [
+        {
+          "vendorId": "0x25BB",
+          "productId": "0x0081"
+        }
+      ],
       "roll_travel_counts": 13000,
       "pitch_travel_counts": 12000,
       "wheel_deg": 86,
@@ -24,8 +29,28 @@
       "spring_mode": 517,
       "idle_enabled": false,
       "rest": {
-        "roll_curve": [100, 350, 400, 450, 500, 600, 750, 900, 1000],
-        "pitch_curve": [100, 350, 400, 450, 500, 600, 750, 900, 1000],
+        "roll_curve": [
+          100,
+          350,
+          400,
+          450,
+          500,
+          600,
+          750,
+          900,
+          1000
+        ],
+        "pitch_curve": [
+          100,
+          350,
+          400,
+          450,
+          500,
+          600,
+          750,
+          900,
+          1000
+        ],
         "roll_spring_percent": 100,
         "pitch_spring_percent": 100,
         "pitch_gain_denominator": 6,

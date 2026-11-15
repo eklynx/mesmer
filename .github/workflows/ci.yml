@@ -6,7 +6,7 @@
 # variable (Settings > Secrets and variables > Actions > Variables):
 #   WINDOWS_BUILD, MACOS_BUILD   on unless the variable is exactly `false`
 #   LINUX_BUILD                  off unless the variable is exactly `true`
-# release.yml reads the same three; docs/release-packaging.md is the specification.
+# release.yml reads the same three; docs/dev/release-packaging.md is the specification.
 name: ci
 
 on:
@@ -78,7 +78,7 @@ jobs:
         run: ctest --test-dir build -C Release --output-on-failure
 
   # The universal (arm64 + x86_64) plugin through the same script a person runs by hand
-  # (docs/macos-build.md): -Werror, both slices, ad hoc signature, ctest. The script
+  # (docs/dev/macos-build.md): -Werror, both slices, ad hoc signature, ctest. The script
   # downloads the SDK and checks it against the same pin as XPLANE_SDK_* above.
   macos:
     if: ${{ vars.MACOS_BUILD != 'false' }}

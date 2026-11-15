@@ -1,6 +1,6 @@
 // SOURCE OF TRUTH for editing one direction field of BrunnerDirect.yokes.json (the user's presets
 // file, brunner/yoke_preset.hpp) from the feel page. Pure: text in, text out; the plugin reads and
-// writes the file. Spec: docs/yoke-presets.md ("Changing directions from the feel page").
+// writes the file. Spec: docs/dev/yoke-presets.md ("Changing directions from the feel page").
 //
 // The six fields: roll_encoder_sign, pitch_encoder_sign (+1 or -1: the model's counts are sign x the
 // encoder, the reading side), roll_spring_sign, pitch_spring_sign (+1 or -1: the controller's spring

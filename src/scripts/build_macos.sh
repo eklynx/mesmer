@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 # Build the Mesmer X-Plane 12 plugin for macOS as a universal (arm64 + x86_64)
-# binary. Specification: docs/macos-build.md (the source of truth for what this
+# binary. Specification: docs/dev/macos-build.md (the source of truth for what this
 # script guarantees and how it fails). Tests: tests/test-build-macos.sh.
 #
 #   src/scripts/build_macos.sh [--sdk PATH] [--clean] [--no-test] [--help]

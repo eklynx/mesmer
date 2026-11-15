@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# Tests src/scripts/fetch_signed_plugin.sh against docs/release-signing.md. No network: a fake `gh`
+# Tests src/scripts/fetch_signed_plugin.sh against docs/dev/release-signing.md. No network: a fake `gh`
 # plays the signing repository (it starts a run, lists it, reports its status, hands over an artifact
 # and attests it, each controllable from the sandbox). Runs on Linux and macOS.
 #   tests/test-fetch-signed-plugin.sh

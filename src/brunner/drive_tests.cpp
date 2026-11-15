@@ -1,4 +1,4 @@
-// Tests for the active Drive (brunner/drive.hpp, spec docs/yoke-presets.md): the CLS-E's
+// Tests for the active Drive (brunner/drive.hpp, spec docs/dev/yoke-presets.md): the CLS-E's
 // numbers are unchanged, and another model's travel, force ceiling, target torque
 // and directions flow through the force models and the drive writes. No hardware.
 #include "force/aileron.hpp"

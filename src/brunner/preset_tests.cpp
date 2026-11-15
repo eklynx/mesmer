@@ -1,4 +1,4 @@
-// Tests for yoke presets (brunner/yoke_preset.hpp, spec docs/yoke-presets.md): the built-in
+// Tests for yoke presets (brunner/yoke_preset.hpp, spec docs/dev/yoke-presets.md): the built-in
 // models, the presets file and every bound it must meet. No hardware.
 #include "brunner/yoke_overrides.hpp"
 #include "brunner/yoke_preset.hpp"
@@ -20,6 +20,15 @@ const YokePreset& named(const std::vector<YokePreset>& v,const char* name) {
     throw std::runtime_error(std::string("no preset ")+name);
 }
 
+// A USB id is written one way everywhere: "0x25BB", "0x25BB:0x008B".
+void usb_ids_are_hex() {
+    check(hex_id_text(0x25bb)=="0x25BB" && hex_id_text(0x8b)=="0x008B" && usb_text({0x25bb,0x008b})=="0x25BB:0x008B");
+    // Either case of the digits (and of the x) is read; upper case is what is written.
+    for (const auto* same:{"0x25BB","0x25bb","0x25Bb","0X25BB","0X25bb"}) check(parse_hex_id(same)==0x25BB);
+    check(parse_hex_id("0x8b")==0x8b && parse_hex_id("0x8B")==0x8b && parse_hex_id("0x008b")==0x8b && parse_hex_id("0xFFFF")==0xffff && parse_hex_id("0xffff")==0xffff);
+    for (const auto* bad:{"","0x","0x0","0x0000","0x10000","25bb","9659","0x25bg","x25bb","0xx25b"," 0x25BB","0x-1"})
+        check(!parse_hex_id(bad));
+}
 void the_built_ins() {
     const auto presets=builtin_yoke_presets();
     validate_presets(presets);
@@ -31,14 +40,14 @@ void the_built_ins() {
     check(e.roll_ceiling_units==4500 && e.pitch_ceiling_units==4500 && e.target_torque==50);
     check(e.pitch_units_per_lb==222 && e.roll_units_per_nm==1000);
     check(std::fabs(e.margin_fraction-500.0/4500.0)<1e-12);
-    check(e.usb_ids.size()==1 && e.usb_ids[0].vendor==0x25bb && e.usb_ids[0].product==0x0081);
-    // The NG: its measured travel, spec ceilings, own torque; not yet verified.
+    check(e.usb_ids.size()==1 && e.usb_ids[0].vendor==0x25BB && e.usb_ids[0].product==0x0081);
+    // The NG: its measured travel, spec ceilings, own torque; verified on firmware 642.
     const auto& n=named(presets,"cls-e-ng");
-    check(!n.verified && n.verified_firmware.empty());
+    check(n.verified && n.verified_firmware==std::vector<std::uint16_t>{642});
     check(n.roll_travel_counts==7350 && n.pitch_travel_counts==5300 && n.wheel_deg==90 && n.pitch_travel_mm==160);
     check(n.roll_ceiling_units==11000 && n.pitch_ceiling_units==9500);   // 11 N.m / 0.001, 190 N / 0.02
     check(n.target_torque==25 && n.pitch_units_per_lb==222 && n.roll_units_per_nm==1000);
-    check(n.usb_ids.size()==1 && n.usb_ids[0].vendor==0x25bb && n.usb_ids[0].product==0x008b);
+    check(n.usb_ids.size()==1 && n.usb_ids[0].vendor==0x25BB && n.usb_ids[0].product==0x008b);
     // Lookup is by the device, never by firmware.
     check(find_yoke_preset(presets,{0x25bb,0x0081})->name=="cls-e");
     check(find_yoke_preset(presets,{0x25bb,0x008b})->name=="cls-e-ng");
@@ -46,12 +55,12 @@ void the_built_ins() {
     const auto ids=preset_usb_ids(presets);
     check(ids.size()==2 && is_bridge_id(ids[0].vendor,ids[0].product) && is_bridge_id(ids[1].vendor,ids[1].product));
     // Firmware is only a note.
-    check(firmware_verified(e,367) && !firmware_verified(e,368) && !firmware_verified(n,642));
+    check(firmware_verified(e,367) && !firmware_verified(e,368) && firmware_verified(n,642) && !firmware_verified(n,643));
 }
 // The shipped files (config/yokes/) must stay equal to the built-ins: the CLS-E's are what the project
 // was built on, and the fallback must never differ from what a healthy install loads.
 bool same_preset(const YokePreset& a,const YokePreset& b) {
-    return a.name==b.name && a.title==b.title && a.verified==b.verified && a.verified_firmware==b.verified_firmware
+    return a.name==b.name && a.title==b.title && a.spring_mode==b.spring_mode && a.power_on_spring_mode==b.power_on_spring_mode && a.verified==b.verified && a.verified_firmware==b.verified_firmware
         && a.usb_ids.size()==b.usb_ids.size() && a.usb_ids[0].vendor==b.usb_ids[0].vendor && a.usb_ids[0].product==b.usb_ids[0].product
         && a.roll_travel_counts==b.roll_travel_counts && a.pitch_travel_counts==b.pitch_travel_counts && a.wheel_deg==b.wheel_deg
         && a.pitch_travel_mm==b.pitch_travel_mm && a.roll_ceiling_units==b.roll_ceiling_units && a.pitch_ceiling_units==b.pitch_ceiling_units
@@ -81,7 +90,11 @@ void loading_the_models() {
     // The same file twice, or two files claiming one USB id, is refused whole: the fallback is in force.
     auto twice=load_yoke_models({cls_e,cls_e},std::nullopt);
     check(!twice.from_files && twice.notes.size()==1 && twice.presets.size()==2);
-    std::string clash=ng;clash.replace(clash.find("\"cls-e-ng\""),10,"\"other\"");clash.replace(clash.find("139"),3,"129");
+    std::string clash=ng;clash.replace(clash.find("\"cls-e-ng\""),10,"\"other\"");clash.replace(clash.find("0x008B"),6,"0x0081");
+    {   // lower-case digits in a file name the same ids, so it still loads
+        auto ng_lower=ng;ng_lower.replace(ng_lower.find("0x25BB"),6,"0x25bb");ng_lower.replace(ng_lower.find("0x008B"),6,"0x008b");
+        check(load_yoke_models({cls_e,ng_lower},std::nullopt).from_files);
+    }
     check(!load_yoke_models({cls_e,clash},std::nullopt).from_files);
     // A malformed file, an empty folder: fallback with a note, never half applied.
     const auto bad=load_yoke_models({cls_e,"{not json"},std::nullopt);
@@ -111,21 +124,21 @@ void an_edit_of_a_built_in() {
     check(parse_yoke_presets(R"({"schema":1,"yokes":[]})",builtin_yoke_presets()).size()==2);
 }
 void a_new_model() {
-    const std::string model=R"({"name":"club-yoke","title":"Club Yoke","usb":[{"vendor":4660,"product":22136}],
+    const std::string model=R"({"name":"club-yoke","title":"Club Yoke","usb":[{"vendorId":"0x1234","productId":"0x5678"}],
         "roll_travel_counts":9000,"pitch_travel_counts":7000,"roll_ceiling_units":3000,"pitch_ceiling_units":3500,"target_torque":30})";
     const auto merged=parse_yoke_presets(R"({"schema":1,"yokes":[)"+model+"]}",builtin_yoke_presets());
     check(merged.size()==3);
     const auto& m=named(merged,"club-yoke");
-    check(m.title=="Club Yoke" && m.usb_ids.size()==1 && m.usb_ids[0].vendor==4660 && m.usb_ids[0].product==22136);
+    check(m.title=="Club Yoke" && m.usb_ids.size()==1 && m.usb_ids[0].vendor==0x1234 && m.usb_ids[0].product==0x5678);
     check(!m.verified && m.verified_firmware.empty());                                 // never assumed verified
     check(m.pitch_units_per_lb==222 && m.roll_units_per_nm==1000 && m.wheel_deg==86 && std::fabs(m.margin_fraction-500.0/4500.0)<1e-12);
-    check(find_yoke_preset(merged,{4660,22136})->name=="club-yoke");
+    check(find_yoke_preset(merged,{0x1234,0x5678})->name=="club-yoke");
     check(preset_usb_ids(merged).size()==3);                                            // its bridge is now opened too
     check(m.rest.captured);                                                            // no resting settings given: read from the yoke, put back as found
     // A new model must give everything that cannot be assumed: leave out each required
     // member in turn (and check the complete entry is accepted, so the refusal is for the gap).
     const std::vector<std::pair<std::string,std::string>> members{
-        {"usb","[{\"vendor\":4660,\"product\":22136}]"},{"roll_travel_counts","9000"},{"pitch_travel_counts","7000"},
+        {"usb","[{\"vendorId\":\"0x1234\",\"productId\":\"0x5678\"}]"},{"roll_travel_counts","9000"},{"pitch_travel_counts","7000"},
         {"roll_ceiling_units","3000"},{"pitch_ceiling_units","3500"},{"target_torque","30"}};
     const auto entry=[&](const std::string& leave_out) {
         std::string text=R"({"schema":1,"yokes":[{"name":"gap-test")";
@@ -135,7 +148,7 @@ void a_new_model() {
     check(!refused(entry("")));
     for (const auto& member:members) check(refused(entry(member.first)));
     // Claiming a built-in's USB id is refused: the model must follow from the device.
-    check(refused(R"({"schema":1,"yokes":[{"name":"clash","usb":[{"vendor":9659,"product":139}],
+    check(refused(R"({"schema":1,"yokes":[{"name":"clash","usb":[{"vendorId":"0x25BB","productId":"0x008B"}],
         "roll_travel_counts":9000,"pitch_travel_counts":7000,"roll_ceiling_units":3000,"pitch_ceiling_units":3500,"target_torque":30}]})"));
 }
 // Resting settings: the built-ins', a model that gives its own, and every bound they must meet.
@@ -147,7 +160,7 @@ void resting_settings() {
     check(!ng.captured && ng.roll_spring_percent==180 && ng.pitch_spring_percent==160 && ng.pitch_gain_denominator==3
         && ng.pitch_move_back==200 && ng.pitch_cutoff==40 && ng.mode==0x2605 && ng.roll_curve[0]==50 && ng.pitch_curve[8]==950);
     // A new model that gives a rest block has it (and is not captured); it overrides field by field.
-    const std::string model=R"({"name":"club-yoke","usb":[{"vendor":4660,"product":22136}],"roll_travel_counts":9000,"pitch_travel_counts":7000,
+    const std::string model=R"({"name":"club-yoke","usb":[{"vendorId":"0x1234","productId":"0x5678"}],"roll_travel_counts":9000,"pitch_travel_counts":7000,
         "roll_ceiling_units":3000,"pitch_ceiling_units":3500,"target_torque":30,"rest":{"roll_spring_percent":50,"pitch_spring_percent":60}})";
     const auto merged=parse_yoke_presets(R"({"schema":1,"yokes":[)"+model+"]}",builtin_yoke_presets());
     const auto& m=named(merged,"club-yoke");
@@ -155,7 +168,7 @@ void resting_settings() {
     const auto edited=parse_yoke_presets(R"({"schema":1,"yokes":[{"name":"cls-e-ng","rest":{"pitch_cutoff":0,"mode":0}}]})",builtin_yoke_presets());
     check(named(edited,"cls-e-ng").rest.pitch_cutoff==0 && named(edited,"cls-e-ng").rest.mode==0 && named(edited,"cls-e-ng").rest.roll_spring_percent==180);
     const auto in_ng=[](const std::string& rest) {return R"({"schema":1,"yokes":[{"name":"cls-e-ng","rest":{)"+rest+"}}]}";};
-    check(!refused(in_ng("\"pitch_move_back\":180")) && !refused(in_ng("\"pitch_move_back\":720")) && !refused(in_ng("\"mode\":9733")) && !refused(in_ng("\"mode\":1541")));
+    check(!refused(in_ng("\"pitch_move_back\":180")) && !refused(in_ng("\"pitch_move_back\":720")) && !refused(in_ng("\"mode\":9733")) && !refused(in_ng("\"mode\":1541")) && refused(in_ng("\"mode\":8709")));   // 0x2605 and 0x0605 go with spring_mode 0x0605; 0x2205 does not
     for (const auto* bad:{"\"roll_spring_percent\":0","\"pitch_spring_percent\":1001","\"pitch_gain_denominator\":0","\"pitch_gain_denominator\":7",
             "\"pitch_move_back\":179","\"pitch_move_back\":721","\"pitch_cutoff\":102","\"pitch_cutoff\":-1",
             "\"mode\":1537","\"mode\":70000","\"mode\":9732",                       // not the spring mode plus the flow's bits
@@ -178,14 +191,16 @@ void bounds_and_malformed_files() {
             "\"roll_ceiling_units\":99","\"roll_ceiling_units\":20001","\"pitch_ceiling_units\":99","\"pitch_ceiling_units\":20001",
             "\"margin_fraction\":0.01","\"margin_fraction\":0.51","\"target_torque\":0","\"target_torque\":1001",
             "\"verified_firmware\":[0]","\"verified_firmware\":[65536]","\"verified_firmware\":[1,2,3,4,5,6,7,8,9,10,11,12,13,14,15,16,17]",
-            "\"usb\":[]","\"usb\":[{\"vendor\":0,\"product\":5}]","\"usb\":[{\"vendor\":5,\"product\":70000}]","\"usb\":[{\"vendor\":5}]","\"usb\":\"x\"",
+            "\"usb\":[]","\"usb\":[{\"vendorId\":\"0x0\",\"productId\":\"0x5\"}]","\"usb\":[{\"vendorId\":\"0x5\",\"productId\":\"0x10000\"}]","\"usb\":[{\"vendorId\":\"0x5\"}]","\"usb\":\"x\"",
+            // decimal numbers, a missing 0x, the old key names and non-hex digits are all refused
+            "\"usb\":[{\"vendorId\":9659,\"productId\":139}]","\"usb\":[{\"vendorId\":\"25bb\",\"productId\":\"0x8b\"}]","\"usb\":[{\"vendor\":9659,\"product\":139}]","\"usb\":[{\"vendorId\":\"0xzz\",\"productId\":\"0x8b\"}]",
             "\"roll_spring_sign\":0","\"pitch_spring_sign\":2","\"pitch_spring_sign\":true","\"pitch_encoder_sign\":0",
             "\"roll_travel_counts\":\"7000\"","\"wheel_deg\":true","\"verified\":1","\"title\":5","\"target_torque\":25.5","\"mystery\":1"})
         check(refused(edit(bad)));
     // Names.
     for (const auto* bad_name:{"","UPPER","has space","under_score",
             "this-name-is-far-too-long-to-be-accepted-here"})
-        check(refused(std::string(R"({"schema":1,"yokes":[{"name":")")+bad_name+R"(","usb":[{"vendor":1,"product":2}],"roll_travel_counts":9000,
+        check(refused(std::string(R"({"schema":1,"yokes":[{"name":")")+bad_name+R"(","usb":[{"vendorId":"0x1","productId":"0x2"}],"roll_travel_counts":9000,
             "pitch_travel_counts":7000,"roll_ceiling_units":3000,"pitch_ceiling_units":3500,"target_torque":30}]})"));
     // The file itself.
     for (const auto* bad_file:{"","not json","[]","{}","{\"schema\":1}","{\"schema\":2,\"yokes\":[]}","{\"schema\":\"1\",\"yokes\":[]}",
@@ -260,6 +275,7 @@ void changing_a_direction() {
 }
 int main() {
     try {
+        usb_ids_are_hex();
         the_built_ins();
         the_shipped_files_are_the_built_ins();
         loading_the_models();

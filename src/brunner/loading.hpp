@@ -203,7 +203,7 @@ template<class Transport> void check_controllers(Transport& bridge,const std::at
         for (const auto reg:{force_limit,torque_limit})
             if (bridge.ref_read(node,reg,stop)!=expected_protection_limit(node))
                 throw SettingsRefused("Controller protection limits differ from their switch-on values");
-        if (base_spring_mode(static_cast<std::uint16_t>(bridge.ref_read(node,force_mode,stop)))!=spring_mode())
+        if (!known_spring_mode(static_cast<std::uint16_t>(bridge.ref_read(node,force_mode,stop))))
             throw SettingsRefused("Unknown controller spring mode");
     }
 }

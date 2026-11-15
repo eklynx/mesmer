@@ -1,6 +1,6 @@
 // SOURCE OF TRUTH for the numbers the force models and the drive writes use:
 // the active Drive, derived from a yoke model's preset (brunner/yoke_preset.hpp) and
-// the controller's own limit registers. Specification: docs/yoke-presets.md.
+// the controller's own limit registers. Specification: docs/dev/yoke-presets.md.
 //
 // Every use reads active_drive(); nothing is passed around, so no call can
 // silently use another model's numbers. Until a yoke is identified the active
@@ -37,6 +37,7 @@ struct Drive {
     double centre_drift_percent=0.1;                       // see YokePreset
     std::uint16_t status_stopped=0x0431,status_ready_mask=0x1017,status_acquired_mask=0x1004; // see YokePreset
     std::uint16_t spring_mode=0x0205;                      // the resting force mode, see YokePreset
+    std::uint16_t power_on_spring_mode=0;                  // also accepted when first found, see YokePreset
     bool idle_enabled=false;                               // idles with motors enabled, see YokePreset
     RestSettings rest;                                     // what a rest leaves, see YokePreset
     int roll_encoder_sign=-1,pitch_encoder_sign=-1;       // model counts = sign * encoder (see YokePreset)
@@ -60,7 +61,7 @@ struct Drive {
     bool operator==(const Drive& o) const {
         return model==o.model && roll_travel_counts==o.roll_travel_counts && pitch_travel_counts==o.pitch_travel_counts
             && wheel_deg==o.wheel_deg && target_torque==o.target_torque && centre_drift_percent==o.centre_drift_percent && roll_encoder_sign==o.roll_encoder_sign && status_stopped==o.status_stopped
-            && spring_mode==o.spring_mode && idle_enabled==o.idle_enabled && rest==o.rest
+            && spring_mode==o.spring_mode && power_on_spring_mode==o.power_on_spring_mode && idle_enabled==o.idle_enabled && rest==o.rest
             && status_ready_mask==o.status_ready_mask && status_acquired_mask==o.status_acquired_mask
             && pitch_encoder_sign==o.pitch_encoder_sign && roll_spring_sign==o.roll_spring_sign && pitch_spring_sign==o.pitch_spring_sign
             && roll_input_low==o.roll_input_low && roll_input_high==o.roll_input_high && pitch_input_low==o.pitch_input_low && pitch_input_high==o.pitch_input_high && roll_input_reverse==o.roll_input_reverse && pitch_input_reverse==o.pitch_input_reverse && roll_limit_register==o.roll_limit_register
@@ -82,7 +83,7 @@ inline Drive make_drive(const YokePreset& p,std::uint32_t roll_limit_register,st
     d.wheel_deg=p.wheel_deg;d.target_torque=static_cast<std::uint32_t>(p.target_torque);d.centre_drift_percent=p.centre_drift_percent;
     d.status_stopped=static_cast<std::uint16_t>(p.status_stopped);d.status_ready_mask=static_cast<std::uint16_t>(p.status_ready_mask);
     d.status_acquired_mask=static_cast<std::uint16_t>(p.status_acquired_mask);
-    d.spring_mode=static_cast<std::uint16_t>(p.spring_mode);d.idle_enabled=p.idle_enabled;d.rest=p.rest;
+    d.spring_mode=static_cast<std::uint16_t>(p.spring_mode);d.power_on_spring_mode=static_cast<std::uint16_t>(p.power_on_spring_mode);d.idle_enabled=p.idle_enabled;d.rest=p.rest;
     d.roll_encoder_sign=p.roll_encoder_sign;d.pitch_encoder_sign=p.pitch_encoder_sign;
     d.roll_spring_sign=p.roll_spring_sign;d.pitch_spring_sign=p.pitch_spring_sign;
     // Unset input ends are the travel either way, the way the input has always been scaled.

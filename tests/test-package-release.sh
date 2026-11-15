@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# Tests package_release.sh against docs/release-packaging.md. No network, no X-Plane SDK, no
+# Tests package_release.sh against docs/dev/release-packaging.md. No network, no X-Plane SDK, no
 # real build: the script is copied into a sandbox repository of placeholder files, and each
 # platform's plugin is a minimal file of the right object format (PE DLL, universal Mach-O,
 # ELF), made here with python3. Runs on Linux and macOS.

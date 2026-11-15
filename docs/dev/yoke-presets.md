@@ -14,15 +14,15 @@ Mesmer opened. A firmware update never changes a model's values. The ids Mesmer
 opens are the ids the presets name, so a model added to the presets file is found
 without a rebuild. A Brunner bridge whose id no preset names is opened read-only (see [read-only-mode.md](read-only-mode.md)); another vendor's is never opened.
 
-Built in: `cls-e` (USB `25BB:0081`, verified on firmware 367) and `cls-e-ng`
-(`25BB:008B`, not verified).
+Built in: `cls-e` (USB `0x25BB:0x0081`, verified on firmware 367) and `cls-e-ng`
+(`0x25BB:0x008B`, verified on firmware 642).
 
 ## What a preset holds
 
 | Field | Meaning |
 |---|---|
 | `name`, `title` | `name` is lower case, digits and `-`; `title` is what the pilot sees |
-| `usb` | the bridges that identify the model: `[{"vendor":9659,"product":139}]` (decimal) |
+| `usb` | the bridges that identify the model: `[{"vendorId":"0x25BB","productId":"0x008B"}]`: each id is a hex string with the `0x` prefix (1 to 4 digits, either case, and `0X` works too; written upper case, 4 digits). A decimal number is refused |
 | `verified`, `verified_firmware` | see Gates |
 | `roll_travel_counts`, `pitch_travel_counts` | travel either way from centre, in encoder counts (1000 to 30000): **the range the controller holds a resting point in**, not necessarily its end stops. The force models never put the centre past it, and a write the controller would clamp is a read-back fault. The NG's are 5300 (pitch, measured: it clamps there) and 7350 (roll, inferred from its homing sweep) |
 | `roll_input_low`, `roll_input_high`, `pitch_input_low`, `pitch_input_high` | the encoder's raw counts at each stop (low below zero, high above), which scale the position sent to X-Plane: low reads -1 and high +1, each side by its own span. Leave all out (or 0) for -travel to +travel, the CLS-E's behaviour. The travel above is how far the spring's centre may be written and the force models' scale; these are where the yoke physically stops (the NG's: roll -7641/7649, pitch -5446/5461) |
@@ -33,7 +33,8 @@ Built in: `cls-e` (USB `25BB:0081`, verified on firmware 367) and `cls-e-ng`
 | `target_torque` | the only target-torque value the plugin writes (CLS-E 50, NG 25) |
 | `centre_drift_percent` | how far the yoke may drift while a centring decides it has settled, as a **decimal percent of the axis's own travel** (default 0.1, 0 to 5; 0 asks for the old fixed 2 counts). A sensitive yoke wanders a little at rest: the centring settles when it holds within this of where the hold began (and within 200 counts of zero) for half a second; leaving it restarts the hold. 0.1 is about ±12 counts on the CLS-E's pitch and ±5 on the NG's (5300). Tune finely, e.g. 0.05 or 0.125 |
 | `status_stopped`, `status_ready_mask`, `status_acquired_mask` | the status words the CLS-E flow expects (decimal) |
-| `spring_mode` | the force mode (`0x2101:01`) the controllers rest in, without the flow's bits 13, 11, 6 and 5 (decimal; the CLS-E's is 517 = 0x0205, the NG's 1541 = 0x0605). Any other mode is refused |
+| `spring_mode` | the force mode (`0x2101:01`) the controllers rest in, without the flow's bits 13, 11, 6 and 5 (decimal; the CLS-E's is 517 = 0x0205, and the NG's 1541 = 0x0605). A controller found in any mode other than this or `power_on_spring_mode` is refused |
+| `power_on_spring_mode` | optional: another force mode (same terms as `spring_mode`) a controller may be found in before the plugin has written one, for a model whose `spring_mode` differs from what it powers on in. Omitted or 0: the same as `spring_mode`. The NG's is 517 = 0x0205 (the CLS-E's), see below. The flow still works in `spring_mode` and writes it itself |
 | `rest` | what the plugin leaves the controllers at between sessions (after force feel stops, before a centring, in recovery and in **Developer > Reset yoke**): `roll_curve`, `pitch_curve` (9 points each), `roll_spring_percent`, `pitch_spring_percent`, `pitch_gain_denominator`, `pitch_move_back`, `pitch_cutoff` (0: not written) and `mode` (the force mode left at rest, bit 13 included; 0: not written). The CLS-E's are the historical constants; the NG's are its own (survey of 2026-11-12, mode `0x2605`), because writing the CLS-E's to the NG overwrote them and the NG kept them. A **new model that gives no `rest`** has the plugin read these registers when a session starts and write exactly that back, so a yoke is left as it was found (settings it could not write back refuse the session before anything is written) |
 | `idle_enabled` | `true` for a model that idles with its motors enabled (the NG). Centring then shuts them down the standard way first instead of refusing; `false` (the CLS-E) keeps the refusal |
 | `roll_encoder_sign`, `pitch_encoder_sign` | the model's counts (forward / right positive) are sign x the encoder (+1 or -1). Reading only: it is where the force models and the feel page think the yoke is |
@@ -54,7 +55,7 @@ hardware's frame) in the presets file; no rebuild.
 ## The shipped models: the `yokes/` folder
 
 Each model is a file in the plugin's `yokes/` folder (`config/yokes/` in the source):
-`cls-e.json` (the original, verified) and `cls-e-ng.json`. A file is a complete
+`cls-e.json` (the original, verified on firmware 367) and `cls-e-ng.json` (verified on firmware 642). A file is a complete
 `{"schema":1,"yokes":[{...}]}` with every field spelled out, so a new model is a copy
 and an edit; numbers are decimal (JSON has no hex: `status_stopped` 1057 is 0x0421,
 `spring_mode` 1541 is 0x0605). The files are read once at start, each on its own (a
@@ -73,6 +74,14 @@ must give `usb`, both travels, both ceilings and `target_torque`; it is
 unverified unless it says otherwise. No two models may claim one USB id.
 Every field is bounded; an unknown field or a file that does not validate is
 refused **whole**, the built-ins stay in force, and the reason is in `Log.txt`.
+
+## The NG's force mode
+
+The NG works in its own force mode, 0x0605 (0x2605 at rest, with the reference request, so it still references
+itself at power-on). The CLS-E's 0x0205, the same without bit 0x0400, was tried on it on 2026-11-14 and the
+NG's registers kept it, so the NG preset's `power_on_spring_mode` is 517 (0x0205): a controller found in that
+mode is accepted, and the first session writes 0x0605 / 0x2605 back. Any other mode is refused. Once every NG has
+been through a session the field can be dropped.
 
 ## Forces stop at limits
 

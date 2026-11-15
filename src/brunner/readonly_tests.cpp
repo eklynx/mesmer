@@ -1,4 +1,4 @@
-// Tests for read-only mode (brunner/readonly.hpp, spec docs/read-only-mode.md): firmware
+// Tests for read-only mode (brunner/readonly.hpp, spec docs/dev/read-only-mode.md): firmware
 // the plugin does not drive. The point of most of them is the guarantee: on such
 // firmware nothing but read requests is ever sent to a controller. No hardware.
 #include "brunner/bridge.hpp"
@@ -159,10 +159,13 @@ template<class Predicate> bool wait_for(Predicate done,int ms=3000) {
     return done();
 }
 // A reader on a fake controller, with the logs the tests read after it has stopped.
+// The built-in NG is verified (firmware 642); the gate tests need a model that is not, so they use this copy.
+YokePreset unverified_ng() {auto p=builtin_cls_e_ng();p.verified=false;p.verified_firmware.clear();return p;}
 struct Run {
     std::vector<Report> sent,writes;
     Reader reader;
     explicit Run(UsbId id={0x25bb,0x008b},std::function<void(ControllerFake&)> tweak={}) {
+        reader.set_presets({builtin_cls_e(),unverified_ng()});
         reader.set_device_factory([this,id,tweak] {auto d=std::make_unique<ControllerFake>(&sent,&writes,id);if (tweak) tweak(*d);return d;});
     }
     bool ready() {const auto s=reader.snapshot();return !s.read_only && s.connected && s.cycles>2;}
@@ -173,12 +176,13 @@ std::uint32_t le(const Report& r,unsigned from,unsigned bytes) {
 
 // The rule is the model's, never the firmware's.
 void the_gate_rule() {
-    const auto cls_e=builtin_cls_e(),ng=builtin_cls_e_ng();
+    const auto cls_e=builtin_cls_e(),ng=unverified_ng();
     check(!read_only_reason(cls_e,false) && !read_only_reason(cls_e,true));          // verified: always driven
     const auto why=read_only_reason(ng,false);
     check(why && why->find("Brunner CLS-E NG")!=std::string::npos && why->find("Allow unverified yoke models")!=std::string::npos && why->find(".ini")==std::string::npos);
     check(!read_only_reason(ng,true));                                               // acknowledged
     auto verified_ng=ng;verified_ng.verified=true;
+    check(!read_only_reason(builtin_cls_e_ng(),false));                              // the shipped NG is verified (firmware 642)
     check(!read_only_reason(verified_ng,false));                                     // a preset that says verified needs no key
     // The firmware is only a note.
     check(firmware_note(cls_e,{{367,367}}).empty());
@@ -193,7 +197,7 @@ void unverified_model_is_read_only_and_never_written() {
     check(wait_for([&] {const auto s=run.reader.snapshot();return s.read_only && s.connected && s.cycles>2;}));
     const auto s=run.reader.snapshot();
     check(s.axes[0].firmware==642 && s.axes[1].firmware==642);
-    check(s.usb_vendor==0x25bb && s.usb_product==0x008b && s.model=="cls-e-ng" && s.model_title=="Brunner CLS-E NG");   // the model follows from the device
+    check(s.usb_vendor==0x25BB && s.usb_product==0x008B && s.model=="cls-e-ng" && s.model_title=="Brunner CLS-E NG");   // the model follows from the device
     check(s.message.find("not verified")!=std::string::npos && s.message.find("read-only")!=std::string::npos);
     check(s.yoke_note.find("642")!=std::string::npos);
     check(!s.loading_active && !s.reference_active && !s.session_reference && !s.loading_fault && !s.stop_unconfirmed);
@@ -263,7 +267,7 @@ void a_verified_model_on_other_firmware_is_noted_not_gated() {
 // A preset edited to say verified needs no acknowledgement; the ids come from the presets.
 void presets_decide_the_ids_and_the_gate() {
     ScopedDrive restore(cls_e_drive());
-    auto presets=builtin_yoke_presets();
+    auto presets=std::vector<YokePreset>{builtin_cls_e(),unverified_ng()};
     presets[1].verified=true;
     Run run;
     run.reader.set_presets(presets);
@@ -357,21 +361,21 @@ void the_remembered_travel() {
     // because firmware is not in the file at all.
     check(!parse_travel(text,{0x25bb,0x0081}) && !parse_travel(text,{0x25bb,0x00ff}) && !parse_travel(text,{0x1234,0x008b}));
     check(text.find("firmware")==std::string::npos);
-    // The version: only 3 is read. The stretched file written during the NG's homing sweep (no
+    // The version: only 4 is read (3 wrote the USB id as decimal numbers). The stretched file written during the NG's homing sweep (no
     // version), the firmware-keyed version 2 and any other version are ignored.
-    const std::string body="\"usb\":[9659,139],\"roll\":{\"low\":-7637,\"high\":7985},\"pitch\":{\"low\":-5458,\"high\":5712}}";
-    check(parse_travel("{\"version\":3,"+body,ng).has_value());
-    for (const auto* version:{"","\"version\":1,","\"version\":2,","\"version\":4,","\"version\":\"3\",","\"version\":3.5,","\"version\":null,"})
+    const std::string body="\"usb\":{\"vendorId\":\"0x25BB\",\"productId\":\"0x008B\"},\"roll\":{\"low\":-7637,\"high\":7985},\"pitch\":{\"low\":-5458,\"high\":5712}}";
+    check(parse_travel("{\"version\":4,"+body,ng).has_value());
+    for (const auto* version:{"","\"version\":1,","\"version\":2,","\"version\":3,","\"version\":\"4\",","\"version\":4.5,","\"version\":null,"})
         check(!parse_travel(std::string("{")+version+body,ng));
     const std::string old_file="{\"version\":2,\"firmware\":[642,642],\"roll\":{\"low\":-7637,\"high\":7985},\"pitch\":{\"low\":-5458,\"high\":5712}}";
     check(!parse_travel(old_file,ng));
-    const std::string head="{\"version\":3,\"usb\":[9659,139],";
+    const std::string head="{\"version\":4,\"usb\":{\"vendorId\":\"0x25BB\",\"productId\":\"0x008B\"},";
     for (const auto& garbage:{std::string(),std::string("x"),std::string("{}"),std::string("[]"),head+"\"roll\":{\"low\":0,\"high\":1}}",
             head+"\"roll\":{\"low\":5,\"high\":1},\"pitch\":{\"low\":0,\"high\":1}}",                      // inverted
             head+"\"roll\":{\"low\":\"a\",\"high\":1},\"pitch\":{\"low\":0,\"high\":1}}",                   // wrong type
             head+"\"roll\":{\"low\":-9999999999,\"high\":1},\"pitch\":{\"low\":0,\"high\":1}}",             // absurd
-            std::string("{\"version\":3,\"usb\":[\"9659\",\"139\"],\"roll\":{\"low\":0,\"high\":1},\"pitch\":{\"low\":0,\"high\":1}}"),
-            std::string("{\"version\":3,\"usb\":[9659],\"roll\":{\"low\":0,\"high\":1},\"pitch\":{\"low\":0,\"high\":1}}")})
+            std::string("{\"version\":4,\"usb\":{\"vendorId\":9659,\"productId\":139},\"roll\":{\"low\":0,\"high\":1},\"pitch\":{\"low\":0,\"high\":1}}"),
+            std::string("{\"version\":4,\"usb\":{\"vendorId\":\"0x25BB\"},\"roll\":{\"low\":0,\"high\":1},\"pitch\":{\"low\":0,\"high\":1}}")})
         check(!parse_travel(garbage,ng));
 }
 // The NG homes itself at power-on, sweeping past its own limits with bit 0x1000 absent.
@@ -472,8 +476,8 @@ void the_toggle_restarts_the_reader_with_the_new_choice() {
     run.reader.stop();
     check(run.writes.size()==written);
 }
-// The NG idles enabled. Session start shuts it down the standard way, and its resting mode
-// (0x0605, not the CLS-E's 0x0205) is accepted; before this it was "Unknown controller spring mode".
+// The NG idles enabled. Session start shuts it down the standard way, and the mode it powers on in
+// (0x0605, the NG's own) is accepted, as is the CLS-E's 0x0205 an experiment left in it; a mode none of those is refused.
 void an_idle_enabled_model_is_shut_down_and_its_own_mode_accepted() {
     ScopedDrive restore(cls_e_drive());
     ControllerFake* device=nullptr;
@@ -498,6 +502,36 @@ void an_idle_enabled_model_is_shut_down_and_its_own_mode_accepted() {
     check(run.reader.snapshot().loading_result.find("requires disabled")==std::string::npos);
     run.reader.stop();
 }
+// The NG works in its own force mode (0x0605). A controller left in the CLS-E's 0x0205 by the 2026-11-14 experiment is
+// accepted too, and the first session puts the NG's own mode back; any other mode is refused.
+void the_ng_works_in_its_own_mode_and_takes_back_the_cls_es() {
+    ScopedDrive restore(cls_e_drive());
+    const auto mode_of=[](ControllerFake& f,unsigned node) {return f.regs[ControllerFake::key(node,0x2101,1)];};
+    for (const unsigned start:{0x2605u,0x0605u,0x0205u,0x2205u}) {
+        ControllerFake* device=nullptr;
+        Run run({0x25bb,0x008b},[&](ControllerFake& f) {
+            device=&f;f.tracks_state=true;f.enabled=true;f.surveyed_registers();
+            for (unsigned node=1;node<=2;++node) f.regs[ControllerFake::key(node,0x2101,1)]=start;
+        });
+        run.reader.set_allow_unverified(true);
+        run.reader.start();
+        check(wait_for([&] {return run.ready();}));
+        check(!run.reader.snapshot().loading_fault);
+        for (unsigned node=1;node<=2;++node) check((mode_of(*device,node)&~0x2860u)==0x0605u);   // the NG's own mode, whichever it started in
+        run.reader.stop();
+    }
+    // Any other mode is still an unknown controller.
+    for (const unsigned other:{0x0305u,0x0405u,0x0207u,0x0215u}) {
+        Run run({0x25bb,0x008b},[&](ControllerFake& f) {
+            f.tracks_state=true;f.enabled=true;f.surveyed_registers();
+            for (unsigned node=1;node<=2;++node) f.regs[ControllerFake::key(node,0x2101,1)]=other;
+        });
+        run.reader.set_allow_unverified(true);
+        run.reader.start();
+        check(wait_for([&] {const auto s=run.reader.snapshot();return s.message.find("Unknown controller spring mode")!=std::string::npos || s.loading_result.find("Unknown controller spring mode")!=std::string::npos;}));
+        run.reader.stop();
+    }
+}
 // A model that does not idle enabled is still refused when found enabled at a centring.
 void a_model_that_idles_off_is_still_refused_when_enabled() {
     ScopedDrive restore(cls_e_drive());
@@ -513,7 +547,7 @@ void a_model_that_idles_off_is_still_refused_when_enabled() {
     check(run.writes.size()==writes_before);                // refused untouched: nothing written
     // The preset's own flag, not the model's name, decides.
     check(!builtin_cls_e().idle_enabled && builtin_cls_e_ng().idle_enabled);
-    check(builtin_cls_e().spring_mode==0x0205 && builtin_cls_e_ng().spring_mode==0x0605 && builtin_cls_e_ng().status_stopped==0x0421);
+    check(builtin_cls_e().spring_mode==0x0205 && builtin_cls_e_ng().spring_mode==0x0605 && builtin_cls_e_ng().power_on_spring_mode==0x0205 && builtin_cls_e_ng().status_stopped==0x0421);
     auto bad=builtin_cls_e_ng();bad.spring_mode=0x2605;bool refused=false;
     try {validate_preset(bad);} catch (const PresetError&) {refused=true;}
     check(refused);
@@ -554,14 +588,14 @@ void an_unknown_brunner_id_is_read_only_and_never_written() {
         check(wait_for([&] {const auto s=run.reader.snapshot();return s.read_only && s.connected && s.cycles>2;}));
         const auto s=run.reader.snapshot();
         check(s.model=="unknown" && s.model_title=="Unknown Brunner yoke");
-        check(s.message.find("Unknown yoke USB id 25BB:00FF")!=std::string::npos && s.message.find("BrunnerDirect.yokes.json")!=std::string::npos);
-        check(s.usb_vendor==0x25bb && s.usb_product==0x00ff && s.yoke_note.empty());
+        check(s.message.find("Unknown yoke USB id 0x25BB:0x00FF")!=std::string::npos && s.message.find("BrunnerDirect.yokes.json")!=std::string::npos);
+        check(s.usb_vendor==0x25BB && s.usb_product==0x00FF && s.yoke_note.empty());
         check(!run.reader.request_reference_test() && !run.reader.request_loading_test() && !run.reader.request_flight());
         run.reader.stop();
         check(!run.sent.empty() && run.writes.empty());          // read requests only, whatever the toggle
     }
     // A preset for the id (an edited BrunnerDirect.yokes.json) makes it a known model again.
-    auto club=builtin_cls_e_ng();club.name="club";club.usb_ids={{0x25bb,0x00ff}};
+    auto club=unverified_ng();club.name="club";club.spring_mode=0x0605;club.power_on_spring_mode=0;club.rest.mode=0x2605;club.usb_ids={{0x25bb,0x00ff}};
     Run known({0x25bb,0x00ff});
     known.reader.set_presets({builtin_cls_e(),club});
     known.reader.start();
@@ -617,7 +651,7 @@ void reset_yoke_restores_the_models_settings() {
 // A model with no resting settings in its preset: they are read from the yoke and put back as found.
 void a_model_without_rest_settings_is_left_as_found() {
     ScopedDrive restore(cls_e_drive());
-    auto club=builtin_cls_e_ng();club.name="club";club.title="Club yoke";club.usb_ids={{0x25bb,0x00ff}};
+    auto club=unverified_ng();club.name="club";club.spring_mode=0x0605;club.power_on_spring_mode=0;club.rest.mode=0x2605;club.title="Club yoke";club.usb_ids={{0x25bb,0x00ff}};
     club.rest=RestSettings{};club.rest.captured=true;
     ControllerFake* device=nullptr;
     Run run({0x25bb,0x00ff},[&](ControllerFake& f) {
@@ -681,6 +715,7 @@ int main() {
         an_acknowledged_model_starts_with_a_no_change_write();
         a_refused_test_write_ends_the_session();
         an_idle_enabled_model_is_shut_down_and_its_own_mode_accepted();
+        the_ng_works_in_its_own_mode_and_takes_back_the_cls_es();
         a_model_that_idles_off_is_still_refused_when_enabled();
         a_verified_model_on_other_firmware_is_noted_not_gated();
         presets_decide_the_ids_and_the_gate();

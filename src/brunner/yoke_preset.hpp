@@ -1,5 +1,5 @@
 // SOURCE OF TRUTH for what differs between yoke MODELS: travel, force ceilings,
-// target torque and wheel travel. Specification: docs/yoke-presets.md.
+// target torque and wheel travel. Specification: docs/dev/yoke-presets.md.
 //
 // A preset belongs to a model, identified by its USB vendor/product id, never by
 // firmware: a firmware update must not change these values. The firmware a
@@ -102,6 +102,10 @@ struct YokePreset {
     // vibration and the other bits the flow sets and clears (bits 13, 11, 6, 5) left out.
     // The flow refuses any other mode, so a model whose resting mode differs needs its own.
     int spring_mode=0x0205;
+    // The force mode a controller may be found in before the plugin has written one (what it powers on in),
+    // in the same terms as spring_mode, for a mode a controller may have been left in. The flow still works in
+    // spring_mode and writes it itself; this only widens what the first check accepts. 0: the same as spring_mode.
+    int power_on_spring_mode=0;
     // True for a model whose controllers idle with their motors enabled (its own spring
     // running, status bit 0x0004 set). Centring then disables them first, with the standard
     // shutdown, instead of refusing; the CLS-E, which idles disabled, keeps the refusal.
@@ -125,7 +129,7 @@ inline YokePreset builtin_cls_e_ng() {
     YokePreset p;
     p.name="cls-e-ng";p.title="Brunner CLS-E NG";
     p.usb_ids={{0x25bb,0x008b}};
-    p.verified=false;
+    p.verified=true;p.verified_firmware={642};
     // Travel is the range the controller accepts for the resting point (0x2116), which bounds where the
     // force models may put the centre. Pitch clamps at +-5300 (measured 2026-11-13: a write of 5468 or 5369
     // read back 5300). Roll is inferred: the NG's own homing sweep stopped at roll -7412 and pitch -5320
@@ -145,7 +149,10 @@ inline YokePreset builtin_cls_e_ng() {
     // is 0x2605, and 0x0605 once the reference request (bit 13) is taken off.
     p.status_ready_mask=0x1007;
     p.status_stopped=0x0421;
-    p.spring_mode=0x0605;
+    // The NG's own mode. The CLS-E's 0x0205 (the same less bit 0x0400) was tried on it on 2026-11-14 and left in
+    // the controllers' registers; the first check still accepts that mode (power_on_spring_mode), and the first
+    // session writes 0x0605 / 0x2605 back.
+    p.spring_mode=0x0605;p.power_on_spring_mode=0x0205;
     p.idle_enabled=true;
     // Its pitch encoder runs the other way from the CLS-E's: pulling lowers it. The model's forward is
     // therefore +encoder (pitch_encoder_sign 1), the input is reversed, and the spring's frame stays
@@ -206,6 +213,8 @@ inline void validate_preset(const YokePreset& p) {
         if (r.mode!=0 && (r.mode<1 || r.mode>0xffff || (r.mode&~flow_bits)!=p.spring_mode))
             fail("rest mode must be 0 (not written) or the spring_mode with only the flow's bits 13, 11, 6 and 5 added");
     }
+    if (p.power_on_spring_mode!=0 && (p.power_on_spring_mode<1 || p.power_on_spring_mode>0xffff || (p.power_on_spring_mode&((1<<13)|(1<<11)|(1<<6)|(1<<5)))!=0))
+        fail("power_on_spring_mode must be 0 (the same as spring_mode) or 1 to 65535 with bits 13, 11, 6 and 5 clear");
     if (p.spring_mode<1 || p.spring_mode>0xffff || (p.spring_mode&((1<<13)|(1<<11)|(1<<6)|(1<<5)))!=0)
         fail("spring_mode must be 1 to 65535 with bits 13, 11, 6 and 5 clear (they are the flow's, not the resting mode's)");
 }
@@ -227,12 +236,12 @@ inline void validate_presets(const std::vector<YokePreset>& presets) {
 // An entry whose name is a built-in's starts from it and changes only the fields
 // it gives. A new name must give its USB ids, both travels, both ceilings and
 // the target torque (nothing is assumed for an unknown model); it is unverified
-// unless it says otherwise. Fields: name, title, usb [{vendor,product}], verified,
+// unless it says otherwise. Fields: name, title, usb [{vendorId,productId}] (each a hex string such as "0x25BB"), verified,
 // verified_firmware [..], roll_travel_counts, pitch_travel_counts, roll_input_low, roll_input_high,
 // pitch_input_low, pitch_input_high, wheel_deg,
 // pitch_travel_mm, pitch_units_per_lb, roll_units_per_nm, roll_ceiling_units,
 // pitch_ceiling_units, margin_fraction, target_torque, centre_drift_percent, status_stopped,
-// status_ready_mask, status_acquired_mask, spring_mode, idle_enabled, rest {roll_curve, pitch_curve,
+// status_ready_mask, status_acquired_mask, spring_mode, power_on_spring_mode, idle_enabled, rest {roll_curve, pitch_curve,
 // roll_spring_percent, pitch_spring_percent, pitch_gain_denominator, pitch_move_back, pitch_cutoff, mode},
 // roll_encoder_sign,
 // pitch_encoder_sign, roll_spring_sign, pitch_spring_sign, roll_input_reverse, pitch_input_reverse. Unknown fields are refused.
@@ -245,6 +254,11 @@ inline double number(const Json& j,const std::string& what) {
 inline int whole(const Json& j,const std::string& what) {
     if (j.kind!=Json::Kind::integer || j.integer<-1000000 || j.integer>1000000) throw PresetError(what+" must be a whole number");
     return static_cast<int>(j.integer);
+}
+inline std::uint16_t hex_id(const Json& j,const std::string& what) {
+    const auto id=j.kind==Json::Kind::string?parse_hex_id(j.text):std::nullopt;
+    if (!id) throw PresetError(what+" must be a hex string \"0x0001\" to \"0xFFFF\"");
+    return *id;
 }
 inline bool flag(const Json& j,const std::string& what) {
     if (j.kind!=Json::Kind::boolean) throw PresetError(what+" must be true or false");
@@ -284,12 +298,11 @@ inline std::vector<YokePreset> parse_yoke_presets(std::string_view text,const st
                 if (v.kind!=Json::Kind::array) throw PresetError(what+" must be a list");
                 p.usb_ids.clear();
                 for (const auto& id:v.items) {
-                    const auto* vendor=id.kind==Json::Kind::object?id.get("vendor"):nullptr;
-                    const auto* product=id.kind==Json::Kind::object?id.get("product"):nullptr;
-                    if (!vendor || !product) throw PresetError(what+" entries need vendor and product");
-                    const int vn=whole(*vendor,what+".vendor"),pn=whole(*product,what+".product");
-                    if (vn<1 || vn>0xffff || pn<1 || pn>0xffff) throw PresetError(what+" ids must be 1 to 65535");
-                    p.usb_ids.push_back({static_cast<std::uint16_t>(vn),static_cast<std::uint16_t>(pn)});
+                    const auto* vendor=id.kind==Json::Kind::object?id.get("vendorId"):nullptr;
+                    const auto* product=id.kind==Json::Kind::object?id.get("productId"):nullptr;
+                    if (!vendor || !product) throw PresetError(what+" entries need vendorId and productId");
+                    const auto vn=hex_id(*vendor,what+".vendorId"),pn=hex_id(*product,what+".productId");
+                    p.usb_ids.push_back({vn,pn});
                 }
             }
             else if (key=="verified") p.verified=flag(v,what);
@@ -321,6 +334,7 @@ inline std::vector<YokePreset> parse_yoke_presets(std::string_view text,const st
             else if (key=="status_ready_mask") p.status_ready_mask=whole(v,what);
             else if (key=="status_acquired_mask") p.status_acquired_mask=whole(v,what);
             else if (key=="spring_mode") p.spring_mode=whole(v,what);
+            else if (key=="power_on_spring_mode") p.power_on_spring_mode=whole(v,what);
             else if (key=="idle_enabled") p.idle_enabled=flag(v,what);
             else if (key=="rest") {
                 if (v.kind!=Json::Kind::object) throw PresetError(what+" must be an object");

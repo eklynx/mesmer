@@ -139,6 +139,12 @@ inline std::uint16_t spring_mode() {return active_drive().spring_mode;}
 inline std::uint16_t base_spring_mode(std::uint16_t mode) {
     return static_cast<std::uint16_t>(mode & ~((1u<<13)|(1u<<11)|(1u<<5)|(1u<<6)));
 }
+// Whether a force mode read from a controller (the flow's bits aside) is one the model works in or powers on in.
+inline bool known_spring_mode(std::uint16_t mode) {
+    const auto base=base_spring_mode(mode);
+    const auto& d=active_drive();
+    return base==d.spring_mode || (d.power_on_spring_mode!=0 && base==d.power_on_spring_mode);
+}
 inline std::vector<RegisterWrite> reference_start(std::uint16_t word,std::uint16_t mode) {
     mode=base_spring_mode(mode);
     word=stopped_controlword(word);

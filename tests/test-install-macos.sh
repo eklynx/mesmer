@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# Tests src/scripts/install_macos.sh against docs/macos-build.md ("Installing"). Everything runs in a
+# Tests src/scripts/install_macos.sh against docs/dev/macos-build.md ("Installing"). Everything runs in a
 # sandbox: a fake HOME with an x-plane_install_12.txt, a fake X-Plane folder and a fake staged plugin.
 #   tests/test-install-macos.sh
 set -uo pipefail

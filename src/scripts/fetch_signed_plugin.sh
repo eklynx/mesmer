@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 # Have a signing repository sign this commit's macOS plugin and fetch the result. Specification:
-# docs/release-signing.md (the source of truth for the contract with the signing repository and for
+# docs/dev/release-signing.md (the source of truth for the contract with the signing repository and for
 # every failure here). Tests: tests/test-fetch-signed-plugin.sh.
 #
 #   src/scripts/fetch_signed_plugin.sh --signing-repo OWNER/NAME --repo OWNER/NAME --ref NAME --sha SHA \

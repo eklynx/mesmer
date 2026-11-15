@@ -1,5 +1,5 @@
 // macOS implementation of open_bridge() / HidDevice over IOKit's IOHIDManager.
-// Contract: hid/hid_device.hpp (source of truth); notes: docs/hid-bridge.md.
+// Contract: hid/hid_device.hpp (source of truth); notes: docs/dev/hid-bridge.md.
 //
 // The bridge is opened exclusively (kIOHIDOptionsTypeSeizeDevice), like the
 // Windows share-mode-0 open, so CLS2Sim or Simux holding it reads as BridgeBusy.
@@ -103,7 +103,7 @@ Enumeration enumerate(const std::vector<UsbId>& ids,const std::vector<std::uint1
             number_property(device,CFSTR(kIOHIDMaxInputReportSizeKey),input);
             number_property(device,CFSTR(kIOHIDMaxOutputReportSizeKey),output);
             char line[160];
-            std::snprintf(line,sizeof(line),"vendor=0x%04x product=0x%04x usage_page=0x%04x usage=0x%04x input=%d output=%d\n",
+            std::snprintf(line,sizeof(line),"vendor=0x%04X product=0x%04X usage_page=0x%04x usage=0x%04x input=%d output=%d\n",
                 static_cast<unsigned>(vendor),static_cast<unsigned>(product),static_cast<unsigned>(page),static_cast<unsigned>(usage),input,output);
             found.text+=line;
             HidCandidate candidate;

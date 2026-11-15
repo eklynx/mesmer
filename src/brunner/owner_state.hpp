@@ -1,6 +1,6 @@
 // SOURCE OF TRUTH for the owner's saved choices that are not in BrunnerDirect.ini:
 // today one, "allow unverified yoke" (Developer menu). Specification:
-// docs/yoke-presets.md. Saved as BrunnerDirect.state.json in X-Plane's Output/BrunnerDirect (so
+// docs/dev/yoke-presets.md. Saved as BrunnerDirect.state.json in X-Plane's Output/BrunnerDirect (so
 // updating the plugin never replaces it); an older install's copy in the plugin folder is read once and moved.
 //
 // The default is OFF, and any doubt means off: a missing file is normal, and a file

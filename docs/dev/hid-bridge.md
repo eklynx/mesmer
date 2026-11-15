@@ -16,9 +16,8 @@ The bridge ids Mesmer will open are the ids the yoke presets name ([yoke-presets
 
 | Vendor | Product | Notes |
 |---|---|---|
-| `0x25BB` | `0x0081` | The original CLS USB Bridge. |
-| `0x25BB` | `0x008B` | The CLS-E NG. Found and opened, and it answers the same read requests. Its preset is not verified, so it is read-only until the owner acknowledges the unverified model; its controllers report firmware 642, which its preset only notes. Seen on hardware 2026-11-12. |
-
+| `0x25BB` | `0x0081` | The original CLS-E USB Bridge. |
+| `0x25BB` | `0x008B` | The CLS-E NG USB Bridge.          
 An id in the list is necessary, never sufficient. A device is the bridge only
 if **all** of these hold (`select_bridge`):
 
@@ -86,21 +85,9 @@ callback on a private run-loop thread into a queue; writes use
 `IOHIDDeviceSetReportWithCallback` so the timeout holds. Needs the frameworks
 IOKit and CoreFoundation.
 
-**Checked on hardware (a CLS-E NG, 25BB:008B, 2026-11-12):** enumeration, the
-exclusive open, a firmware read request and its reply all work. macOS reports
-the vendor interface as usage page `0xFF00`, usage `0xFF02`, input and output
-64 bytes (so the report ID is included), and reports carry the report ID in
-byte 0. Not yet checked: motor commands, and a yoke with firmware v367 (the
-firmware the CLS-E's preset was verified on). The reader still accepts a reported
-size of 63 as 64, in case another macOS version excludes the ID byte.
-
 Paths: X-Plane on macOS hands plugins classic `Volume:Folder:` paths unless
 the plugin asks for POSIX ones, so `XPluginStart` calls
 `XPLMEnableFeature("XPLM_USE_NATIVE_PATHS",1)` on macOS before any path is read.
-
-macOS may also ask for the *Input Monitoring* permission for the program that
-opens the device (X-Plane, or the Terminal running the test). Without it,
-enumeration fails; that reads as *Yoke busy or unavailable*.
 
 `brunner_hardware_read_test` opens the bridge, reads status, encoder and
 position from both controllers for 15 s and closes it. It never asks for force

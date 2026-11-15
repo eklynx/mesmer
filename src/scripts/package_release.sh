@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 # Merge the per-platform plugin builds into the one release zip. Specification:
-# docs/release-packaging.md (the source of truth for what this script guarantees and how it
+# docs/dev/release-packaging.md (the source of truth for what this script guarantees and how it
 # fails). Tests: tests/test-package-release.sh.
 #
 #   src/scripts/package_release.sh --version V --out DIR [--win DIR] [--mac DIR] [--linux DIR] [--help]

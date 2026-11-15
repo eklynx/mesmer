@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 # Install the plugin built by build_macos.sh (build/stage/BrunnerDirect) into X-Plane on
-# this Mac. Specification: docs/macos-build.md ("Installing"); tests: tests/test-install-macos.sh.
+# this Mac. Specification: docs/dev/macos-build.md ("Installing"); tests: tests/test-install-macos.sh.
 #
 #   src/scripts/install_macos.sh [--version N] [--xplane-dir PATH] [--force] [--dry-run] [--help]
 #

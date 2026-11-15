@@ -24,6 +24,10 @@ The first release numbered major.minor.patch. The plugin flies as 0.1.0-alpha.3 
 
 ## Unreleased
 
+- **Developer documentation moved to `docs/dev/`.** The docs that are not about standard use (yoke presets, read-only mode, the HID bridge, the macOS build, release packaging and signing) are now in [docs/dev](docs/dev/README.md), with new pages for [advanced configuration](docs/dev/advanced-configuration.md) and the [source layout](docs/dev/source-layout.md). The usage docs keep the messages a pilot sees and link to them.
+- **A preset can accept another force mode when first found.** The new optional preset field `power_on_spring_mode` is a second force mode the first check accepts (0: only `spring_mode`). The NG's is 517 (0x0205, the CLS-E's), because that mode was tried on it and its controllers kept it; the NG itself works in 0x0605 / 0x2605 as before, and the first session writes that back. See [yoke presets](docs/dev/yoke-presets.md#the-ngs-force-mode).
+- **The CLS-E NG is verified, on firmware 642.** `config/yokes/cls-e-ng.json` and the built-in fallback say `"verified": true, "verified_firmware": [642]`, so the NG is driven without **Developer > Allow unverified yoke models**, and its first writes no longer include the no-change test write. The toggle still gates a model whose preset is not verified.
+- **USB ids are hex with the `0x` prefix everywhere.** The yoke presets (`config/yokes/*.json`, `BrunnerDirect.yokes.json`) name them as `"usb":[{"vendorId":"0x25BB","productId":"0x0081"}]`, replacing the decimal `vendor` and `product` numbers, which are now refused. `read-only-travel.json` is version 4 and uses the same form, so a version 3 file is ignored and the range is learned again. The digits may be upper or lower case (`0x25bb` and `0X25BB` are read too); everything the plugin writes (status lines, Log.txt, saved files) and the docs use upper case, `0x25BB:0x008B`.
 - **A stalled yoke reader is logged.** If the yoke stays connected but stops answering (its sampling count stops advancing for 2 seconds), Log.txt says so, and says when it recovers; a power cycle of the yoke clears it.
 - **"Yoke not reaching X-Plane" now says why.** The line names the actual reason (for example an unverified axis calibration, a lost reference or stale yoke data) and the reason is written to Log.txt; the "another add-on" hint stays for the case where another plugin really holds pitch and roll.
 - **Releases can ship a signed and notarized macOS plugin.** Set the repository variable
@@ -31,12 +35,12 @@ The first release numbered major.minor.patch. The plugin flies as 0.1.0-alpha.3 
   signing repository build, vet, sign and notarize the macOS plugin for the tagged commit, checks the
   result is for that commit, and packages it, so users no longer have to remove the quarantine flag. Off
   unless the variable is set; with it set, a failed signing run fails the release
-  ([docs/release-signing.md](docs/release-signing.md)).
+  ([docs/dev/release-signing.md](docs/dev/release-signing.md)).
 - **macOS in CI and in the release.** `ci.yml` builds the universal plugin on macOS with
   `build_macos.sh` on every push (replacing the macOS core-tests-only job), and the release builds it
   too. The release zip now carries every platform's plugin (`win_x64/` and `mac_x64/`, `lin_x64/` once
   Linux builds) in one `BrunnerDirect/` folder, merged by `src/scripts/package_release.sh`
-  ([release-packaging.md](docs/release-packaging.md)); nothing is published unless every enabled platform
+  ([release-packaging.md](docs/dev/release-packaging.md)); nothing is published unless every enabled platform
   built and passed. The repository variables `WINDOWS_BUILD`, `MACOS_BUILD` (on unless `false`) and
   `LINUX_BUILD` (on only when `true`, a stub for now) switch a platform's build off or on in both
   workflows.
@@ -60,7 +64,7 @@ The first release numbered major.minor.patch. The plugin flies as 0.1.0-alpha.3 
 - **A macOS install script.** `src/scripts/install_macos.sh` installs the staged plugin into
   X-Plane (folder from `~/Library/Preferences/x-plane_install_12.txt`), backing up an existing
   one outside `plugins/` and keeping your ini, feel and yoke overrides. `--dry-run`, `--version`,
-  `--xplane-dir` and `--force` (see `docs/macos-build.md`).
+  `--xplane-dir` and `--force` (see `docs/dev/macos-build.md`).
 - **Read-only mode leaves pitch and roll to X-Plane.** A yoke in read-only mode no longer has the
   plugin override X-Plane's pitch and roll: both override datarefs are set to 0 and X-Plane reads
   the yoke's own USB joystick (the CLS-E NG's shows X and Y). A driven (read-write) yoke is
@@ -116,13 +120,13 @@ The first release numbered major.minor.patch. The plugin flies as 0.1.0-alpha.3 
 - **A macOS development build.** `build_macos.sh` builds a universal
   (arm64 and x86_64) plugin that loads in X-Plane 12 on a Mac. It reads the yoke
   through IOKit, which has not been run on hardware yet, so it is not a
-  release. See `docs/macos-build.md`.
+  release. See `docs/dev/macos-build.md`.
 - **More than one USB bridge id.** The plugin now opens the bridges listed in
   `src/hid/usb_ids.hpp`: `25BB:0081` as before, and `25BB:008B` (the CLS-E NG),
   and, read-only, any other Brunner (`25BB`) bridge when no listed yoke is present.
-- **Yoke presets: per-model travel, force limits and settings.** What differs between yoke models (travel counts, force ceilings, target torque, wheel travel, status words, directions) is a preset chosen by the USB id, never the firmware, with the built-in CLS-E and CLS-E NG and an editable `BrunnerDirect.yokes.json` for more. Forces stop at the lower of the preset's ceiling and the controller's own limit register; travel scales the force models. A model that is not verified (the NG) is read-only until **Developer > Allow unverified yoke models** is turned on (saved in `BrunnerDirect.state.json`, off by default; an `allow_unverified_yoke` line in `BrunnerDirect.ini` is retired and ignored), and its first writes are one setting written back unchanged. A firmware outside a preset's verified list is only noted in the log and the Force Monitor. See `docs/yoke-presets.md`.
+- **Yoke presets: per-model travel, force limits and settings.** What differs between yoke models (travel counts, force ceilings, target torque, wheel travel, status words, directions) is a preset chosen by the USB id, never the firmware, with the built-in CLS-E and CLS-E NG and an editable `BrunnerDirect.yokes.json` for more. Forces stop at the lower of the preset's ceiling and the controller's own limit register; travel scales the force models. A model that is not verified (the NG) is read-only until **Developer > Allow unverified yoke models** is turned on (saved in `BrunnerDirect.state.json`, off by default; an `allow_unverified_yoke` line in `BrunnerDirect.ini` is retired and ignored), and its first writes are one setting written back unchanged. A firmware outside a preset's verified list is only noted in the log and the Force Monitor. See `docs/dev/yoke-presets.md`.
 - **Read-only mode for a yoke the plugin does not drive.** Read-only (see
-  `docs/read-only-mode.md`) applies to a Brunner bridge no preset names (an
+  `docs/dev/read-only-mode.md`) applies to a Brunner bridge no preset names (an
   *Unknown yoke*, whatever its firmware) and to a model that is not verified until
   the Developer toggle is on. Nothing is ever written to it, the position feeds
   X-Plane's pitch and roll through a travel learned as you move the yoke to its
@@ -135,7 +139,7 @@ The first release numbered major.minor.patch. The plugin flies as 0.1.0-alpha.3 
 - **macOS and the log.** On macOS the plugin finds its own folder (it was given
   classic `Volume:Folder:` paths), and `Log.txt` now says why a yoke was
   refused. The reader is split so the Windows and macOS HID access are small separate files; see
-  `docs/hid-bridge.md`.
+  `docs/dev/hid-bridge.md`.
 
 ## 0.1.0-alpha.3
 
