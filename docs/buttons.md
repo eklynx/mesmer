@@ -7,9 +7,10 @@ its Joystick screen as `vJoy - Virtual Joystick`, and you bind its buttons
 like any other controller's. Nothing runs beside X-Plane: vJoy is a driver,
 and the plugin feeds it.
 
-**This is Windows only.** vJoy is a Windows driver, so the macOS build has no button code:
+**The vJoy path is Windows only.** vJoy is a Windows driver, so the macOS build has no button code:
 it neither reads the yoke's buttons nor logs about them (`src/hid/yoke_buttons.hpp` is the
-seam). Pitch, roll and force feel are not affected. The CLS-E NG needs none of this: its USB
+seam). Pitch, roll and force feel are not affected. The NG's buttons and hat can instead run
+X-Plane commands directly, on every OS: see [Button commands](dev/button-commands.md). The CLS-E NG needs none of this: its USB
 shows an ordinary joystick (6 buttons, a hat and X/Y), which X-Plane lists by itself.
 
 The buttons work while X-Plane runs with the plugin. All of them release

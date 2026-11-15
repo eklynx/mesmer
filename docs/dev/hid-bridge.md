@@ -40,6 +40,10 @@ To support another model, add a preset naming its bridge (in
 verified/acknowledged rule keep a different device from being driven without
 the owner's say-so.
 
+The yoke's separate *joystick* interface (usage page `0x01`, usage `0x04`) is not the bridge and is
+never selected by `select_bridge`. Mesmer only observes it, shared and read-only; see
+[button-commands.md](button-commands.md).
+
 ## Selecting among several
 
 - None qualifies: `BridgeAbsent` ("Expected one original CLS USB Bridge"). The

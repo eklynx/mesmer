@@ -2,6 +2,8 @@
 #define NOMINMAX
 #include "brunner/reader.hpp"
 #include "brunner/owner_state.hpp"
+#include "brunner/button_runner.hpp"
+#include "hid/joystick_device.hpp"
 #include "brunner/readonly.hpp"
 #include "config.hpp"
 #include "lab.hpp"
@@ -32,11 +34,21 @@
 #include <limits>
 #include <filesystem>
 #include <fstream>
+#include <map>
 #include <memory>
+#include <set>
 
 namespace {
 namespace wb=brunner::workbench;
 brunner::Reader reader;
+// The yoke's joystick buttons and hat run X-Plane commands (brunner/button_runner.hpp, docs/dev/button-commands.md):
+// the runner's thread decodes and filters the reports, update() drains its presses on X-Plane's thread.
+brunner::ButtonRunner button_runner([](std::string& why) {return hid::open_joystick(brunner::brunner_vendor,why);});
+brunner::ButtonCommands button_commands;
+std::map<std::string,XPLMCommandRef> button_command_refs;   // resolved on first press: other plugins' commands may not exist at start
+std::set<std::string> button_command_warned;
+std::string last_button_status;
+brunner::Clock::time_point button_drops_logged{};
 brunner::monitor::Window force_monitor,force_hud{true};
 brunner::recording::Recorder recorder;
 // The yoke's buttons on a virtual joystick (Windows only; hid/yoke_buttons.hpp), pressed on this thread.
@@ -576,6 +588,42 @@ void apply_owner_overrides() {
     };
     apply("auto_start",owner_state.auto_start,flight_settings.auto_start);
     apply("force_feel",owner_state.force_feel,flight_settings.force_feel);
+    std::vector<std::string> notes;
+    button_commands=brunner::ButtonCommands::from_state(owner_state.button_commands,brunner::yoke_profile_for({brunner::brunner_vendor,0}),notes);
+    for (const auto& note:notes) log(std::string(brunner::state_file)+": "+note);
+    button_command_refs.clear();button_command_warned.clear();
+    if (button_commands.size()) log("Button commands: "+std::to_string(button_commands.size())+" from "+brunner::state_file);
+}
+// Runs on X-Plane's thread: the reader thread's presses become X-Plane commands, and its status and glitch
+// count reach Log.txt. A glitch count is logged at most every 10 s, and only with debug_log=1.
+// A press runs the input's commands once, a release the "<name>_released" ones once, and "<name>_hold" is begun on the
+// press and ended on the release (brunner/button_input.hpp). An entry may list several commands; they run in the order
+// written. Held commands are tracked so that they are always ended.
+brunner::HoldTracker button_holds;
+XPLMCommandRef button_command_ref(const brunner::InputId& key,const std::string& name) {
+    auto found=button_command_refs.find(name);
+    if (found==button_command_refs.end()) found=button_command_refs.emplace(name,XPLMFindCommand(name.c_str())).first;
+    if (!found->second && button_command_warned.insert(name).second) log("Button commands: "+brunner::input_name(key)+" -> \""+name+"\" is not an X-Plane command; nothing runs");
+    return found->second;
+}
+void run_hold_actions(const std::vector<brunner::HoldAction>& actions) {
+    for (const auto& action:actions)
+        if (const auto ref=button_command_ref(action.source,action.command)) {if (action.begin) XPLMCommandBegin(ref);else XPLMCommandEnd(ref);}
+}
+void end_held_buttons() {run_hold_actions(button_holds.end_all());}
+void run_button_presses(brunner::Clock::time_point now) {
+    const auto edges=button_runner.presses().drain();
+    for (const auto& edge:edges)
+        for (const auto& name:button_commands.commands_for(edge)) if (const auto ref=button_command_ref(edge,name)) XPLMCommandOnce(ref);
+    // Held commands are kept per command: only what changes is ended or begun, ends first (brunner/button_input.hpp, HoldTracker).
+    run_hold_actions(button_holds.plan(edges,button_commands));
+    const auto status=button_runner.status();
+    if (status!=last_button_status) {last_button_status=status;if (!status.empty()) log(status);}
+    if (flight_settings.debug_log && now-button_drops_logged>=std::chrono::seconds(10)) {
+        button_drops_logged=now;
+        const auto drops=button_runner.take_drops();
+        if (!drops.empty()) log(drops);
+    }
 }
 // Written atomically (temp file, then rename) into Output/BrunnerDirect. A failed save is logged and the
 // choice still holds for this run.
@@ -760,6 +808,7 @@ float update(float,float,int,void*) {
     poll_profiles(now,false);
     const auto s=reader.snapshot();
     yoke_buttons.update(s,now,log);
+    run_button_presses(now);
     if (!s.loading_result.empty() && s.loading_result!=last_loading) {log(s.loading_result);last_loading=s.loading_result;}
     if (!s.loading_inspection.empty() && s.loading_inspection!=last_inspection) {log("Loading inspection: "+s.loading_inspection);last_inspection=s.loading_inspection;}
     const auto input=current_input(s,now);
@@ -1288,13 +1337,13 @@ PLUGIN_API int XPluginEnable() {
         force_feel=flight_settings.force_feel!=0;
         // auto_start=0 keeps the old fail-closed behaviour: nothing moves until the pilot's Re-centre.
         if (!flight_settings.auto_start) yoke.stop();
-        reader.start();startup_readiness.reset();
+        reader.start();button_runner.start();startup_readiness.reset();
         simulator_ready_for_start=false;enabled=true;
         XPLMRegisterFlightLoopCallback(update,0.1f,nullptr);XPLMScheduleFlightLoop(readiness_loop,-1.0f,1);
         start_workbench();
         return 1;
     } catch (const std::exception& e) {
-        log(e.what());reader.stop();force_hud.close();recorder.stop();
+        log(e.what());reader.stop();button_runner.stop();force_hud.close();recorder.stop();
         if (readiness_loop) {XPLMDestroyFlightLoop(readiness_loop);readiness_loop=nullptr;}
         startup_notice.destroy();
         return 0;
@@ -1310,7 +1359,7 @@ PLUGIN_API void XPluginDisable() {
     sim.release_axes();
     yoke_buttons.close();
     if (enabled) XPLMUnregisterFlightLoopCallback(update,nullptr);
-    enabled=false;simulator_ready_for_start=false;reader.stop();last_status.clear();
+    enabled=false;simulator_ready_for_start=false;reader.stop();button_runner.stop();end_held_buttons();button_runner.presses().drain();last_status.clear();
     recorder.event("Plugin disabled; reader stopped");recorder.stop();
     decision=brunner::YokeDecision{};decision.status="Yoke plugin is disabled";
     if (readiness_loop) {XPLMDestroyFlightLoop(readiness_loop);readiness_loop=nullptr;}
