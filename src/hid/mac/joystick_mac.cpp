@@ -1,7 +1,10 @@
 // macOS implementation of hid::open_joystick() over IOKit's IOHIDManager. Contract: hid/joystick_device.hpp.
 //
 // The joystick interface is opened with kIOHIDOptionsTypeNone: shared, never seized, so X-Plane's own reading
-// of the same joystick is untouched (confirmed on hardware with hid/mac/joystick_probe_mac.cpp). Input reports
+// of the same joystick is untouched (confirmed on hardware with hid/mac/joystick_probe_mac.cpp). Only that one
+// interface is ever opened: the manager matches on the joystick usage as well as the vendor, so it never touches the
+// bridge Mesmer seizes (hid/mac/hid_mac.cpp), and its own shared open is closed again right after the search, as
+// hid_mac.cpp does, leaving just the joystick device open. Input reports
 // arrive by callback on a private run-loop thread and are queued; read() waits on the queue with a timeout.
 #include "hid/joystick_device.hpp"
 #include <CoreFoundation/CoreFoundation.h>
@@ -117,12 +120,17 @@ std::unique_ptr<JoystickDevice> open_joystick(std::uint16_t vendor, std::string&
     struct Release { IOHIDManagerRef m; ~Release() { CFRelease(m); } } release{manager};
     const int vendor_id = vendor;
     CFNumberRef vendor_number = CFNumberCreate(kCFAllocatorDefault, kCFNumberIntType, &vendor_id);
-    const void* keys[] = {CFSTR(kIOHIDVendorIDKey)};
-    const void* values[] = {vendor_number};
-    CFDictionaryRef match = CFDictionaryCreate(kCFAllocatorDefault, keys, values, 1, &kCFTypeDictionaryKeyCallBacks, &kCFTypeDictionaryValueCallBacks);
+    const int page_id = 0x01, usage_id = 0x04;   // Generic Desktop / Joystick
+    CFNumberRef page_number = CFNumberCreate(kCFAllocatorDefault, kCFNumberIntType, &page_id);
+    CFNumberRef usage_number = CFNumberCreate(kCFAllocatorDefault, kCFNumberIntType, &usage_id);
+    const void* keys[] = {CFSTR(kIOHIDVendorIDKey), CFSTR(kIOHIDPrimaryUsagePageKey), CFSTR(kIOHIDPrimaryUsageKey)};
+    const void* values[] = {vendor_number, page_number, usage_number};
+    CFDictionaryRef match = CFDictionaryCreate(kCFAllocatorDefault, keys, values, 3, &kCFTypeDictionaryKeyCallBacks, &kCFTypeDictionaryValueCallBacks);
     IOHIDManagerSetDeviceMatching(manager, match);
     CFRelease(match);
     CFRelease(vendor_number);
+    CFRelease(page_number);
+    CFRelease(usage_number);
     const IOReturn opened = IOHIDManagerOpen(manager, kIOHIDOptionsTypeNone);
     if (opened != kIOReturnSuccess) {
         why = opened == kIOReturnNotPermitted ? "macOS refused access (Input Monitoring permission?)" : "cannot enumerate HID devices";
@@ -146,6 +154,9 @@ std::unique_ptr<JoystickDevice> open_joystick(std::uint16_t vendor, std::string&
     if (found.size() > 1) throw std::runtime_error("Found several joystick interfaces from the yoke's vendor");
     int product = 0;
     number_property(found.front(), CFSTR(kIOHIDProductIDKey), product);
+    // Release the manager's own (shared) open before the device is opened, as hid_mac.cpp does; the manager and the
+    // device stay alive (the device is retained below) but only the device's own open remains.
+    IOHIDManagerClose(manager, kIOHIDOptionsTypeNone);
     return std::make_unique<MacJoystick>(manager, found.front(), vendor, static_cast<std::uint16_t>(product));
 }
 }

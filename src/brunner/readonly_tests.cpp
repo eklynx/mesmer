@@ -51,6 +51,7 @@ struct ControllerFake : HidDevice {
     std::map<std::uint32_t,std::uint32_t> regs;
     std::uint16_t firmware[3]={0,642,642};   // by node
     bool refuse_writes=false;
+    std::shared_ptr<std::atomic<int>> drop;   // when above 0, that many next requests get no reply at all (one is used per request)
     int encoder=100;
     // A model that idles with its motors enabled (the NG): status 0x1427 until a shutdown
     // controlword (low nibble 6) is written, then 0x0421. Set again, it is enabled again.
@@ -106,6 +107,7 @@ struct ControllerFake : HidDevice {
     }
     void write(const Report& r,int) override {
         sent->push_back(r);
+        if (drop && drop->load()>0) {--*drop;return;}
         const unsigned node=r[4],index=r[7]|(r[8]<<8),sub=r[9];
         const bool is_write=r[6]==0x2b || r[6]==0x23;
         Report reply=r;
@@ -146,7 +148,7 @@ struct ControllerFake : HidDevice {
     void read(Report& r,int timeout_ms) override {
         if (replies.empty()) {
             std::this_thread::sleep_for(std::chrono::milliseconds(std::min(timeout_ms,20)));
-            throw TransportError("HID I/O timed out");
+            throw ReadTimeout{};
         }
         r=replies.front();replies.pop_front();
     }
@@ -726,8 +728,65 @@ void the_new_config_keys() {
     }
 }
 }
+// A yoke that stops answering for a while is not a lost link: the sampling loops carry on for up to reply_tolerance_ms.
+struct Quiet {
+    std::shared_ptr<std::atomic<int>> drop=std::make_shared<std::atomic<int>>(0);
+    Run run;
+    explicit Quiet(int tolerance_ms=-1):run({0x25bb,0x008b},[d=drop](ControllerFake& fake){fake.drop=d;}) {
+        if (tolerance_ms>=0) run.reader.set_reply_tolerance_ms(tolerance_ms);
+        run.reader.start();
+    }
+    bool sampling() {const auto s=run.reader.snapshot();return s.read_only && s.connected && s.cycles>2;}
+};
+void a_short_silence_is_ridden_out() {
+    Quiet quiet;                              // the default: 1000 ms
+    check(quiet.run.reader.reply_tolerance_ms()==1000);
+    check(wait_for([&] {return quiet.sampling();}));
+    const auto before=quiet.run.reader.snapshot().cycles;
+    *quiet.drop=3;                            // three requests in a row get no reply: well under a second
+    check(wait_for([&] {return quiet.run.reader.snapshot().silences_ended==1;}));
+    const auto s=quiet.run.reader.snapshot();
+    check(s.silences==1 && s.missed_replies==3 && s.silence_detail.find("Yoke stopped answering (the sampling carries on for up to 1000 ms)")!=std::string::npos);
+    check(s.silence_ended_detail.find("Yoke replies resumed after")!=std::string::npos && s.silence_ended_detail.find("3 requests got no reply")!=std::string::npos);
+    check(wait_for([&] {return quiet.run.reader.snapshot().cycles>before+5;}));   // carried on, the same session
+    check(quiet.run.reader.snapshot().connected && quiet.run.reader.snapshot().stall_detail.empty());
+    *quiet.drop=1;                            // a later silence is its own run
+    check(wait_for([&] {return quiet.run.reader.snapshot().silences_ended==2;}));
+    check(quiet.run.reader.snapshot().silences==2 && quiet.run.reader.snapshot().missed_replies==4);
+    quiet.run.reader.stop();
+}
+void a_long_silence_ends_the_session() {
+    Quiet quiet(300);                         // a short tolerance keeps the test quick
+    check(wait_for([&] {return quiet.sampling();}));
+    *quiet.drop=18;                           // each missed request costs about 20 ms of waiting: over 300 ms ends the session. What is
+                                              // left breaks the next sessions' setup (never tolerated), one drop per attempt, until it runs out
+    check(wait_for([&] {const auto s=quiet.run.reader.snapshot();return !s.connected && s.stall_detail.find("Yoke link stall: HID I/O timed out")!=std::string::npos;},5000));
+    check(wait_for([&] {return quiet.sampling();},15000));                        // and it reconnects once the yoke answers again
+    check(quiet.run.reader.snapshot().silences==0);                               // with a silence of its own to count
+    quiet.run.reader.stop();
+}
+void a_tolerance_of_zero_is_the_old_behaviour() {
+    Quiet quiet(0);
+    check(wait_for([&] {return quiet.sampling();}));
+    *quiet.drop=1;
+    check(wait_for([&] {const auto s=quiet.run.reader.snapshot();return !s.connected && !s.stall_detail.empty();}));
+    check(quiet.run.reader.snapshot().silences==0 && quiet.run.reader.snapshot().missed_replies==0);
+    quiet.run.reader.stop();
+}
+void the_tolerance_is_clamped() {
+    Reader reader;
+    check(reader.reply_tolerance_ms()==default_reply_tolerance_ms);
+    reader.set_reply_tolerance_ms(99999);check(reader.reply_tolerance_ms()==max_reply_tolerance_ms);
+    reader.set_reply_tolerance_ms(-5);check(reader.reply_tolerance_ms()==0);
+    reader.set_reply_tolerance_ms(750);check(reader.reply_tolerance_ms()==750);
+}
+
 int main() {
     try {
+        a_short_silence_is_ridden_out();
+        a_long_silence_ends_the_session();
+        a_tolerance_of_zero_is_the_old_behaviour();
+        the_tolerance_is_clamped();
         the_gate_rule();
         the_saved_owner_state();
         a_pause_is_not_a_lapse();

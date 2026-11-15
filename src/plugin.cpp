@@ -168,7 +168,8 @@ unsigned surveys_written=0;
 std::filesystem::path output_folder; // Output/BrunnerDirect, set when the plugin is enabled
 // The yoke models: the built-ins, plus anything BrunnerDirect.yokes.json adds or changes.
 std::vector<brunner::YokePreset> yoke_presets=brunner::builtin_yoke_presets();
-std::string last_yoke_note,last_yoke_model;
+std::string last_yoke_note,last_yoke_model,last_stall_detail;
+std::uint64_t last_silences=0,last_silences_ended=0;
 std::vector<std::string> yoke_shipped_texts; // the yokes/ folder as read, kept to validate direction edits against
 std::string direction_note;                   // why the last direction change from the page failed
 // The owner's choice to drive a yoke model that is not verified (brunner/owner_state.hpp): off unless saved on.
@@ -588,6 +589,8 @@ void apply_owner_overrides() {
     };
     apply("auto_start",owner_state.auto_start,flight_settings.auto_start);
     apply("force_feel",owner_state.force_feel,flight_settings.force_feel);
+    reader.set_reply_tolerance_ms(owner_state.reply_tolerance_ms.value_or(brunner::default_reply_tolerance_ms));
+    if (owner_state.reply_tolerance_ms) log("reply_tolerance_ms "+std::to_string(reader.reply_tolerance_ms())+" from "+brunner::state_file+" (default "+std::to_string(brunner::default_reply_tolerance_ms)+")");
     std::vector<std::string> notes;
     button_commands=brunner::ButtonCommands::from_state(owner_state.button_commands,brunner::yoke_profile_for({brunner::brunner_vendor,0}),notes);
     for (const auto& note:notes) log(std::string(brunner::state_file)+": "+note);
@@ -595,7 +598,7 @@ void apply_owner_overrides() {
     if (button_commands.size()) log("Button commands: "+std::to_string(button_commands.size())+" from "+brunner::state_file);
 }
 // Runs on X-Plane's thread: the reader thread's presses become X-Plane commands, and its status and glitch
-// count reach Log.txt. A glitch count is logged at most every 10 s, and only with debug_log=1.
+// count reach Log.txt. A glitch count is logged at most every 10 s, whether or not debug_log is on.
 // A press runs the input's commands once, a release the "<name>_released" ones once, and "<name>_hold" is begun on the
 // press and ended on the release (brunner/button_input.hpp). An entry may list several commands; they run in the order
 // written. Held commands are tracked so that they are always ended.
@@ -619,7 +622,7 @@ void run_button_presses(brunner::Clock::time_point now) {
     run_hold_actions(button_holds.plan(edges,button_commands));
     const auto status=button_runner.status();
     if (status!=last_button_status) {last_button_status=status;if (!status.empty()) log(status);}
-    if (flight_settings.debug_log && now-button_drops_logged>=std::chrono::seconds(10)) {
+    if (now-button_drops_logged>=std::chrono::seconds(10)) {
         button_drops_logged=now;
         const auto drops=button_runner.take_drops();
         if (!drops.empty()) log(drops);
@@ -814,6 +817,9 @@ float update(float,float,int,void*) {
     const auto input=current_input(s,now);
     write_survey(s);
     if (s.model!=last_yoke_model) {last_yoke_model=s.model;if (!s.model.empty()) log("Yoke model: "+s.model_title+" (USB "+brunner::usb_text({s.usb_vendor,s.usb_product})+")");}
+    if (s.silences!=last_silences) {last_silences=s.silences;if (s.silences && !s.silence_detail.empty()) log(s.silence_detail);}
+    if (s.silences_ended!=last_silences_ended) {last_silences_ended=s.silences_ended;if (s.silences_ended && !s.silence_ended_detail.empty()) log(s.silence_ended_detail);}
+    if (s.stall_detail!=last_stall_detail) {last_stall_detail=s.stall_detail;if (!s.stall_detail.empty()) log(s.stall_detail);}
     if (s.yoke_note!=last_yoke_note) {last_yoke_note=s.yoke_note;if (!s.yoke_note.empty()) log("Yoke firmware note: "+s.yoke_note);}
     // Read-write: the plugin feeds pitch and roll (both overrides at 1). Read-only: both overrides at 0,
     // so X-Plane reads the yoke's own USB joystick.
@@ -1337,7 +1343,9 @@ PLUGIN_API int XPluginEnable() {
         force_feel=flight_settings.force_feel!=0;
         // auto_start=0 keeps the old fail-closed behaviour: nothing moves until the pilot's Re-centre.
         if (!flight_settings.auto_start) yoke.stop();
-        reader.start();button_runner.start();startup_readiness.reset();
+        reader.start();startup_readiness.reset();
+        // The joystick interface is only opened when some button has a command to run: with none, Mesmer touches nothing but the bridge.
+        if (button_commands.size()) button_runner.start();else log("Joystick buttons: no button_commands configured; the yoke's joystick interface is not opened");
         simulator_ready_for_start=false;enabled=true;
         XPLMRegisterFlightLoopCallback(update,0.1f,nullptr);XPLMScheduleFlightLoop(readiness_loop,-1.0f,1);
         start_workbench();

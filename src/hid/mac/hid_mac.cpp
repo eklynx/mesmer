@@ -16,6 +16,7 @@
 #include <IOKit/hid/IOHIDLib.h>
 #include <algorithm>
 #include <atomic>
+#include <chrono>
 #include <condition_variable>
 #include <cstdio>
 #include <cstring>
@@ -137,8 +138,15 @@ class MacHidDevice final : public HidDevice {
     std::array<std::uint8_t,256> input_buffer_{};
     std::atomic<bool> stop_{false};
     std::thread loop_;
+    // For describe(): what IOKit delivered. Written on the callback thread, read by the failing thread.
+    std::atomic<std::uint64_t> inputs_{0},short_inputs_{0},writes_{0},write_failures_{0};
+    std::atomic<std::int64_t> last_input_ns_{0};
+    std::atomic<bool> removed_{false};
+    static std::int64_t now_ns() {return std::chrono::duration_cast<std::chrono::nanoseconds>(std::chrono::steady_clock::now().time_since_epoch()).count();}
     static void on_input(void* context,IOReturn,void*,IOHIDReportType,uint32_t id,uint8_t* data,CFIndex length) {
         auto& self=*static_cast<MacHidDevice*>(context);
+        self.inputs_++;self.last_input_ns_=now_ns();
+        if (length!=64 && length!=63) self.short_inputs_++;
         Input in;
         if (length==64 && data[0]==id) {std::memcpy(in.report.data(),data,64);in.whole=true;}
         else if (length==63) {in.report[0]=static_cast<std::uint8_t>(id);std::memcpy(in.report.data()+1,data,63);in.whole=true;}
@@ -149,12 +157,14 @@ class MacHidDevice final : public HidDevice {
     }
     static void on_removed(void* context,IOReturn,void*) {
         auto& self=*static_cast<MacHidDevice*>(context);
+        self.removed_=true;
         std::lock_guard<std::mutex> lock(self.mutex_);
         self.dead_=true;
         self.changed_.notify_all();
     }
     static void on_write(void* context,IOReturn result,void*,IOHIDReportType,uint32_t,uint8_t*,CFIndex) {
         auto& self=*static_cast<MacHidDevice*>(context);
+        if (result!=kIOReturnSuccess) self.write_failures_++;
         std::lock_guard<std::mutex> lock(self.mutex_);
         self.write_result_=result;self.write_done_=true;
         self.changed_.notify_all();
@@ -192,7 +202,7 @@ class MacHidDevice final : public HidDevice {
     void write(const Report& report,int timeout_ms) override {
         std::unique_lock<std::mutex> lock(mutex_);
         if (dead_) throw TransportError("HID I/O failed");
-        out_=report;write_done_=false;write_result_=kIOReturnSuccess;
+        out_=report;write_done_=false;write_result_=kIOReturnSuccess;writes_++;
         // Byte 0 is the report ID (0x3f) and is part of the 64 bytes sent.
         const IOReturn started=IOHIDDeviceSetReportWithCallback(device_,kIOHIDReportTypeOutput,out_[0],out_.data(),
             static_cast<CFIndex>(out_.size()),std::max(timeout_ms,1)/1000.0,&MacHidDevice::on_write,this);
@@ -213,11 +223,20 @@ class MacHidDevice final : public HidDevice {
             return;
         }
         if (dead_) throw TransportError("HID I/O failed");
-        throw TransportError("HID I/O timed out");
+        throw ReadTimeout{};
     }
     void flush() override {
         std::lock_guard<std::mutex> lock(mutex_);
         queue_.clear();
+    }
+    std::string describe() const override {
+        const auto last=last_input_ns_.load();
+        char text[256];
+        std::snprintf(text,sizeof(text),"macOS: %llu input reports delivered (%llu of an unexpected size), the last %s; %llu writes, %llu failed; removal callback %s",
+            static_cast<unsigned long long>(inputs_.load()),static_cast<unsigned long long>(short_inputs_.load()),
+            last==0?"never":(std::to_string((now_ns()-last)/1000000)+" ms ago").c_str(),
+            static_cast<unsigned long long>(writes_.load()),static_cast<unsigned long long>(write_failures_.load()),removed_.load()?"FIRED":"did not fire");
+        return text;
     }
 };
 }

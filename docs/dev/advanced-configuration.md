@@ -33,6 +33,7 @@ this section is the format and the rules.
 | `version` | the plugin | Required, 1. |
 | `allow_unverified_yoke` | the plugin (Developer > Allow unverified yoke models) | Whether to drive a yoke model that is not verified ([yoke presets](yoke-presets.md), "Gates"). Off by default; only a literal `true` turns it on. |
 | `auto_start`, `force_feel` | you | Startup overrides of the same-named `BrunnerDirect.ini` keys. Absent: the ini's value. |
+| `reply_tolerance_ms` | you | How long, in milliseconds, the yoke may go without completing a sample before the link counts as lost: a whole number from 0 to 5000, default 1000 ([hid-bridge](hid-bridge.md#a-silent-yoke-is-tolerated-for-a-while)). Meanwhile the controls stay on the last sample and no force updates are written. 0 is the old behaviour: the first missed reply ends the session. Anything else is ignored and named in `Log.txt`. |
 | `button_commands` | you | X-Plane commands for the yoke's buttons and hat ([below](#button-commands)). Absent: nothing runs. |
 
 Rules:
@@ -95,29 +96,39 @@ list item that is not a string, or a key that is not in the table, is ignored an
 ### Example: a Cessna 172
 
 A starting point, not a default (the plugin ships with every control unbound). It uses X-Plane 12's own
-commands, plus the plugin's `brunner_direct/look_down` and `look_up` ([buttons](../buttons.md)). `button_6` is a list: it returns to
-the 3-D cockpit view and then zooms out.
+commands. The diagonals of the hat combine the directions as there is no diagonal rotate commands.
 
 ```json
 {
   "version": 1,
   "allow_unverified_yoke": false,
   "button_commands": {
-    "button_1": "sim/autopilot/servos_off_any",
-    "button_2": "sim/flight_controls/flaps_up",
-    "button_3": "sim/flight_controls/flaps_down",
-    "button_4_hold": "sim/flight_controls/pitch_trim_down",
-    "button_5_hold": "sim/flight_controls/pitch_trim_up",
-    "button_6": ["sim/view/3d_cockpit_cmnd_look", "sim/general/zoom_out"],
-    "button_1_released": null,
-    "hat_n": "brunner_direct/look_up",
-    "hat_ne": null,
-    "hat_e": "sim/view/glance_right",
-    "hat_se": null,
-    "hat_s": "brunner_direct/look_down",
-    "hat_sw": null,
-    "hat_w": "sim/view/glance_left",
-    "hat_nw": null
+    "button_1": "sim/operation/contact_atc",
+    "button_2_hold": "sim/autopilot/CWSA ",
+    "button_3": "sim/autopilot/ap_disc_trim_interrupt",
+    "button_4_hold": "sim/flight_controls/pitch_trim_up",
+    "button_5_hold": "sim/flight_controls/pitch_trim_down",
+    "button_6": "sim/view/default_view",
+    "hat_e_hold": "sim/general/rot_right",
+    "hat_n_hold": "sim/general/rot_up",
+    "hat_ne_hold": [
+      "sim/general/rot_up",
+      "sim/general/rot_right"
+    ],
+    "hat_nw_hold": [
+      "sim/general/rot_left",
+      "sim/general/rot_up"
+    ],
+    "hat_s_hold": "sim/general/rot_down",
+    "hat_se_hold": [
+      "sim/general/rot_right",
+      "sim/general/rot_down"
+    ],
+    "hat_sw_hold": [
+      "sim/general/rot_down",
+      "sim/general/rot_left"
+    ],
+    "hat_w_hold": "sim/general/rot_left"
   }
 }
 ```
@@ -128,7 +139,6 @@ the 3-D cockpit view and then zooms out.
 |---|---|---|---|
 | `read_only_roll_reverse` | 0 | 0 or 1 | Read-only mode only ([read-only mode](read-only-mode.md)): 1 flips the roll direction of the learned travel. Optional. |
 | `read_only_pitch_reverse` | 0 | 0 or 1 | Likewise for pitch. Optional. |
-| `centre_drift_permille` | – | – | No longer used: the centring's allowed drift is the yoke model's `centre_drift_percent` ([yoke presets](yoke-presets.md)). An ini that still has it keeps loading; the value is ignored. |
 | `allow_unverified_yoke` | – | – | Retired: replaced by the Developer menu choice in the state file above. An ini that still has the line loads, and `Log.txt` says it is ignored. |
 
 ## Fixing a travel the controller will not hold

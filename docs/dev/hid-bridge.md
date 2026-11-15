@@ -76,6 +76,81 @@ transfers (`OperationCancelled`). Any `TransportError` ends the session; the
 reader closes the bridge and starts over, and an unconfirmed motor stop is
 reported, never retried automatically.
 
+## When the link stalls
+
+Any `TransportError` ends the session, the reader closes the bridge and looks again a second later. Each time a
+session ends that way the plugin writes **one line to `Log.txt`** (and to the recording when `debug_log=1`),
+starting `Yoke link stall:`, which says where it failed and what each side had last done
+(`src/brunner/link_diagnostics.hpp`, filled in by `Bridge::exchange`):
+
+| Part of the line | Meaning |
+|---|---|
+| the error | `HID I/O timed out`, `HID I/O failed` (the device went away or a write failed), `Short HID report`, `No matching controller reply` |
+| `while writing a request` / `while waiting for the reply` / `between requests` | The stage the failure was in. Waiting means the request went out and nothing (or nothing right) came back; writing means macOS or Windows refused or timed out the send |
+| `request node 2 read of trim position (0x2116:0) [..] sent N ms ago` | What the request in flight was, decoded from its bytes: the controller (node 1 roll, node 2 pitch), `read` or `write` (with the value written), the register's name and its object:sub-index (`status word (sampling)`, `encoder position (sampling)`, `trim position`, `constant force (bias)`, `spring strength`, `centre mode`, ... or `unnamed register`), then its first 14 bytes, and how long ago it was written. The sampling reads say `(sampling)`; the other reads are the live-update confirmation and read-backs |
+| `last good reply N ms ago` | How long the yoke had been silent: a short time means it stopped suddenly, a long one that it was slow before |
+| `N other reports arrived since it was sent` | Reports that came but were not the reply: 0 is silence, more means the yoke answered other traffic |
+| `N requests and M replies this session (K unmatched)` | Totals since this USB session opened, and the session's age |
+| `macOS: ...` (macOS only, `HidDevice::describe`) | How many input reports IOKit delivered, how long ago the last arrived, how many writes were made and failed, and whether the removal callback fired (macOS saying the device left the bus) |
+
+Reading it: *removal callback FIRED* means the bus dropped the device; *did not fire* with the last input report
+long ago means the yoke stopped sending while macOS still saw it; reports still arriving but unmatched means the
+protocol, not the link, is at fault; a failed write names the sending side. The line is only logged on a transport
+error, so a healthy session logs nothing extra.
+
+### A silent yoke is tolerated for a while
+
+A request that gets no reply is not necessarily a lost link. At about 237 requests a second the NG now and then drops
+one, and now and then goes quiet for a moment (measured: one reply in about 16,660 never came, and one outage of about a
+second in a 650 s flight). The sampling loops therefore carry on from the last complete sample, as with a dropped datagram,
+for up to **`reply_tolerance_ms`** (state file, default 1000, 0 to 5000): the time since the last *complete* sampling
+cycle, checked at each missed reply. The first miss past that ends the session, with the usual stall line. 0 is the old
+behaviour: the first missed reply ends it.
+
+**Which requests.** About a third of the requests in force feel are not the four sampling reads: before every live tuning
+update the loop confirms both drives with eight read-only reads (status, force bias, trim offset, position mode), and the
+first stalls seen with the time-based build were all one of those (2026-11-15, objects 0x2101:4 and 0x2115). They write
+nothing and wait one sample period like the sampling reads; a reply missing from them (`TuningNotConfirmed`, a
+`ReplyMissed`) skips that cycle's update, counts towards the silence, and the loop tries again next cycle. A reply
+missing from a write is handled by the write rule below. Reads that are *not* a sampling read (the read-backs after a
+write, and everything in setup and reference) wait 20 ms per attempt and are **sent again** for up to 250 ms
+(`retried_read`; a read changes nothing, so a repeat is always safe) before a missing reply is fatal.
+
+**Writes.** The loading writes of the steady loops (`Bridge::load_write`: spring strength, centre, constant force, buffet)
+also wait one sample period, `load_write_reply_timeout_ms` (20 ms), for their reply. When it does not come the **same
+write is sent again** (every one is an absolute register value, so a repeat of a write that did arrive changes nothing,
+and the loading sequences read each value back), for up to `load_write_tolerance_ms` (250 ms) from the first attempt;
+only a reply still missing after that is fatal (`ReplyMissed`, with the usual stall line). The stall and miss lines count
+`retries` (writes and non-sampling reads sent again). The writes of setup, reference and stop (`ref_write`) are not retried and keep the 250 ms wait: they are
+the sequences that enable, centre and stop the motors, where an unconfirmed step must end the session.
+
+`Bridge::exchange` reports a request with no (matching) reply as `ReplyMissed` (a `TransportError` underneath, so anything
+that does not handle it still ends the session) and drops what is queued so a late reply is not taken for the next
+one. The three steady sampling loops (read-only, idle between requests, and force feel) skip the cycle (in force feel also the
+update's confirmation reads, above): the axes keep the
+last complete cycle's values and `Log.txt` gets two lines per silence:
+
+- `Yoke stopped answering (the sampling carries on for up to N ms): ...` when it starts, with the same facts as a stall line;
+- `Yoke replies resumed after X ms without a complete sample (n requests got no reply)` when a cycle completes again.
+
+While the yoke is silent the force-feel loop **writes nothing** to it (no spring or buffet updates): a write's reply cannot
+be skipped, and the yoke keeps the last settings it was given. Writes resume with the first complete sample. Pitch and
+roll to X-Plane are also on the last sample meanwhile, so a long tolerance means a long freeze of the controls.
+
+Not tolerated: a failed or removed device, a failed write, a loading write that stays unanswered for 250 ms, and any
+missing reply during setup, reference or a stop (those stay fatal, because an unconfirmed step that may have changed the
+yoke cannot be skipped).
+
+**The reply timeout is the sample time.** A sampling read waits `sample_reply_timeout_ms` for its reply, the same
+20 ms as the loop's period (`sample_period_ms`, `src/brunner/core.hpp`): a reply that has not come within one sample is
+missed and the next cycle starts on time. Every other request (writes, setup, reference, stop) still waits
+`default_reply_timeout_ms`, 250 ms. The stall and miss
+lines include the reply times (`reply times <1 ms: n, <2 ms: n, ...; slowest x ms`), and
+`src/hid/mac/latency_probe_mac.cpp` measures them read-only on a free yoke. Measured 2026-11-15 on the NG, X-Plane closed:
+median 2.0 ms, 99th percentile 4.0 ms, slowest 14.1 ms over 21,500 reads; in flight the slowest of 135,000 was 17.9 ms.
+
+The lines above are logged whether or not `debug_log` is on (the recording gets them too when it is).
+
 ## Windows
 
 `hid/win/hid_win.cpp`: SetupDi enumeration, `CreateFileW` with share mode 0, overlapped

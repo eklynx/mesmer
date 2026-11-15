@@ -207,6 +207,18 @@ void holds_are_kept_per_command() {
     tracker.plan({press(B,1),press(H,2)},commands);
     check(plan_text(tracker.end_all())=="-a/one -rot/up -rot/right" && tracker.end_all().empty() && !tracker.held("a/one"));
 }
+void the_tolerance_key() {
+    check(!OwnerState{}.reply_tolerance_ms && serialize_owner_state(OwnerState{}).find("tolerance")==std::string::npos);   // nothing added by default
+    check(read_owner_state("{\"version\":1,\"reply_tolerance_ms\":2500}").state.reply_tolerance_ms==2500 && read_owner_state("{\"version\":1,\"reply_tolerance_ms\":2500}").notes.empty());
+    check(read_owner_state("{\"version\":1,\"reply_tolerance_ms\":0}").state.reply_tolerance_ms==0);        // 0 is allowed: none
+    check(read_owner_state("{\"version\":1,\"reply_tolerance_ms\":5000}").state.reply_tolerance_ms==5000);  // the ceiling
+    for (const char* bad:{"5001","-1","1.5","\"1000\"","true","null"}) {
+        const auto r=read_owner_state(std::string("{\"version\":1,\"reply_tolerance_ms\":")+bad+"}");
+        check(!r.state.reply_tolerance_ms && r.notes.size()==1);                                              // ignored and named
+    }
+    OwnerState both;both.reply_tolerance_ms=1500;both.auto_start=true;
+    check(read_owner_state(serialize_owner_state(both)).state==both);                                        // a save keeps it
+}
 void the_queue_hands_over() {
     PressQueue queue;
     check(queue.drain().empty());
@@ -280,6 +292,7 @@ int main() {
         a_vanished_yoke_releases_everything();
         names_and_commands();
         the_state_file_key();
+        the_tolerance_key();
         holds_are_kept_per_command();
         the_queue_hands_over();
         the_runner_turns_reports_into_presses();
