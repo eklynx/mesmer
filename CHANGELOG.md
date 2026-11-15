@@ -6,7 +6,7 @@ pre-release with one zip for every platform, its SHA-256 in `SHA256SUMS`, and a 
 provenance attestation. The first previews were numbered 0.1.0-alpha.1 to
 0.1.0-alpha.3; 0.1.0 follows them.
 
-## Unreleased
+## 0.0.7
 
 - **Yoke buttons and hat run X-Plane commands.** The CLS-E NG's joystick buttons 1 to 6 and the eight hat positions can each run an X-Plane command, set in `BrunnerDirect.state.json` under `button_commands`. Each also has a `_released` entry that runs when it is let go, and a `_hold` entry that holds an X-Plane command for as long as it is held. An entry can be one command or a list of commands. Nothing is bound by default. Reports that buttons 4 and 5 (both sides of the rocker) both pressed, or that have the padding bits set, are glitches and are ignored. Leave X-Plane's own bindings for these buttons unset. Details: [docs/dev/button-commands.md](docs/dev/button-commands.md).
 - **Windows can read the yoke's buttons the way macOS does.** `windows_button_style=HID` in `BrunnerDirect.ini` (any case) makes the Windows plugin read the CLS-E NG's own joystick reports and run your `button_commands`, the same code macOS uses, and stop using vJoy. `VJoy`, the default, keeps the vJoy virtual joystick. See [docs/dev/advanced-configuration.md](docs/dev/advanced-configuration.md#windows-button-style).
@@ -30,7 +30,7 @@ The first release numbered major.minor.patch. The plugin flies as 0.1.0-alpha.3 
 - **"Preview" where it said "alpha".** The badge and the warning box near the top of [the README](README.md), the safety paragraph near its end, and the "No warranty" section of [SAFETY.md](SAFETY.md) now call Mesmer preview software. So does the header comment of `config/BrunnerDirect.ini`. The help for `install.ps1 -Tag` now gives `v0.1.0` as its example, and so does the Mesmer version field of the bug report form. Only the wording changed.
 - **Release tags.** [The release workflow](.github/workflows/release.yml) now builds only from tags of the form `v<major.minor.patch>`. It stops at any other tag with "is not v<major.minor.patch>".
 
-## Unreleased
+## 0.0.6
 
 - **The `ffb-*.jsonl` debug log is off by default.** The session recorder used to write `Output/BrunnerDirect/ffb-*.jsonl` (up to 256 MB) on every run. It now writes nothing unless `BrunnerDirect.ini` has the new optional key `debug_log=1`; `Log.txt` says which at startup and the HUD reads *Debug log: off*. See [configuration](docs/configuration.md).
 - **`BrunnerDirect.state.json` can override `auto_start` and `force_feel`.** The file in X-Plane's `Output/BrunnerDirect` folder, which an update never replaces, now takes optional `"auto_start"` and `"force_feel"` values (`true` or `false`) that beat the same keys in `BrunnerDirect.ini`. A wrong value or unknown key is ignored on its own and named in `Log.txt`, and each override in effect is logged. The plugin never writes them and keeps them when it saves the Developer toggle. A file that has an unknown key no longer switches off `allow_unverified_yoke` as a whole; only that key is ignored. See [configuration](docs/configuration.md#brunnerdirectstatejson).
