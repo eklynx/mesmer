@@ -6,6 +6,10 @@ pre-release with one zip for every platform, its SHA-256 in `SHA256SUMS`, and a 
 provenance attestation. The first previews were numbered 0.1.0-alpha.1 to
 0.1.0-alpha.3; 0.1.0 follows them.
 
+## Unreleased
+
+- **Yoke buttons and hat run X-Plane commands.** The CLS-E NG's joystick buttons 1 to 6 and the eight hat positions can each run an X-Plane command, set in `BrunnerDirect.state.json` under `button_commands`. Each also has a `_released` entry that runs when it is let go, and a `_hold` entry that holds an X-Plane command for as long as it is held. An entry can be one command or a list of commands. Nothing is bound by default. Reports that buttons 4 and 5 (both sides of the rocker) both pressed, or that have the padding bits set, are glitches and are ignored. Leave X-Plane's own bindings for these buttons unset. Details: [docs/dev/button-commands.md](docs/dev/button-commands.md).
+
 ## 0.1.1
 
 This release fixes how the installer picks a release when you don't name one. The plugin flies as it does in 0.1.0.
