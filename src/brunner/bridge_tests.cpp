@@ -50,7 +50,9 @@ struct FakeDevice : HidDevice {
         }
         auto step=std::move(script.front());script.pop_front();step(r);
     }
-    void flush() override {}
+    int flushes=0;
+    void flush() override {++flushes;}
+    std::string describe() const override {return "fake OS: 7 reports";}
 };
 struct Rig {
     std::vector<Report> sent;
@@ -60,6 +62,7 @@ struct Rig {
     Rig() {auto d=std::make_unique<FakeDevice>(&sent);device=d.get();bridge=std::make_unique<Bridge>(std::move(d));}
     void will_reply(Report r) {device->script.push_back([r](Report& out){out=r;});}
     void will_fail() {device->script.push_back([](Report&){throw TransportError("HID I/O timed out");});}
+    void will_time_out() {device->script.push_back([](Report&){throw ReadTimeout{};});}
 };
 
 void the_id_list() {
@@ -148,6 +151,150 @@ void transport_failures_surface() {
     check(throws<TransportError>([&]{failing_write.bridge->read(1,Object::status,failing_write.stop);},"failed"));
     check(failing_write.sent.empty()); // nothing was sent
 }
+void a_stall_is_explained() {
+    LinkDiagnostics diag;
+    const auto has=[](const std::string& text,const char* part) {return text.find(part)!=std::string::npos;};
+    // Silence after a good exchange: the read times out while waiting.
+    Rig silent;silent.bridge->set_diagnostics(&diag);
+    silent.will_reply(reply(1,Object::status,5159));
+    check(silent.bridge->read(1,Object::status,silent.stop)==5159);
+    silent.will_fail();
+    check(throws<TransportError>([&]{silent.bridge->read(2,Object::encoder,silent.stop);},"timed out"));
+    auto text=diag.describe(Clock::now(),"HID I/O timed out");
+    check(has(text,"Yoke link stall: HID I/O timed out while waiting for the reply") && has(text,"2 requests and 1 replies this session"));
+    check(has(text,"fake OS: 7 reports") && has(text,"last good reply") && has(text,"[")&& !has(text,"never"));
+    // The facts are frozen when the error is thrown: later exchanges (the emergency stop) do not change them.
+    const auto frozen=diag.at_error;
+    check(has(frozen,"while waiting for the reply") && has(frozen,"HID I/O timed out"));
+    silent.will_reply(reply(1,Object::status,5159));
+    check(silent.bridge->read(1,Object::status,silent.stop)==5159);
+    check(diag.at_error==frozen && has(diag.describe(Clock::now(),"x"),"between requests"));
+    // A failed write is told apart from a missing reply.
+    LinkDiagnostics diag2;
+    Rig broken;broken.bridge->set_diagnostics(&diag2);broken.device->fail_write=true;
+    check(throws<TransportError>([&]{broken.bridge->read(1,Object::status,broken.stop);},"failed"));
+    check(has(diag2.at_error,"while writing a request") && has(diag2.at_error,"0 replies"));
+    // Replies that are not the one asked for are counted.
+    LinkDiagnostics diag3;
+    Rig noisy;noisy.bridge->set_diagnostics(&diag3);
+    noisy.will_reply(reply(2,Object::encoder,1));noisy.will_reply(reply(2,Object::encoder,2));noisy.will_fail();
+    check(throws<TransportError>([&]{noisy.bridge->read(1,Object::status,noisy.stop);}));
+    check(has(diag3.at_error,"2 other reports arrived since it was sent") && has(diag3.at_error,"(2 unmatched, 0 retries; reply times"));
+    // Without diagnostics the bridge behaves as before.
+    Rig plain;plain.will_fail();
+    check(throws<TransportError>([&]{plain.bridge->read(1,Object::status,plain.stop);},"timed out"));
+}
+// What a controller answers to the last write: the request, acknowledged (SDO "write done", node 0x580 + n).
+Report write_ack(const Report& request) {
+    Report r=request;
+    r[1]=0x11;r[4]=static_cast<std::uint8_t>(0x80+request[4]);r[5]=0x85;r[6]=0x60;
+    for (unsigned i=0;i<4;++i) r[10+i]=0;
+    return r;
+}
+void a_loading_write_is_sent_again_until_its_reply_comes() {
+    const RegisterWrite op{trim_offset,0,0};
+    LinkDiagnostics diag;
+    // Two attempts get no reply, the third is answered: the one write, sent three times, succeeds.
+    Rig rig;rig.bridge->set_diagnostics(&diag);
+    rig.will_time_out();rig.will_time_out();
+    rig.device->script.push_back([&rig](Report& out){out=write_ack(rig.sent.back());});
+    rig.bridge->load_write(1,op,rig.stop);
+    check(rig.sent.size()==3 && diag.retries==2 && (rig.sent[0][6]==0x23 || rig.sent[0][6]==0x2b));
+    check(rig.sent[0][10]==rig.sent[2][10] && rig.sent[0][7]==rig.sent[2][7]);       // the same register and value each time
+    check(diag.at_error.empty());                                                    // a retried miss leaves no failure behind
+    // Nothing ever answers: it ends after the tolerance (250 ms), as a plain ReplyMissed.
+    Rig mute;mute.bridge->set_diagnostics(&diag);
+    const auto begin=Clock::now();
+    check(throws<ReplyMissed>([&]{mute.bridge->load_write(1,op,mute.stop);}));
+    const auto took=std::chrono::duration_cast<std::chrono::milliseconds>(Clock::now()-begin).count();
+    check(took>=load_write_tolerance_ms && took<load_write_tolerance_ms+150 && mute.sent.size()>=5);
+    check(diag.describe(Clock::now(),"x").find(" retries; reply times")!=std::string::npos);
+    // A failed link is not retried.
+    Rig dead;dead.device->script.push_back([](Report&){throw TransportError("HID I/O failed");});
+    check(throws<TransportError>([&]{dead.bridge->load_write(1,op,dead.stop);},"failed") && dead.sent.size()==1);
+    static_assert(load_write_reply_timeout_ms==20 && load_write_tolerance_ms==250,"the figures the docs state");
+}
+void the_reply_timeout_is_the_callers() {
+    // A sampling read gives up after the sample period; the default stays 250 ms.
+    Rig quick;
+    auto begin=Clock::now();
+    check(throws<ReplyMissed>([&]{quick.bridge->read(1,Object::status,quick.stop,sample_reply_timeout_ms);},"No matching controller reply"));
+    auto took=std::chrono::duration_cast<std::chrono::milliseconds>(Clock::now()-begin).count();
+    check(took>=sample_reply_timeout_ms-2 && took<150);
+    Rig patient;
+    begin=Clock::now();
+    check(throws<ReplyMissed>([&]{patient.bridge->read(1,Object::status,patient.stop);}));
+    took=std::chrono::duration_cast<std::chrono::milliseconds>(Clock::now()-begin).count();
+    check(took>=default_reply_timeout_ms-5);
+    static_assert(sample_reply_timeout_ms==sample_period_ms && sample_period_ms==20 && default_reply_timeout_ms==250,"the figures the docs state");
+}
+void a_request_is_named_in_the_log() {
+    const auto text=[](const Report& r) {std::array<std::uint8_t,14> head{};std::copy_n(r.begin(),head.size(),head.begin());return request_text(head);};
+    const auto has=[](const std::string& s,const char* part) {return s.find(part)!=std::string::npos;};
+    // The sampling reads, and a firmware read.
+    check(text(read_request(2,Object::status,1))=="node 2 read of status word (sampling) (0x6041:0)");
+    check(text(read_request(1,Object::encoder,1))=="node 1 read of encoder position (sampling) (0x6064:0)");
+    check(has(text(read_request(1,Object::digital_inputs,1)),"digital inputs (buttons)"));
+    // Register reads: the ones the force-feel loop's confirmation and read-backs make.
+    check(text(reference_read_request(2,trim_position,1))=="node 2 read of trim position (0x2116:0)");
+    check(has(text(reference_read_request(1,trim_offset,1)),"trim offset (0x2115:0)") && has(text(reference_read_request(2,manual_force_bias,1)),"constant force (bias) (0x211A:0)"));
+    check(has(text(reference_read_request(2,center_mode,1)),"centre mode (0x2101:4)") && has(text(reference_read_request(1,force_mode,1)),"force mode (0x2101:1)"));
+    const auto at=[&](unsigned index,unsigned sub) {auto r=reference_read_request(1,trim_offset,1);r[7]=static_cast<std::uint8_t>(index);r[8]=static_cast<std::uint8_t>(index>>8);r[9]=static_cast<std::uint8_t>(sub);return r;};
+    check(has(text(at(0x2113,3)),"spring curve point 3 (0x2113:3)"));
+    // Writes say so, with the value: a two-byte one, a four-byte one that is negative, and a register it has no name for.
+    check(text(loading_write_request(1,{force_scale,40,0},1))=="node 1 write of spring strength (0x2114:0) = 40");
+    check(text(loading_write_request(2,{trim_position,static_cast<std::uint32_t>(-500),0},1))=="node 2 write of trim position (0x2116:0) = -500");
+    check(has(text(at(0x1234,2)),"unnamed register (0x1234:2)"));
+    // And the stall line carries it.
+    LinkDiagnostics diag;
+    Rig rig;rig.bridge->set_diagnostics(&diag);rig.will_fail();
+    check(throws<TransportError>([&]{rig.bridge->read(2,Object::encoder,rig.stop);}));
+    check(has(diag.at_error,"request node 2 read of encoder position (sampling) (0x6064:0) ["));
+}
+void a_read_that_is_not_a_sample_is_retried() {
+    LinkDiagnostics diag;
+    // The first attempt gets no reply, the second is answered: one read, sent twice, returns the value.
+    Rig rig;rig.bridge->set_diagnostics(&diag);
+    rig.will_time_out();rig.will_reply(reply(1,Object::status,5159));
+    check(rig.bridge->read(1,Object::status,rig.stop)==5159 && rig.sent.size()==2 && diag.retries==1 && diag.at_error.empty());
+    check(rig.sent[0][7]==rig.sent[1][7] && rig.sent[0][8]==rig.sent[1][8]);          // the same object both times
+    // A reference register read is retried the same way (the read-back after a write).
+    Rig reg;reg.bridge->set_diagnostics(&diag);
+    reg.will_time_out();
+    reg.device->script.push_back([&reg](Report& out){out=write_ack(reg.sent.back());out[6]=0x43;out[10]=7;});
+    check(reg.bridge->ref_read(1,trim_offset,reg.stop)==7 && reg.sent.size()==2);
+    // A single-attempt read (a sample) is not: it ends at its own timeout.
+    Rig once;once.will_time_out();
+    check(throws<ReplyMissed>([&]{once.bridge->read(1,Object::status,once.stop,sample_reply_timeout_ms);}) && once.sent.size()==1);
+    // Never answered: it gives up after the tolerance, not before.
+    Rig mute;
+    const auto begin=Clock::now();
+    check(throws<ReplyMissed>([&]{mute.bridge->read(1,Object::status,mute.stop);}));
+    const auto took=std::chrono::duration_cast<std::chrono::milliseconds>(Clock::now()-begin).count();
+    check(took>=load_write_tolerance_ms && took<load_write_tolerance_ms+150 && mute.sent.size()>=5);
+}
+void a_missed_reply_is_told_apart_from_a_failed_link() {
+    // A read that times out is a missed reply (ReplyMissed, still a TransportError) and drops what was queued.
+    Rig quiet;quiet.will_time_out();
+    check(throws<ReplyMissed>([&]{quiet.bridge->read(1,Object::status,quiet.stop,sample_reply_timeout_ms);},"timed out") && quiet.device->flushes==1);   // one attempt
+    // Silence until the deadline, and traffic that is not the reply, are missed replies too.
+    Rig noisy;
+    check(throws<ReplyMissed>([&]{noisy.bridge->read(1,Object::status,noisy.stop);},"No matching controller reply"));
+    // A failed or removed device, and a failed write, are not: they stay plain transport errors.
+    Rig removed;removed.device->script.push_back([](Report&){throw TransportError("HID I/O failed");});
+    check(throws<TransportError>([&]{removed.bridge->read(1,Object::status,removed.stop);},"failed"));
+    Rig removed_again;removed_again.device->script.push_back([](Report&){throw TransportError("HID I/O failed");});
+    check(!throws<ReplyMissed>([&]{removed_again.bridge->read(1,Object::status,removed_again.stop);}));
+    Rig failing_write;failing_write.device->fail_write=true;
+    check(!throws<ReplyMissed>([&]{failing_write.bridge->read(1,Object::status,failing_write.stop);}));
+    // Reply times are kept for the stall line.
+    LinkDiagnostics diag;
+    Rig timed;timed.bridge->set_diagnostics(&diag);
+    timed.will_reply(reply(1,Object::status,1));
+    timed.bridge->read(1,Object::status,timed.stop);
+    check(diag.latency[0]+diag.latency[1]+diag.latency[2]+diag.latency[3]+diag.latency[4]+diag.latency[5]+diag.latency[6]+diag.latency[7]+diag.latency[8]==1);
+    check(diag.latency_text().find("slowest")!=std::string::npos);
+}
 void a_stop_cancels_before_anything_is_sent() {
     Rig rig;rig.stop=true;
     check(throws<OperationCancelled>([&]{rig.bridge->read(1,Object::status,rig.stop);}));
@@ -171,6 +318,12 @@ int main() {
         a_read_returns_the_matching_reply();
         unrelated_replies_are_skipped();
         transport_failures_surface();
+        a_stall_is_explained();
+        a_missed_reply_is_told_apart_from_a_failed_link();
+        a_read_that_is_not_a_sample_is_retried();
+        a_request_is_named_in_the_log();
+        the_reply_timeout_is_the_callers();
+        a_loading_write_is_sent_again_until_its_reply_comes();
         a_stop_cancels_before_anything_is_sent();
         silence_ends_at_the_deadline();
         std::cout<<"bridge tests passed\n";

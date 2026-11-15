@@ -74,6 +74,9 @@ public:
     virtual void read(Report& report, int timeout_ms) = 0;
     // Discards input queued before now. TransportError if it cannot.
     virtual void flush() = 0;
+    // What the OS layer saw, for the stall log (brunner/bridge.hpp, LinkDiagnostics): a short one-line text, empty when
+    // the implementation has nothing to add. Never throws; may be called from the failing thread after an error.
+    virtual std::string describe() const { return {}; }
 };
 
 // Implemented once per platform (hid/win/hid_win.cpp, hid/mac/hid_mac.cpp). Only devices with one of

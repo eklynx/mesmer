@@ -20,15 +20,76 @@ namespace brunner {
 namespace {
 // A motor stop that could not be verified. Reported, never retried automatically.
 struct StopUnconfirmed : std::runtime_error {explicit StopUnconfirmed(const std::string& what):std::runtime_error(what) {}};
+// One sampling cycle. All of it or none: a reply that goes missing partway (ReplyMissed) leaves the snapshot's axes
+// as the last complete cycle left them, so a tolerated miss never publishes half a sample.
 template<class B> void sample(B& bridge,Snapshot& s,const std::atomic<bool>& stop) {
     s.sampled=Clock::now();
+    std::array<std::uint16_t,2> status{};
+    std::array<std::int32_t,2> encoder{};
     for (unsigned i=0;i<2;++i) {
-        auto& a=s.axes[i];
-        a.status=static_cast<std::uint16_t>(bridge.read(i+1,Object::status,stop));
-        a.encoder=signed32(bridge.read(i+1,Object::encoder,stop));
+        status[i]=static_cast<std::uint16_t>(bridge.read(i+1,Object::status,stop,sample_reply_timeout_ms));
+        encoder[i]=signed32(bridge.read(i+1,Object::encoder,stop,sample_reply_timeout_ms));
     }
     sample_buttons(bridge,s,stop,s.sampled);
+    for (unsigned i=0;i<2;++i) {s.axes[i].status=status[i];s.axes[i].encoder=encoder[i];}
     s.connected=true;++s.cycles;
+}
+// How long the steady sampling loops tolerate silence from the yoke, and the silence in progress (this session's). A
+// tolerance of 0, or a null policy where one is passed (the setup and test sequences), means a missing reply always
+// ends the session.
+struct MissPolicy {
+    std::chrono::milliseconds tolerance{0};
+    LinkDiagnostics* diag=nullptr;
+    Clock::time_point last_complete{};          // the end of the last complete cycle, or the session's start
+    std::optional<Clock::time_point> silent_since;   // set while a run of missed replies is going
+    std::uint64_t run_misses=0;
+    bool silent() const {return silent_since.has_value();}
+    MissPolicy(std::chrono::milliseconds allowed,LinkDiagnostics* diagnostics):tolerance(allowed),diag(diagnostics),last_complete(Clock::now()) {}
+};
+// The steady sampling loops' version of sample(): a missed reply is skipped while the yoke has been without a complete
+// cycle for no longer than the tolerance (the cycle is not counted, the last complete one stands, and the start of the
+// silence is recorded in the snapshot with the diagnostics frozen at that moment); a miss after the tolerance has run
+// out is rethrown and ends the session like any lost link. A cycle that completes ends the silence. Everything else
+// that goes wrong (a failed write, a removed device) is never tolerated.
+// A miss within the tolerance: skipped and recorded. Called from inside the catch handler of a ReplyMissed; past the
+// tolerance it rethrows that exception, which ends the session like any lost link (the stall log keeps this one's facts).
+inline void tolerate_miss(Snapshot& s,MissPolicy& m) {
+    const auto now=Clock::now();
+    if (now-m.last_complete>m.tolerance) throw;
+    ++s.missed_replies;++m.run_misses;
+    if (!m.silent_since) {
+        m.silent_since=now;++s.silences;
+        s.silence_detail="Yoke stopped answering (the sampling carries on for up to "+std::to_string(m.tolerance.count())+" ms): "
+            +m.diag->at_error.substr(std::string("Yoke link stall: ").size());
+    }
+    m.diag->at_error.clear();m.diag->os_account.clear();   // this one is over; a later failure freezes its own
+}
+// A complete sampling cycle ends any silence.
+inline void note_complete(Snapshot& s,MissPolicy& m) {
+    const auto now=Clock::now();
+    if (m.silent_since) {
+        ++s.silences_ended;
+        s.silence_ended_detail="Yoke replies resumed after "+std::to_string(std::chrono::duration_cast<std::chrono::milliseconds>(now-m.last_complete).count())
+            +" ms without a complete sample ("+std::to_string(m.run_misses)+" requests got no reply)";
+        m.silent_since.reset();m.run_misses=0;
+    }
+    m.last_complete=now;
+}
+// The steady sampling loops' version of sample(): a missed reply is skipped while the yoke has been without a complete
+// cycle for no longer than the tolerance (the cycle is not counted and the last complete one stands); a miss after the
+// tolerance has run out ends the session. A cycle that completes ends the silence. Everything else that goes wrong (a
+// failed write, a removed device) is never tolerated.
+template<class B> void sample_tolerating(B& bridge,Snapshot& s,const std::atomic<bool>& stop,MissPolicy& m) {
+    try {
+        sample(bridge,s,stop);
+        note_complete(s,m);
+    } catch (const ReplyMissed&) {
+        tolerate_miss(s,m);
+    }
+}
+template<class B> void sample_steady(B& bridge,Snapshot& s,const std::atomic<bool>& stop,MissPolicy* misses) {
+    if (misses) sample_tolerating(bridge,s,stop,*misses);
+    else sample(bridge,s,stop);
 }
 // Supervised one-shot test. Always stops both motors; never hands an enabled
 // drive back to the normal read-only loop. No custom loading/torque commands.
@@ -134,7 +195,7 @@ void loading_test(Bridge& bridge,Snapshot& s,const std::atomic<bool>& stop,
     const std::function<void(const Snapshot&)>& publish,const std::function<void()>& check_alive,std::atomic<bool>& gap,
     const std::function<SessionTarget()>& requested,bool flight,std::atomic<bool>& end,const PitchSetup& pitch={},
     BuffetDrive* buffet=nullptr,const std::function<BuffetTarget()>& buffet_target={},
-    const std::function<void()>& check_engaged={}) {
+    const std::function<void()>& check_engaged={},MissPolicy* misses=nullptr) {
     // Once force feel is engaged a pause holds it (the owner's choice, 2026-11-12); a caller that gives
     // no check_engaged (the light spring test) ends on a pause as before.
     const auto alive_engaged=[&] {if (flight && check_engaged) check_engaged();else check_alive();};
@@ -243,17 +304,27 @@ void loading_test(Bridge& bridge,Snapshot& s,const std::atomic<bool>& stop,
             // the spring's budget before its shake goes on (force/buffet.hpp).
             const auto shake=flight && buffet && buffet_target?buffet_target():BuffetTarget{};
             const auto reserve=flight && buffet?buffet->reserve(shake.knob):DriveReserve{};
-            if (update_live_tuning(bridge,applied,next,stop,reserve)) {
+            // While the yoke is not answering nothing is written to it: a write's reply cannot be skipped, and the yoke
+            // keeps what it was last given. The writes resume with the first complete sample.
+            bool blind=misses && misses->silent();
+            bool updated=false;
+            if (!blind) {
+                // The read-only confirmation before an update may miss a reply: nothing has been written, so the update is
+                // skipped this cycle and counts towards the silence. A missing reply to a write stays fatal.
+                try {updated=update_live_tuning(bridge,applied,next,stop,reserve);}
+                catch (const TuningNotConfirmed&) {if (!misses) throw;tolerate_miss(s,*misses);blind=true;}
+            }
+            if (updated) {
                 s.applied_tuning=applied;s.force_bias={0,applied.pitch_bias};
                 if (!flight && same_tuning(applied,want)) s.loading_result="Live calibration reached: roll "+std::to_string(applied.roll_percent)+"%, pitch "+std::to_string(applied.pitch_percent)+"%, pitch trim "+std::to_string(applied.pitch_trim)+" counts";
             }
             // Buffet after both axes' writes; with its knob off it writes nothing.
-            if (flight && buffet && buffet_target) {buffet->update(bridge,shake,applied,modes,stop);s.buffet_units=buffet->units();}
+            if (!blind && flight && buffet && buffet_target) {buffet->update(bridge,shake,applied,modes,stop);s.buffet_units=buffet->units();}
             s.loading_seconds_remaining=flight?-1:static_cast<int>(std::max<std::int64_t>(0,std::chrono::duration_cast<std::chrono::seconds>(deadline-Clock::now()).count()));
-            sample(bridge,s,stop);
+            sample_steady(bridge,s,stop,misses);
             for (const auto& axis:s.axes) if (!status_ready(axis.status) || (axis.status&0x2108)) throw std::runtime_error("Controller state changed during loading ("+status_words(s)+")");
             publish(s);
-            std::this_thread::sleep_until(s.sampled+std::chrono::milliseconds(20));
+            std::this_thread::sleep_until(s.sampled+std::chrono::milliseconds(sample_period_ms));
         }
     } catch (const FlightPaused& e) {error=e.what();paused=true;}
     catch (const TransportError&) {link_lost(bridge,s,words,modes,publish);throw;}
@@ -325,6 +396,8 @@ void wait_before_retry(const std::atomic<bool>& stop,std::chrono::milliseconds d
 // keeps looking for the yoke for as long as the reader is running.
 void Reader::session(Snapshot& s) {
     Bridge bridge(device_factory_());
+    bridge.set_diagnostics(&link_diagnostics_);
+    MissPolicy misses(std::chrono::milliseconds(reply_tolerance_ms_.load()),&link_diagnostics_);
     s.usb_vendor=bridge.id().vendor;s.usb_product=bridge.id().product;
     s.bridge_present=true;s.message="Waiting for the yoke's controllers";publish(s);
     const auto check_alive=[this] {
@@ -475,21 +548,21 @@ void Reader::session(Snapshot& s) {
         });
         if (loading_requested_.exchange(false)) serve("Light spring test",[&]{
             end_requested_=false;
-            loading_test(bridge,s,stop_,publish_state,check_alive,gap_requested_,[this]{return SessionTarget{requested_tuning(),{},{}};},false,end_requested_);
+            loading_test(bridge,s,stop_,publish_state,check_alive,gap_requested_,[this]{return SessionTarget{requested_tuning(),{},{}};},false,end_requested_,{},nullptr,{},{},&misses);
         });
         if (flight_requested_.exchange(false)) serve("Force feel",[&]{
             end_requested_=false;
             loading_test(bridge,s,stop_,publish_state,check_alive,gap_requested_,[this]{return flight_target();},true,end_requested_,pitch_setup(),
-                &buffet_,[this]{return buffet_target();},check_engaged);
+                &buffet_,[this]{return buffet_target();},check_engaged,&misses);
         });
         if (stop_) break;
-        sample(bridge,s,stop_);
+        sample_steady(bridge,s,stop_,&misses);
         if (!referenced_stopped_status(s.axes[0].status) || !referenced_stopped_status(s.axes[1].status)) {
             if (s.session_reference) s.reference_result="Controller state changed; repeat reference";
             s.session_reference=false;
         }
         s.message="Receiving both axes"; publish(s);
-        std::this_thread::sleep_until(s.sampled+std::chrono::milliseconds(20));
+        std::this_thread::sleep_until(s.sampled+std::chrono::milliseconds(sample_period_ms));
     }
 }
 // A yoke the plugin does not drive (brunner/readonly.hpp): sample both controllers,
@@ -499,15 +572,16 @@ void Reader::read_only_session(ReadOnlyBridge& bridge,Snapshot& s,const std::str
     s.read_only=true;
     s.message=why;
     publish(s);
+    MissPolicy read_only_misses(std::chrono::milliseconds(reply_tolerance_ms_.load()),&link_diagnostics_);
     while (!stop_) {
         reference_requested_=false;inspection_requested_=false;loading_requested_=false;recovery_requested_=false;reset_requested_=false;
         gap_requested_=false;flight_requested_=false;end_requested_=false;busy_=false;
         if (survey_requested_.exchange(false)) {
             s.survey=survey_controllers(bridge,stop_);++s.surveys;publish(s);
         }
-        sample(bridge,s,stop_);
+        sample_steady(bridge,s,stop_,&read_only_misses);
         publish(s);
-        std::this_thread::sleep_until(s.sampled+std::chrono::milliseconds(20));
+        std::this_thread::sleep_until(s.sampled+std::chrono::milliseconds(sample_period_ms));
     }
 }
 void Reader::run() {
@@ -528,7 +602,9 @@ void Reader::run() {
             // Bridge present, controllers silent or the link dropped mid-session:
             // close it and look again. The reference is re-evaluated on reconnect.
             // What the lost session's end read back stays on record.
-            Snapshot lost;lost.bridge_present=true;lost.message=e.what();lost.pitch_force_cleared=snapshot().pitch_force_cleared;publish(lost);
+            Snapshot lost;lost.bridge_present=true;lost.message=e.what();lost.pitch_force_cleared=snapshot().pitch_force_cleared;
+            lost.stall_detail=link_diagnostics_.at_error.empty()?link_diagnostics_.describe(Clock::now(),e.what()):link_diagnostics_.at_error;
+            publish(lost);
         } catch (const std::exception& e) {
             // A refusal to talk to this hardware (a drive that cannot be built, a refused test write).
             Snapshot refused;refused.bridge_present=true;refused.message=e.what();refused.loading_fault=true;publish(refused);

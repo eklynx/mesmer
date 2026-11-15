@@ -395,14 +395,18 @@ template<class Transport> void apply_live_tuning(Transport& bridge,Tuning& appli
     const DriveReserve& r={}) {
     if (!valid_tuning(applied) || !valid_tuning(next,r)) throw std::invalid_argument("Invalid live tuning");
     // Confirm both drives before any update. Every changed value is read back;
-    // a mismatch unwinds through the loading test's stop-and-rest path.
-    for (unsigned node=1;node<=2;++node) {
-        const auto status=bridge.read(node,Object::status,stop);
-        if (!status_ready(static_cast<std::uint16_t>(status)) || (status&0x2108)) throw std::runtime_error("Controller not ready for live tuning (node "+std::to_string(node)+" status "+status_hex(static_cast<std::uint16_t>(status))+")");
-        if (decode_bias(bridge.ref_read(node,manual_force_bias,stop))!=(node==2?controller_counts(2,applied.pitch_bias):0)
-            || bridge.ref_read(node,trim_offset,stop)!=0 || bridge.ref_read(node,center_mode,stop)!=0)
-            throw std::runtime_error("Unexpected constant force, coordinate offset or position mode during live tuning");
-    }
+    // a mismatch unwinds through the loading test's stop-and-rest path. These reads write nothing and wait only one sample
+    // period for each reply: one that goes missing is a TuningNotConfirmed (nothing has been written, so the caller may
+    // skip this update), unlike a missing reply to a write.
+    try {
+        for (unsigned node=1;node<=2;++node) {
+            const auto status=bridge.read(node,Object::status,stop,sample_reply_timeout_ms);
+            if (!status_ready(static_cast<std::uint16_t>(status)) || (status&0x2108)) throw std::runtime_error("Controller not ready for live tuning (node "+std::to_string(node)+" status "+status_hex(static_cast<std::uint16_t>(status))+")");
+            if (decode_bias(bridge.ref_read(node,manual_force_bias,stop,sample_reply_timeout_ms))!=(node==2?controller_counts(2,applied.pitch_bias):0)
+                || bridge.ref_read(node,trim_offset,stop,sample_reply_timeout_ms)!=0 || bridge.ref_read(node,center_mode,stop,sample_reply_timeout_ms)!=0)
+                throw std::runtime_error("Unexpected constant force, coordinate offset or position mode during live tuning");
+        }
+    } catch (const ReplyMissed& e) {throw TuningNotConfirmed(e.what());}
     // Pitch first, all of it: strength, centre, constant force. Roll's
     // strength and centre follow, so a roll write never delays pitch's. Each
     // axis's registers go in an order whose every step stays within the

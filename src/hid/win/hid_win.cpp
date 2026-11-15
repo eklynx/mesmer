@@ -90,7 +90,8 @@ class WinHidDevice final : public HidDevice {
                 CancelIoEx(handle_.value,&overlap);
                 // Drain cancellation before the OVERLAPPED/buffer leave scope.
                 GetOverlappedResult(handle_.value,&overlap,&bytes,TRUE);
-                throw TransportError("HID I/O timed out");
+                if (write) throw TransportError("HID I/O timed out");
+                throw ReadTimeout{};
             }
             if (!GetOverlappedResult(handle_.value,&overlap,&bytes,FALSE)) throw TransportError("HID completion failed");
         }

@@ -50,6 +50,37 @@ inline std::int32_t signed32(std::uint32_t value) {
 // controllers are silent; nothing about their state is concluded from it).
 struct OperationCancelled : std::runtime_error {OperationCancelled():std::runtime_error("Reader stopped") {}};
 struct TransportError : std::runtime_error {explicit TransportError(const char* what):std::runtime_error(what) {}};
+// A read that waited its whole time and got nothing: the device's own timeout, as opposed to one that failed or went away.
+// Thrown by a HidDevice's read() (hid/hid_device.hpp); the message stays "HID I/O timed out".
+struct ReadTimeout : TransportError {ReadTimeout():TransportError("HID I/O timed out") {}};
+// The yoke did not answer one request in time: no reply at all (a ReadTimeout underneath) or none that matched.
+// Thrown by Bridge::exchange (brunner/bridge.hpp). It is a TransportError, so it ends a session wherever nothing handles it;
+// the reader's sampling loops tolerate silence for up to reply_tolerance_ms (brunner/reader.cpp): a reply that goes missing,
+// like a dropped datagram, is not a lost link, and the next sample picks up where this one left off.
+struct ReplyMissed : TransportError {explicit ReplyMissed(const char* what):TransportError(what) {}};
+// A ReplyMissed from the read-only confirmation that precedes a live tuning update (brunner/loading.hpp, apply_live_tuning):
+// nothing has been written yet, so the update can be skipped and tried again next cycle. A ReplyMissed from the writes
+// themselves stays a plain ReplyMissed, which the reader never skips.
+struct TuningNotConfirmed : ReplyMissed {explicit TuningNotConfirmed(const char* what):ReplyMissed(what) {}};
+// How long the yoke may go without completing a sample before the link counts as lost (state file: reply_tolerance_ms):
+// the time since the last complete sampling cycle, checked at each missed reply. 0 means none, the first missed reply
+// ends the session. The ceiling bounds how long the plugin runs on its last sample (in force feel the motors keep their
+// last force meanwhile, and no writes are sent to a yoke that is not answering).
+inline constexpr int default_reply_tolerance_ms=1000,max_reply_tolerance_ms=5000;
+// The sampling loops' period, and how long a sampling read waits for its reply: the same figure. A reply that has not
+// come within one sample period is a missed reply (above); the next cycle starts on time without it. Measured on the NG
+// 2026-11-15 (docs/dev/hid-bridge.md): median 2 ms, slowest 17.9 ms in 91,000 replies. Everything that is not a sampling
+// read (writes, setup, reference, stop) waits default_reply_timeout_ms, since a write's reply may take longer.
+inline constexpr int sample_period_ms=20,sample_reply_timeout_ms=sample_period_ms,default_reply_timeout_ms=250;
+// The loading writes of the steady loops (Bridge::load_write: spring strength, centre, constant force, buffet) also wait one
+// sample period for each reply, but a missing reply is not the end: the same write, an absolute register value, is sent
+// again until its reply comes, for up to load_write_tolerance_ms from the first attempt; only then is the miss fatal.
+inline constexpr int load_write_reply_timeout_ms=sample_reply_timeout_ms,load_write_tolerance_ms=250;
+// The reply timeout argument of Bridge::read / ref_read that means "not a sampling read": each attempt waits
+// load_write_reply_timeout_ms and a missing reply is retried (the same read, which changes nothing) for up to
+// load_write_tolerance_ms before it is fatal. Any value of 0 or more is one attempt with that timeout (the sampling reads
+// and the live-update confirmation, whose caller skips the cycle on a miss).
+inline constexpr int retried_read=-1;
 // Deliberately only SDO uploads. No generic write or motor-command API.
 inline Report read_request(unsigned node, Object object, std::uint16_t counter) {
     if (node != 1 && node != 2) throw std::invalid_argument("Unsupported node");
@@ -149,6 +180,14 @@ struct Snapshot {
     std::string reference_result;
     std::string loading_inspection;
     std::string message="Disconnected";
+    // Why the link was lost, set once on the snapshot published when a USB session ends in a transport error
+    // (brunner/bridge.hpp, LinkDiagnostics); empty otherwise. The plugin logs it once per change.
+    std::string stall_detail;
+    // Silences the sampling loops rode out (brunner/reader.cpp): requests that got no reply in this session, how many runs
+    // of them have started and ended, and the text of the latest start (the stall facts frozen at that moment,
+    // brunner/link_diagnostics.hpp) and end. The plugin logs a line when a run starts and when it ends.
+    std::uint64_t missed_replies=0,silences=0,silences_ended=0;
+    std::string silence_detail,silence_ended_detail;
 };
 struct Calibration {
     std::int32_t lower=0, upper=0;

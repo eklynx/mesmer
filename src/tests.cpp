@@ -53,6 +53,7 @@ struct LoadingTransport {
     std::vector<RegisterWrite> writes,ref_writes;
     std::vector<std::pair<unsigned,std::uint16_t>> order; // every write, either kind: node and object
     bool enabled=false,mismatch=false,fail=false,retain_bias=false;
+    bool miss_reads=false,miss_writes=false; // the yoke gives no reply to a read, or to a write (ReplyMissed)
     bool in_session=false; // a force-feel session's mode (bit 13) may be written back with only bit 4 changed
     std::uint32_t stopped_status=0x0431;
     unsigned running_node=0; // one motor found running, the other off
@@ -68,12 +69,13 @@ struct LoadingTransport {
             values[key(node,move_back_gain)]=180;values[key(node,manual_offset_off)]=40;
         }
     }
-    std::uint32_t read(unsigned node,Object,const std::atomic<bool>&) {++reads;return enabled || running_node==node?0x1437:stopped_status;}
-    std::uint32_t ref_read(unsigned node,Register reg,const std::atomic<bool>&) {
+    std::uint32_t read(unsigned node,Object,const std::atomic<bool>&,int=0) {++reads;if (miss_reads) throw ReplyMissed("HID I/O timed out");return enabled || running_node==node?0x1437:stopped_status;}
+    std::uint32_t ref_read(unsigned node,Register reg,const std::atomic<bool>&,int=0) {
         if (fail) throw std::runtime_error("Lost transport");
-        ++reads;return values[key(node,reg)];
+        ++reads;if (miss_reads) throw ReplyMissed("HID I/O timed out");return values[key(node,reg)];
     }
     void load_write(unsigned node,RegisterWrite op,const std::atomic<bool>&) {
+        if (miss_writes) throw ReplyMissed("HID I/O timed out");
         check(loading_write_allowed(node,op));writes.push_back(op);order.push_back({node,op.reg.index});
         if (!mismatch && !(retain_bias && same_register(op.reg,manual_force_bias))) values[key(node,op.reg)]=op.value;
     }
@@ -528,6 +530,22 @@ int main() {
         apply_live_tuning(live,applied,{41,39,-12},not_stopped);
         check(same_tuning(applied,{41,39,-12}) && live.writes.size()==3);
         verify_loading(live,1,not_stopped,applied);verify_loading(live,2,not_stopped,applied);
+        // A reply that goes missing in the read-only confirmation before an update is a TuningNotConfirmed: nothing has been
+        // written, so the reader may skip the update. A reply missing from a write is a plain ReplyMissed, never skipped.
+        {
+            LoadingTransport quiet_reads;prepare_loading(quiet_reads,not_stopped);quiet_reads.enabled=true;quiet_reads.writes.clear();
+            Tuning t;quiet_reads.miss_reads=true;
+            bool unconfirmed=false;
+            try {apply_live_tuning(quiet_reads,t,{41,39,-12},not_stopped);} catch (const TuningNotConfirmed&) {unconfirmed=true;}
+            check(unconfirmed && quiet_reads.writes.empty() && same_tuning(t,Tuning{}));
+            LoadingTransport quiet_writes;prepare_loading(quiet_writes,not_stopped);quiet_writes.enabled=true;quiet_writes.writes.clear();
+            Tuning u;quiet_writes.miss_writes=true;
+            bool plain=false,confirmed_wrongly=false;
+            try {apply_live_tuning(quiet_writes,u,{41,39,-12},not_stopped);}
+            catch (const TuningNotConfirmed&) {confirmed_wrongly=true;}
+            catch (const ReplyMissed&) {plain=true;}
+            check(plain && !confirmed_wrongly);
+        }
         check(live.values[LoadingTransport::key(1,trim_position)]==0);
         check(signed32(live.values[LoadingTransport::key(2,trim_position)])==-12);
         for (const auto& op:live.writes) check(same_register(op.reg,force_scale) || same_register(op.reg,trim_position));

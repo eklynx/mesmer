@@ -1,9 +1,11 @@
 #pragma once
 #include "brunner/core.hpp"
+#include "brunner/link_diagnostics.hpp"
 #include "brunner/loading.hpp"
 #include "force/buffet.hpp"
 #include "hid/hid_device.hpp"
 #include "brunner/yoke_preset.hpp"
+#include <algorithm>
 #include <atomic>
 #include <functional>
 #include <mutex>
@@ -51,6 +53,10 @@ public:
     void update_presets(std::vector<YokePreset> presets) {std::lock_guard<std::mutex> lock(presets_mutex_);presets_=std::move(presets);}
     // The owner's acknowledgement (Developer menu, brunner/owner_state.hpp): drive a model whose preset is not verified.
     void set_allow_unverified(bool allow) {allow_unverified_=allow;}
+    // How long the steady sampling loops tolerate a silent yoke before the link counts as lost (brunner/core.hpp,
+    // reply_tolerance_ms). Clamped to 0..max_reply_tolerance_ms; read when a USB session starts.
+    void set_reply_tolerance_ms(int ms) {reply_tolerance_ms_=std::clamp(ms,0,max_reply_tolerance_ms);}
+    int reply_tolerance_ms() const {return reply_tolerance_ms_;}
     // For tests: where the bridge comes from (default: open_bridge(ids), the real device).
     void set_device_factory(std::function<std::unique_ptr<HidDevice>()> factory) {device_factory_=std::move(factory);}
     // Read-only mode (brunner/readonly.hpp): every request that could write to the yoke is
@@ -135,6 +141,8 @@ public:
 private:
     void run();
     void session(Snapshot& s);
+    std::atomic<int> reply_tolerance_ms_{default_reply_tolerance_ms};
+    LinkDiagnostics link_diagnostics_;          // the reader thread's; explains a stalled link (bridge.hpp)
     void read_only_session(ReadOnlyBridge& bridge,Snapshot& s,const std::string& why);
     std::mutex presets_mutex_;                  // guards presets_ once the reader runs (update_presets)
     std::vector<YokePreset> presets_=builtin_yoke_presets();
