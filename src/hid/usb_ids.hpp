@@ -20,7 +20,7 @@ struct UsbId {
 // select_bridge refuses a different descriptor.
 inline constexpr std::array<UsbId, 2> bridge_ids{{
     {0x25bb, 0x0081}, // original CLS USB Bridge
-    {0x25bb, 0x008b}, // CLS-E NG: same HID framing and protocol; its preset is not yet verified (brunner/yoke_preset.hpp)
+    {0x25bb, 0x008b}, // CLS-E NG: same HID framing and protocol; its preset is not yet verified (config/yoke/yoke_preset.hpp)
 }};
 // Brunner's USB vendor id. A bridge from this vendor whose product id is not listed is an unknown
 // yoke: it is opened read-only, never driven (docs/dev/read-only-mode.md). Another vendor's device is never opened.

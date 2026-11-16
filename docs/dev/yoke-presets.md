@@ -1,10 +1,10 @@
 # Yoke presets: specification
 
 What differs between yoke **models**, how it is chosen, and how forces stop at
-a limit. The code: `src/brunner/yoke_preset.hpp` (the settings and the file; read it
+a limit. The code: `src/config/yoke/yoke_preset.hpp` (the settings and the file; read it
 first), `src/brunner/drive.hpp` (what the models and writes actually use),
 `src/brunner/readonly.hpp` (the gate), `src/brunner/reader.cpp` (identification and the test
-write). `src/brunner/preset_tests.cpp`, `src/brunner/drive_tests.cpp` and
+write). `src/config/yoke/preset_tests.cpp`, `src/brunner/drive_tests.cpp` and
 `src/brunner/readonly_tests.cpp` check every statement here.
 
 ## A model, not a firmware
@@ -39,9 +39,9 @@ Built in: `cls-e` (USB `0x25BB:0x0081`, verified on firmware 367) and `cls-e-ng`
 | `idle_enabled` | `true` for a model that idles with its motors enabled (the NG). Centring then shuts them down the standard way first instead of refusing; `false` (the CLS-E) keeps the refusal |
 | `roll_encoder_sign`, `pitch_encoder_sign` | the model's counts (forward / right positive) are sign x the encoder (+1 or -1). Reading only: it is where the force models and the feel page think the yoke is |
 | `roll_spring_sign`, `pitch_spring_sign` | the controller's spring frame (the centre 0x2116 and the constant force) is sign x the encoder (+1 or -1, default -1): a fact about the hardware. Every value the plugin writes to those registers is the model's times `encoder_sign` x `spring_sign`, so it is mirrored only when the two differ. The CLS-E is -1 and -1 (never mirrored); the NG's pitch encoder runs the other way, so it is +1 and -1 and its pitch writes are mirrored (roll is -1 and -1) |
-| `button_aliases` | the yoke's controls and what they are called: a map of lists, `"trigger": ["hid_button_1", "can_button_1"]`. Each key and the names in its list are one control, chains included. The names a list may hold are the NG joystick's `hid_button_1` to `hid_button_6` and hat positions `hat_n`, `hat_ne`, `hat_e`, `hat_se`, `hat_s`, `hat_sw`, `hat_w`, `hat_nw`, the CAN inputs `can_button_1` to `can_button_16` and the hat's `can_hat_n` to `can_hat_nw`, and other keys. A key is a friendly name (1 to 32 of `a-z`, `0-9`, `_`; not starting with `hid_` or `can_`; not ending in `_released` or `_hold`) or a built-in name such as `hat_n`, so linking a hat position to its CAN twin is one entry: `"hat_n": ["can_hat_n"]`. A control may have one HID input and one CAN input, not two of either. Linking a `hid_button` to a `can_button` is what lets a command written under one numbering fire under the other read method, and a control's virtual-joystick button is its CAN slot number (a `can_hat` has none, so it takes the next free number from 17). Giving the field in `BrunnerDirect.yokes.json` replaces the model's whole map; a map that does not hold together refuses the file, naming why. See [button-commands.md](button-commands.md) |
-| `button_registers` | where the yoke's buttons and hat are on the bridge, for the `CanBus` read: `{"buttons": {"object": "0x2880", "sub": 3, "shift": 0, "bits": 6}, "hat": {"object": "0x2880", "sub": 4}}`. `buttons` is a register on node 2 whose bits `shift` to `shift + bits - 1` (up to 16) are `can_button_1`, `can_button_2`..; `hat` is optional, a one-byte register holding 0 (centred) or 1 to 8 clockwise from up, read as `can_hat_*`. Only the read-only allowlist is accepted (`0x60FD` sub 0, `0x2880` sub 3 or 4), anything else, bits outside the register, or a hat that is the buttons' own register refuses the file. The original CLS-E's is `0x60FD`, shift 16, 16 bits, no hat; the NG's is the example. Giving the field replaces the model's whole layout |
-| `button_read_method`, `button_action_method` | how this model's buttons are read and what the plugin does with them: `"CanBus"` (over the bridge, from `button_registers`) or `"HID"` (the NG's joystick interface), and `"VJoy"` (a virtual joystick X-Plane binds; Windows, elsewhere it is `Direct`) or `"Direct"` (the X-Plane commands in `button_commands`). Any case. Left out, `CanBus` and `Direct`. The original CLS-E's are `CanBus` and `VJoy`, the NG's `CanBus` and `Direct`. See [button-commands.md](button-commands.md) |
+| `button_aliases` | what the yoke's controls are called, as a map of lists keyed like `button_registers`: the key is the control (`button_1` to `button_16`, `hat_n` to `hat_nw`, any case) and the list its friendly names, `"button_1": ["trigger"]`. A control may have several names and each name belongs to one control; a name is 1 to 32 of `a-z`, `0-9`, `_`, not ending in `_released` or `_hold` and not a button or hat name. A key that is not a button or hat name, a key given twice (in any case), a name that is not usable or a name given twice is skipped (the rest of the map and the file still apply), see [Button mappings](#button-mappings-that-cannot-be-used). A control's virtual-joystick button is its button number (the hat positions take 17 to 24). Giving the field in `BrunnerDirect.yokes.json` replaces the model's whole map. See [button-commands.md](button-commands.md) |
+| `button_registers` | where each of the yoke's buttons and hat positions is on the bridge, as a map: the key is the control (`button_1` to `button_16`, `hat_n` to `hat_nw`), the value is the controller object that says it is pressed, `{"node": 2, "object": "0x2880", "sub": 3, "mask": "0x01"}` or `{"node": 2, "object": "0x2880", "sub": 4, "value": 1}`. `node` (1 or 2), `object` (hex) and `sub` are required, plus exactly one of `mask` (a hex string: pressed when **all** its bits are set in the value read) and `value` (a whole number: pressed when the value read is exactly it). Only the read-only allowlist is accepted (`0x60FD` sub 0, four bytes; `0x2880` sub 3 or 4, one byte each); an entry naming anything else, a node other than 1 or 2, a mask of 0 or wider than the object, a value wider than the object, a key that is not a button or hat name or a key given twice (in any case) is skipped, see [Button mappings](#button-mappings-that-cannot-be-used). A control with no entry is one the yoke does not have and is never pressed. Each distinct object is read once per sampling cycle, however many controls use it. The original CLS-E's are one mask per slot on `0x60FD` (bits 16 to 31 for slots 1 to 5 and 7 to 14; no hat); the NG's are bits 0 to 5 of `0x2880:3` and the values 1 to 8 of `0x2880:4` for the hat. Giving the field replaces the model's whole map |
+| `button_action_method` | what the plugin does with this model's buttons: `"VJoy"` (a virtual joystick X-Plane binds; Windows, elsewhere it is `Direct`) or `"Direct"` (the X-Plane commands in `button_commands`). Any case. Left out, `Direct`; any other word is skipped and the model keeps its own. The original CLS-E's is `VJoy`, the NG's `Direct`. See [button-commands.md](button-commands.md) |
 | `roll_input_reverse`, `pitch_input_reverse` | flips the pilot's input direction (the CLS-E reverses roll; the NG reverses roll and pitch) |
 
 **The NG's numbers.** Travel is the midpoint of the controller's own limit flags
@@ -77,6 +77,16 @@ must give `usb`, both travels, both ceilings and `target_torque`; it is
 unverified unless it says otherwise. No two models may claim one USB id.
 Every field is bounded; an unknown field or a file that does not validate is
 refused **whole**, the built-ins stay in force, and the reason is in `Log.txt`.
+The button mappings are the exception, below.
+
+### Button mappings that cannot be used
+
+`button_aliases`, `button_registers` and `button_action_method` never refuse a file. What cannot be used is **skipped** and the rest
+applies: a bad `button_registers` entry or alias is left out and its neighbours stay; a bad `button_action_method` keeps the model's own
+value; a field of the wrong kind altogether (not an object) leaves the model with its own. Each skipped item is one line in `Log.txt`
+(`Yoke config: yoke "cls-e": button_aliases.nope is not a button or hat name ...; skipped`) **and** the first is shown in the corner of the
+X-Plane window, with a count of the others, until you click it. A movement warning or a Retry offer takes the corner first, and the
+notice comes back after. Every other field still refuses the file as above: those numbers drive the yoke's forces.
 
 ## The NG's force mode
 

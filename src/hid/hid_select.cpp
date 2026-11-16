@@ -1,6 +1,5 @@
 // Platform-independent bridge selection. Contract: hid/hid_device.hpp.
 #include "hid/hid_device.hpp"
-#include "hid/joystick_device.hpp"
 #include "hid/usb_ids.hpp"
 
 namespace brunner {
@@ -28,14 +27,6 @@ std::size_t select_bridge(const std::vector<HidCandidate>& candidates,const std:
     }
     throw BridgeAbsent{};
 }
-}
-#if !defined(__APPLE__) && !defined(_WIN32)
-// macOS and Windows observe the joystick interface (hid/joystick_device.hpp); other platforms say there is none.
-namespace hid {
-std::unique_ptr<JoystickDevice> open_joystick(std::uint16_t,std::string& why) {why="not implemented on this platform";return nullptr;}
-}
-#endif
-namespace brunner {
 #ifndef _WIN32
 // Windows-only notions (hid/hid_device.hpp), so every non-Windows build and test that links the
 // reader has them: a Mac has nothing to switch the bridge back on with.

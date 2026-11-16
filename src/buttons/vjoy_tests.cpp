@@ -1,4 +1,4 @@
-// Tests for the virtual joystick's logic (buttons/actions/vjoy_presser.hpp, vjoy_action.hpp) and for the CanBus read of the
+// Tests for the virtual joystick's logic (buttons/actions/vjoy_presser.hpp, vjoy_action.hpp) and for the read of the
 // yoke's buttons (buttons/input/can_source.hpp), on every platform: plain C++, a fake joystick, a fake link and a fake sink.
 #include "buttons/actions/vjoy_action.hpp"
 #include "buttons/input/can_source.hpp"
@@ -36,15 +36,15 @@ struct RecordingSink : ButtonSink {
     void publish(const ButtonState& state,Clock::time_point) override {states.push_back(state);}
     void release_all() override {++releases;}
 };
-// Registers as the reader's bridge answers them (key: index << 8 | sub), or fails to.
+// Objects as the reader's bridge answers them (key: node << 24 | index << 8 | sub), or fails to.
 struct ButtonLink {
-    static std::uint32_t key(unsigned index,unsigned sub) {return (index<<8)|sub;}
+    static std::uint32_t key(unsigned node,unsigned index,unsigned sub) {return (node<<24)|(index<<8)|sub;}
     std::map<std::uint32_t,std::uint32_t> words;std::vector<std::uint32_t> reads;std::function<void(std::uint32_t)> fail;CanSource* can=nullptr;
     CanSource* can_source() const {return can;}
     std::uint32_t ref_read(unsigned node,brunner::Register reg,const std::atomic<bool>& stop,int reply_ms) {
-        check(node==2 && reply_ms==brunner::sample_reply_timeout_ms);   // a sampling read: one attempt, one sample period
+        check((node==1 || node==2) && reply_ms==brunner::sample_reply_timeout_ms);   // a sampling read: one attempt, one sample period
         if (stop) throw OperationCancelled{};
-        const auto k=key(reg.index,reg.sub);
+        const auto k=key(node,reg.index,reg.sub);
         reads.push_back(k);
         if (fail) fail(k);
         return words[k];
@@ -53,24 +53,24 @@ struct ButtonLink {
 int main() {
     try {
         check(pressed_slots(0x80018001u)=="1, 16, 17, 32" && pressed_slots(0x2800u)=="12, 14" && pressed_slots(0)=="none");
-        // Reading them over the bridge (the CanBus read method), the original CLS-E's layout: node 2's 0x60fd, bits 16 to 31, in every
-        // cycle when enabled and attached, published in CAN numbering. A refusal or a garble leaves the buttons unread and releases
+        // Reading them over the bridge, the original CLS-E's layout: node 2's 0x60fd, a mask per slot (bits 16 to 31), in every
+        // cycle when enabled and attached, published. A refusal or a garble leaves the buttons unread and releases
         // everything at the sink, retried from 5 s on; the link failing, a missed reply and the reader stopping pass through and record
-        // nothing. Disabled, nothing is read at all.
+        // nothing. Disabled, nothing is read at all. A slot the yoke has no entry for (6, 15, 16) is never pressed.
         {
             const auto t0=Clock::now();
-            const auto digital=ButtonLink::key(0x60fd,0);
-            ButtonLink link;link.words[digital]=0x8001ffffu;
+            const auto digital=ButtonLink::key(2,0x60fd,0);
+            ButtonLink link;link.words[digital]=0x8005ffffu;                                       // slots 1 and 3, and bit 31 (slot 16: no entry)
             RecordingSink sink;CanSource can;link.can=&can;
             std::atomic<bool> halt{false};
             Snapshot b;
             sample_buttons(link,b,halt,t0);check(link.reads.empty() && !b.buttons);               // not enabled, not attached: no request
             can.enable(true);sample_buttons(link,b,halt,t0);check(link.reads.empty());            // enabled but nobody to tell
             can.attach(&sink);
-            sample_buttons(link,b,halt,t0);check(b.buttons==0x8001 && sink.states.size()==1 && sink.states[0]==ButtonState{0x8001u,0});
+            sample_buttons(link,b,halt,t0);check(b.buttons==0x5 && sink.states.size()==1 && sink.states[0]==ButtonState{0x5u,0});
             link.words[digital]=0x0002ffffu;
-            b.cycles=1;sample_buttons(link,b,halt,t0);check(b.buttons==0x0002 && sink.states.back()==ButtonState{0x0002u,0});   // odd cycles too
-            check((link.reads==std::vector<std::uint32_t>{digital,digital}));
+            b.cycles=1;sample_buttons(link,b,halt,t0);check(b.buttons==0x0002 && sink.states.back()==ButtonState{0x2u,0});   // odd cycles too
+            check((link.reads==std::vector<std::uint32_t>{digital,digital}));                     // one read per cycle for all 13 slots
             can.enable(false);sample_buttons(link,b,halt,t0);check(link.reads.size()==2);          // off again: no request
             can.enable(true);
             link.fail=[](std::uint32_t) {throw std::runtime_error("Controller rejected SDO read");};
@@ -99,11 +99,12 @@ int main() {
             ButtonLink none;                                                                        // a link with no CanSource reads nothing
             std::atomic<bool> go{false};Snapshot c;sample_buttons(none,c,go,t0);check(none.reads.empty());
         }
-        // The NG's layout: its own record, entry 3 the buttons (bits 0 to 5), entry 4 the hat. Two reads a cycle, published together;
-        // bits above the six are not buttons, and a hat value outside 1 to 8 is centred.
+        // The NG's layout: its own record, a mask per button on entry 3, a value per hat position on entry 4. Two reads a cycle (one per
+        // object, however many controls use it), published together; bits above the six are not buttons, and a value that is no
+        // position is centred.
         {
             const auto t0=Clock::now();
-            const auto buttons=ButtonLink::key(0x2880,3),hat=ButtonLink::key(0x2880,4);
+            const auto buttons=ButtonLink::key(2,0x2880,3),hat=ButtonLink::key(2,0x2880,4);
             ButtonLink link;RecordingSink sink;CanSource can;link.can=&can;can.attach(&sink);can.enable(true);can.set_layout(cls_e_ng_can_layout());
             std::atomic<bool> halt{false};Snapshot b;
             link.words[buttons]=0x21;link.words[hat]=3;                                            // trigger and hat push, hat east
@@ -121,11 +122,35 @@ int main() {
             link.fail=[&](std::uint32_t k) {if (k==hat) throw std::runtime_error("Controller rejected SDO read");};
             sample_buttons(link,b,halt,t0);
             check(!b.buttons && b.button_refusal=="Controller rejected SDO read" && sink.releases==1 && sink.states.size()==published);
-            // A layout without a hat reads one register.
-            ButtonLink plain;plain.can=&can;plain.words[ButtonLink::key(0x60fd,0)]=0x00040000u;
+            // The original CLS-E's layout again reads one object.
+            ButtonLink plain;plain.can=&can;plain.words[ButtonLink::key(2,0x60fd,0)]=0x00040000u;
             can.set_layout(cls_e_can_layout());Snapshot c;
             sample_buttons(plain,c,halt,t0+std::chrono::seconds(30));
             check(plain.reads.size()==1 && c.buttons==4 && sink.states.back()==ButtonState{4u,0});
+        }
+        // A layout is whatever the model says: the node is part of the object, a mask needs all its bits, a value the exact value, two hat
+        // positions pressed at once give the lower, and a layout with no entries reads nothing and presses nothing.
+        {
+            const auto t0=Clock::now();
+            CanLayout custom;
+            custom[{InputKind::button,1}]=CanSignal{1,0x2880,3,true,0x01};                         // node 1
+            custom[{InputKind::button,2}]=CanSignal{2,0x2880,3,true,0x01};                         // the same object on node 2: its own read
+            custom[{InputKind::button,3}]=CanSignal{2,0x2880,3,true,0x06};                         // two bits: both must be set
+            custom[{InputKind::hat,6}]=CanSignal{2,0x2880,4,false,2};
+            custom[{InputKind::hat,3}]=CanSignal{2,0x2880,4,true,0x02};                            // a mask on a hat register too
+            ButtonLink link;RecordingSink sink;CanSource can;link.can=&can;can.attach(&sink);can.enable(true);can.set_layout(custom);
+            std::atomic<bool> halt{false};Snapshot b;
+            link.words[ButtonLink::key(1,0x2880,3)]=1;link.words[ButtonLink::key(2,0x2880,3)]=0x04;link.words[ButtonLink::key(2,0x2880,4)]=2;
+            sample_buttons(link,b,halt,t0);
+            check(link.reads.size()==3);                                                           // three distinct objects, once each
+            check(sink.states.back()==ButtonState{0x1u,3});                                        // node 1's bit 0 is button 1; node 2's 0x04 is not button 2 or 3; hats 3 and 6 both: the lower
+            link.words[ButtonLink::key(2,0x2880,3)]=0x07;link.words[ButtonLink::key(2,0x2880,4)]=0;
+            sample_buttons(link,b,halt,t0);
+            check(sink.states.back()==ButtonState{0x7u,0});                                        // buttons 1, 2 and 3 (0x06 is all set)
+            CanSource empty;empty.attach(&sink);empty.enable(true);empty.set_layout({});
+            ButtonLink quiet;quiet.can=&empty;Snapshot q;
+            sample_buttons(quiet,q,halt,t0);
+            check(quiet.reads.empty() && sink.states.back()==ButtonState{0,0} && q.buttons==0);
         }
         // Pressing them: take the device and let every button up first, send
         // only changes, let all up when unknown, retry a refusal every 5 s and

@@ -1,11 +1,11 @@
 #define WIN32_LEAN_AND_MEAN
 #define NOMINMAX
 #include "brunner/reader.hpp"
-#include "brunner/owner_state.hpp"
+#include "config/state/aircraft_state.hpp"
+#include "config/state/owner_state.hpp"
 #include "buttons/service.hpp"
-#include "hid/joystick_device.hpp"
 #include "brunner/readonly.hpp"
-#include "config.hpp"
+#include "config/ini/config.hpp"
 #include "lab.hpp"
 #include "brunner/yoke.hpp"
 #include "ui/view/panel_win.hpp"
@@ -43,7 +43,7 @@ brunner::Reader reader;
 brunner::monitor::Window force_monitor,force_hud{true};
 brunner::recording::Recorder recorder;
 // The yoke's buttons (src/buttons, docs/dev/button-commands.md): where they are read from and what they do are the connected yoke's
-// button_read_method and button_action_method (its preset). The service is made once the presets have been read.
+// button_action_method (its preset). The service is made once the presets have been read.
 std::unique_ptr<buttons::ButtonService> button_service;
 std::string last_button_model;
 XPLMCommandRef hud_command=nullptr,pin_command=nullptr,move_command=nullptr;
@@ -124,6 +124,7 @@ bool show_status_line=true;
 brunner::StartupReadiness startup_readiness;
 XPLMFlightLoopID readiness_loop=nullptr;
 brunner::ui::StartupNotice startup_notice; // the corner window (ui/view/startup_notice.hpp)
+std::vector<std::string> config_problems; // button mappings the yoke files could not give, shown in the corner until clicked
 // The workbench's newest notice while it is fresh: the corner line shows it.
 std::optional<wb::Notice> corner_notice;
 constexpr std::chrono::seconds corner_notice_time{6};
@@ -165,9 +166,9 @@ std::string last_yoke_note,last_yoke_model,last_stall_detail;
 std::uint64_t last_silences=0,last_silences_ended=0;
 std::vector<std::string> yoke_shipped_texts; // the yokes/ folder as read, kept to validate direction edits against
 std::string direction_note;                   // why the last direction change from the page failed
-// The owner's choice to drive a yoke model that is not verified (brunner/owner_state.hpp): off unless saved on.
+// The owner's choice to drive a yoke model that is not verified (config/state/owner_state.hpp): off unless saved on.
 bool allow_unverified_yoke=false;
-// The whole saved state (brunner/owner_state.hpp): the unverified choice above is its menu-written part; the
+// The whole saved state (config/state/owner_state.hpp): the unverified choice above is its menu-written part; the
 // startup overrides in it are hand-edited, applied once after the ini, and written back unchanged on every save.
 brunner::OwnerState owner_state;
 enum class LiveField { roll_target,pitch_target,trim_target,roll_applied,pitch_applied,trim_applied,
@@ -603,16 +604,16 @@ private:
     std::map<std::string,XPLMCommandRef> refs_;
     std::set<std::string> warned_;
 } xplm_commands;
-// Makes the buttons service from the owner's button_commands, and gives the reader the sink the CanBus read
+// Makes the buttons service from the owner's button_commands, and gives the reader the sink the button read
 // publishes to. The yoke's own controls (its button_aliases) come when its model is known.
 void setup_buttons() {
-    button_service=std::make_unique<buttons::ButtonService>(xplm_commands,[](std::string& why) {return hid::open_joystick(brunner::brunner_vendor,why);});
+    button_service=std::make_unique<buttons::ButtonService>(xplm_commands);
     buttons::ButtonCommands::Entries entries;
     for (const auto& entry:owner_state.button_commands) entries[entry.first]=entry.second.commands;
     button_service->set_commands(entries);
     button_service->set_yoke("",{},log);
     reader.can_buttons().attach(&button_service->sink());
-    reader.can_buttons().enable(button_service->wants_can());
+    reader.can_buttons().enable(button_service->wants_buttons());
     last_button_model.clear();
 }
 // The connected yoke's model became known or changed: its button_aliases name its controls, and the commands are resolved through them.
@@ -620,10 +621,34 @@ void buttons_follow_model(const std::string& model) {
     if (!button_service || model.empty() || model==last_button_model) return;
     last_button_model=model;
     for (const auto& preset:yoke_presets) if (preset.name==model) {
-        button_service->set_yoke(preset.title,preset.button_aliases,{preset.button_read_method,preset.button_action_method},log);
-        reader.can_buttons().enable(button_service->wants_can());   // the registers are read only while this yoke's read method is CanBus
+        button_service->set_yoke(preset.title,preset.button_aliases,preset.button_action_method,log);
+        reader.can_buttons().enable(button_service->wants_buttons());   // the registers are read only while something uses the buttons
         return;
     }
+}
+// The aircraft's own button_commands (config/state/aircraft_state.hpp): Output/BrunnerDirect/aircraft/<acf name>.json, else <ICAO>.json, read
+// when X-Plane loads or changes the aircraft. Its entries override the owner's for this aircraft; no file means none (and clears the last
+// aircraft's).
+void load_aircraft_state() {
+    if (!button_service) return;
+    char system_path[1024]{};XPLMGetSystemPath(system_path);
+    const auto folder=std::filesystem::path(system_path)/"Output"/"BrunnerDirect"/brunner::aircraft_state_folder;
+    buttons::ButtonCommands::Entries entries;
+    std::string label;
+    for (const auto& name:brunner::aircraft_state_file_names(sim.aircraft_icao(),sim.aircraft_file())) {
+        std::ifstream in(folder/name,std::ios::binary);
+        if (!in) continue;
+        std::stringstream text;text<<in.rdbuf();
+        const auto shown=std::string(brunner::aircraft_state_folder)+"/"+name;
+        const auto read=brunner::read_aircraft_state(text.str(),shown.c_str());
+        for (const auto& note:read.notes) log(note);
+        for (const auto& entry:read.state.button_commands) entries[entry.first]=entry.second.commands;
+        label="aircraft "+name.substr(0,name.size()-5);   // without ".json"
+        log("Aircraft button commands: "+shown+" ("+std::to_string(entries.size())+" entries)");
+        break;
+    }
+    button_service->set_aircraft(label,entries,[](const std::string& line) {log(line);});
+    reader.can_buttons().enable(button_service->wants_buttons());
 }
 // Written atomically (temp file, then rename) into Output/BrunnerDirect. A failed save is logged and the
 // choice still holds for this run.
@@ -680,6 +705,8 @@ void load_yoke_presets() {
     const auto loaded=brunner::load_yoke_models(shipped,overrides);
     yoke_presets=loaded.presets;
     for (const auto& note:loaded.notes) log(note);
+    config_problems=loaded.skipped;   // a bad button mapping is skipped, never the file: say so on screen and in the log
+    for (const auto& problem:config_problems) log("Yoke config: "+problem);
     log(loaded.from_files?"Yoke models loaded from "+(plugin_folder/"yokes").string():std::string("Yoke models: built-in fallback in force"));
     if (loaded.overrides_applied) log("Yoke overrides applied from "+overrides_path.string());
     std::string names;
@@ -689,7 +716,7 @@ void load_yoke_presets() {
     load_owner_state();
     reader.set_allow_unverified(allow_unverified_yoke);
 }
-// The feel page's direction controls (brunner/yoke_overrides.hpp). A change is written to
+// The feel page's direction controls (config/yoke/yoke_overrides.hpp). A change is written to
 // BrunnerDirect.yokes.json first (atomically; a failed or refused write changes nothing in memory), then
 // made the model's preset for the next session and, if that model is the yoke now connected, its active
 // drive at once. An encoder sign applies while the spring is live, so the spring may kick once.
@@ -902,7 +929,7 @@ float update(float,float,int,void*) {
         || decision.status==brunner::usb_turning_on_text;
     // A feel notice shows for a few seconds when the yoke's own status line
     // has nothing to say: it never takes the place of a link lost or a fault.
-    startup_notice.set_visible((decision.show_notice && (show_status_line || must_show)) || corner_notice);
+    startup_notice.set_visible((decision.show_notice && (show_status_line || must_show)) || corner_notice || !config_problems.empty());
     if (decision.status!=last_status) {log(decision.status);last_status=decision.status;}
     refresh_menu(s);
     if (reset_pending && !s.loading_active && !s.reference_active) {
@@ -976,8 +1003,14 @@ brunner::ui::NoticeFrame notice_frame(int inner_width,const brunner::ui::TextWid
         || decision.status==brunner::usb_turning_on_text);
     const bool status_shown=decision.show_notice && (show_status_line || must_show);
     brunner::ui::NoticeFrame frame;
-    frame.visible=status_shown || corner_notice.has_value();
+    const bool config_problem=!config_problems.empty();
+    frame.visible=status_shown || corner_notice.has_value() || config_problem;
     if (!frame.visible) return frame;
+    // A yoke config problem stays until clicked, ahead of routine status; a warning or an offer that a click answers comes first.
+    if (config_problem && !must_show) {
+        frame.lines=wb::problem_lines(config_problems,inner_width,measure);
+        return frame;
+    }
     if (!status_shown) {
         // The workbench's notice, as the page shows it, in the window's two
         // lines, fitted by the font's own widths.
@@ -998,6 +1031,7 @@ void create_startup_notice() {
         [] {
             if (decision.retry_offered) recenter_handler(nullptr,xplm_CommandBegin,nullptr);
             else if (decision.usb_on_offered) usb_on_handler(nullptr,xplm_CommandBegin,nullptr);
+            else if (!config_problems.empty()) config_problems.clear();   // the click that dismisses a yoke config problem
         },
         [](const std::string& line) {log(line);}});
 }
@@ -1330,7 +1364,7 @@ PLUGIN_API int XPluginEnable() {
         log(flight_settings.debug_log?"Debug log: on (debug_log=1 in BrunnerDirect.ini); writing ffb-*.jsonl to "+output_folder.string()
                                      :"Debug log: off (debug_log=0 in BrunnerDirect.ini); no ffb-*.jsonl files are written");
         recorder.event("Plugin enabled; force settings preserved; HUD telemetry schema 1");
-        force_hud.show_hud();create_startup_notice();sim.identify_aircraft();sim.bind_surfaces();
+        force_hud.show_hud();create_startup_notice();sim.identify_aircraft();sim.bind_surfaces();load_aircraft_state();
         session_drag.reset();poll_profiles(brunner::Clock::now(),true);log_feel_events();
         XPLMCreateFlightLoop_t loop{sizeof(XPLMCreateFlightLoop_t),xplm_FlightLoop_Phase_AfterFlightModel,observe_completed_frame,nullptr};
         readiness_loop=XPLMCreateFlightLoop(&loop);
@@ -1341,7 +1375,7 @@ PLUGIN_API int XPluginEnable() {
         if (!flight_settings.auto_start) yoke.stop();
         reader.start();startup_readiness.reset();
         // The yoke's buttons: read and used as the connected yoke's preset says (buttons/service.hpp).
-        if (button_service) {reader.can_buttons().enable(button_service->wants_can());button_service->start([](const std::string& line) {log(line);});}
+        if (button_service) {reader.can_buttons().enable(button_service->wants_buttons());button_service->start([](const std::string& line) {log(line);});}
         simulator_ready_for_start=false;enabled=true;
         XPLMRegisterFlightLoopCallback(update,0.1f,nullptr);XPLMScheduleFlightLoop(readiness_loop,-1.0f,1);
         start_workbench();
@@ -1401,7 +1435,7 @@ PLUGIN_API void XPluginStop() {
 PLUGIN_API void XPluginReceiveMessage(XPLMPluginID,int message,void* parameter) {
     if (message==XPLM_MSG_PLANE_LOADED && reinterpret_cast<std::intptr_t>(parameter)==0) {
         diagnostic_trim.renew(0,false,brunner::Clock::now());
-        sim.release_axes();startup_readiness.reset();simulator_ready_for_start=false;sim.identify_aircraft();sim.bind_surfaces();
+        sim.release_axes();startup_readiness.reset();simulator_ready_for_start=false;sim.identify_aircraft();sim.bind_surfaces();load_aircraft_state();
         poll_profiles(brunner::Clock::now(),true);log_feel_events();
         reader.simulator_update(false,false,{});
     }

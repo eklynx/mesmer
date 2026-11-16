@@ -17,7 +17,7 @@
 // propwash), a missing side the right's or the airspeed's, level and unstalled.
 #include "force/elevator.hpp"
 #include "force/aileron.hpp"
-#include "json.hpp"
+#include "config/json.hpp"
 #include <cmath>
 #include <cstdint>
 #include <optional>

@@ -4,7 +4,7 @@
 // and prints the force mode (0x2101:01) of both controllers with the survey JSON.
 // Close X-Plane, CLS2Sim and Simux first: the open is exclusive.
 #include "brunner/reader.hpp"
-#include "brunner/yoke_preset.hpp"
+#include "config/yoke/yoke_preset.hpp"
 #include "hid/mac/hid_mac.hpp"
 #include <chrono>
 #include <iostream>

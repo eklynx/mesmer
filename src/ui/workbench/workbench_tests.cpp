@@ -1,7 +1,7 @@
 // The feel workbench: pure core, file formats, HTTP handling and a real
 // loopback round trip through the server. No hardware, no X-Plane.
 #include "ui/workbench/workbench_server.hpp"
-#include "config.hpp"
+#include "config/ini/config.hpp"
 #include "ui/workbench/demo_state.hpp"
 #include <algorithm>
 #include <clocale>
@@ -425,6 +425,13 @@ void figures_in_flight() {
             const auto wide=[](const std::string& t) {double w=0;for (const char c:t) w+=c=='W' || c=='m'?12:6;return w;};
             lines=corner_lines(std::string(100,'W'),width,wide);
             require(lines.size()==2 && wide(lines[0])<=width && wide(lines[1])<=width && lines[1].compare(lines[1].size()-3,3,"...")==0,"a word wider than the window breaks");
+            // A yoke config problem: its first line, cut to one, and a hint that counts the rest.
+            require(problem_lines({},width,em).empty(),"no problems, no lines");
+            lines=problem_lines({"button_aliases.nope is not a button name; skipped"},width,em);
+            require(lines.size()==2 && lines[0]=="Yoke config: button_aliases.nope is not a button name; skipped"
+                && lines[1]=="Details in Log.txt. Click to dismiss","one problem: its line and the hint");
+            lines=problem_lines({std::string(200,'x'),"two","three"},width,em);
+            require(lines.size()==2 && em(lines[0])<=width && lines[0].compare(lines[0].size()-3,3,"...")==0 && lines[1]=="+2 more in Log.txt. Click to dismiss","a long first problem is cut to one line, the rest are counted");
         }
     }
     {

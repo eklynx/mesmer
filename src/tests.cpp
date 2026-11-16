@@ -1,7 +1,7 @@
 #include "brunner/core.hpp"
 #include "brunner/reference.hpp"
 #include "brunner/loading.hpp"
-#include "config.hpp"
+#include "config/ini/config.hpp"
 #include "lab.hpp"
 #include "force/buffet.hpp"
 #include "force/slew.hpp"

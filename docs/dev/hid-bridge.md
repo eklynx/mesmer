@@ -40,9 +40,7 @@ To support another model, add a preset naming its bridge (in
 verified/acknowledged rule keep a different device from being driven without
 the owner's say-so.
 
-The yoke's separate *joystick* interface (usage page `0x01`, usage `0x04`) is not the bridge and is
-never selected by `select_bridge`. Mesmer only observes it, shared and read-only; see
-[button-commands.md](button-commands.md). The yoke's buttons are also one of the registers read over the bridge: the registers its preset names (node 2's `0x60fd`, or the NG's `0x2880`), in the sampling cycle, when the yoke's `button_read_method` is `CanBus`.
+The yoke's buttons are also read over the bridge: the registers its preset names (node 2's `0x60fd`, or the NG's `0x2880`), in the sampling cycle ([button-commands.md](button-commands.md)).
 
 ## Selecting among several
 

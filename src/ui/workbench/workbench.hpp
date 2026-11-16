@@ -4,10 +4,10 @@
 // two-minute history, the file formats, a small strict JSON reader and writer,
 // HTTP/1.1 parsing and the peer and Host checks. No sockets, no X-Plane SDK:
 // the sim thread and the server thread share one Workbench through its mutex.
-#include "brunner/yoke_overrides.hpp"
+#include "config/yoke/yoke_overrides.hpp"
 #include "force/flight.hpp"
-#include "json.hpp"
-#include "force/profiles.hpp"
+#include "config/json.hpp"
+#include "config/aircraft/profiles.hpp"
 #include <algorithm>
 #include <array>
 #include <charconv>
@@ -367,7 +367,7 @@ struct Live {
 // motors on. Not part of the kept feel: each X-Plane start takes it from the
 // feel settings file, where it is off unless the owner turns it on there.
 struct BuffetView {bool on=false;int percent=10,period=80;};
-// The active yoke's four direction fields as the page shows them (brunner/yoke_overrides.hpp says what
+// The active yoke's four direction fields as the page shows them (config/yoke/yoke_overrides.hpp says what
 // each means). `editable` is false when no preset names the yoke; `note` is why the last change failed.
 struct DirectionView {
     bool editable=false;std::string model;
@@ -547,6 +547,17 @@ inline std::vector<std::string> corner_lines(const std::string& text,double widt
         while (!last.empty() && last.back()==' ') last.pop_back();
         last+="...";
     }
+    return lines;
+}
+// The corner window's two lines for a yoke config problem (a button mapping that was skipped): the first problem, cut to one line, and
+// a hint saying how many more there are and that a click dismisses it. Nothing for no problems.
+inline std::vector<std::string> problem_lines(const std::vector<std::string>& problems,double width,const std::function<double(const std::string&)>& measure) {
+    std::vector<std::string> lines;
+    if (problems.empty()) return lines;
+    lines=corner_lines("Yoke config: "+problems.front(),width,measure,1);
+    const std::string hint=problems.size()>1?"+"+std::to_string(problems.size()-1)+" more in Log.txt. Click to dismiss":"Details in Log.txt. Click to dismiss";
+    const auto second=corner_lines(hint,width,measure,1);
+    lines.insert(lines.end(),second.begin(),second.end());
     return lines;
 }
 // Where a profile takes the tail's or the ailerons' air from, in words.

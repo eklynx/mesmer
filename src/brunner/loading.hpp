@@ -240,7 +240,7 @@ template<class Transport> void write_spring(Transport& bridge,unsigned node,std:
     }
     checked_loading_write(bridge,node,{force_scale,scale,0},stop);
 }
-// The model's resting settings (brunner/yoke_preset.hpp RestSettings): what a yoke is left at between
+// The model's resting settings (config/yoke/yoke_preset.hpp RestSettings): what a yoke is left at between
 // sessions, so it is left as it was found. The CLS-E's are the plugin's historical constants.
 inline PitchSetup rest_setup() {
     const auto& r=active_drive().rest;

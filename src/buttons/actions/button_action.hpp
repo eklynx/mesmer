@@ -1,4 +1,4 @@
-// SOURCE OF TRUTH for what the plugin does with the yoke's buttons once a read method has delivered them. Specification:
+// SOURCE OF TRUTH for what the plugin does with the yoke's buttons once the reader has delivered them. Specification:
 // docs/dev/button-commands.md. Portable; implementations: direct_action.hpp (X-Plane commands), vjoy_action.hpp (a virtual joystick).
 //
 // An action works from the ButtonHub (buttons/hub.hpp): update() is called once per flight-loop frame on X-Plane's thread and

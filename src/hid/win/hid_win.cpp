@@ -1,6 +1,6 @@
 // Windows implementation of open_bridge() / HidDevice. Contract: hid/hid_device.hpp.
-// The exclusive open and overlapped transfers are moved unchanged
-// from reader_win.cpp; the enumeration is hid/win/hid_common_win.hpp's (shared with the joystick reader), and matching is decided by
+// The enumeration, exclusive open and overlapped transfers are moved unchanged
+// from reader_win.cpp; the only difference is that matching is decided by
 // select_bridge over the ids in hid/usb_ids.hpp.
 #define WIN32_LEAN_AND_MEAN
 #define NOMINMAX
@@ -13,13 +13,22 @@ extern "C" {
 }
 #include "hid/hid_device.hpp"
 #include "hid/usb_ids.hpp"
-#include "hid/win/hid_common_win.hpp"
 #include <string>
 #include <vector>
 
 namespace brunner {
 namespace {
-using win::Handle;
+struct Handle {
+    HANDLE value=INVALID_HANDLE_VALUE;
+    explicit Handle(HANDLE h=INVALID_HANDLE_VALUE):value(h) {}
+    ~Handle() { if (value!=INVALID_HANDLE_VALUE && value!=nullptr) CloseHandle(value); }
+    Handle(const Handle&)=delete;
+    Handle& operator=(const Handle&)=delete;
+};
+struct DeviceList {
+    HDEVINFO value;
+    ~DeviceList() { SetupDiDestroyDeviceInfoList(value); }
+};
 // Fills `out` from an open handle; false when it is neither a listed id nor of a listed unknown-model
 // vendor, or cannot be read.
 bool describe(HANDLE h,HidCandidate& out,const std::vector<UsbId>& ids,const std::vector<std::uint16_t>& unknown_vendors) {
@@ -38,15 +47,31 @@ bool describe(HANDLE h,HidCandidate& out,const std::vector<UsbId>& ids,const std
     return true;
 }
 std::wstring find_bridge(const std::vector<UsbId>& ids,const std::vector<std::uint16_t>& unknown_vendors) {
+    GUID guid; HidD_GetHidGuid(&guid);
+    DeviceList list{SetupDiGetClassDevsW(&guid,nullptr,nullptr,DIGCF_PRESENT|DIGCF_DEVICEINTERFACE)};
+    if (list.value==INVALID_HANDLE_VALUE) throw std::runtime_error("Cannot enumerate HID devices");
     std::vector<HidCandidate> candidates;
     std::vector<std::wstring> paths;
-    win::for_each_hid_interface([&](const std::wstring& path,HANDLE h) {
-        HidCandidate described;
-        if (describe(h,described,ids,unknown_vendors)) {
-            candidates.push_back(described);
-            paths.push_back(path);
+    for (DWORD i=0;;++i) {
+        SP_DEVICE_INTERFACE_DATA entry{}; entry.cbSize=sizeof(entry);
+        if (!SetupDiEnumDeviceInterfaces(list.value,nullptr,&guid,i,&entry)) {
+            if (GetLastError()!=ERROR_NO_MORE_ITEMS) throw std::runtime_error("HID enumeration failed");
+            break;
         }
-    });
+        DWORD bytes=0;
+        SetupDiGetDeviceInterfaceDetailW(list.value,&entry,nullptr,0,&bytes,nullptr);
+        if (!bytes) continue;
+        std::vector<std::uint8_t> buffer(bytes);
+        auto* detail=reinterpret_cast<SP_DEVICE_INTERFACE_DETAIL_DATA_W*>(buffer.data());
+        detail->cbSize=sizeof(SP_DEVICE_INTERFACE_DETAIL_DATA_W);
+        if (!SetupDiGetDeviceInterfaceDetailW(list.value,&entry,detail,bytes,nullptr,nullptr)) continue;
+        Handle candidate(CreateFileW(detail->DevicePath,0,FILE_SHARE_READ|FILE_SHARE_WRITE,nullptr,OPEN_EXISTING,0,nullptr));
+        HidCandidate described;
+        if (candidate.value!=INVALID_HANDLE_VALUE && describe(candidate.value,described,ids,unknown_vendors)) {
+            candidates.push_back(described);
+            paths.emplace_back(detail->DevicePath);
+        }
+    }
     return paths[select_bridge(candidates,ids,unknown_vendors)];
 }
 class WinHidDevice final : public HidDevice {

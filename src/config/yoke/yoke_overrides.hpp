@@ -1,5 +1,5 @@
 // SOURCE OF TRUTH for editing one direction field of BrunnerDirect.yokes.json (the user's presets
-// file, brunner/yoke_preset.hpp) from the feel page. Pure: text in, text out; the plugin reads and
+// file, config/yoke/yoke_preset.hpp) from the feel page. Pure: text in, text out; the plugin reads and
 // writes the file. Spec: docs/dev/yoke-presets.md ("Changing directions from the feel page").
 //
 // The six fields: roll_encoder_sign, pitch_encoder_sign (+1 or -1: the model's counts are sign x the
@@ -7,8 +7,9 @@
 // frame is sign x the encoder, which decides how the writes are mirrored) and roll_input_reverse,
 // pitch_input_reverse (true or false: the axis X-Plane reads).
 #pragma once
-#include "brunner/yoke_preset.hpp"
-#include "json.hpp"
+#include "config/yoke/yoke_errors.hpp"
+#include "config/yoke/yoke_preset.hpp"
+#include "config/json.hpp"
 #include <string>
 #include <vector>
 
@@ -41,7 +42,7 @@ struct OverridesPatch {
 // result load_yoke_models refuses. The caller keeps the old file in every error case.
 inline OverridesPatch patch_direction(const std::string& overrides,const std::vector<std::string>& shipped,
                                       const std::string& model,const DirectionChange& change) {
-    if (!valid_direction(change)) return {"","direction value out of range"};
+    if (!valid_direction(change)) return {"",yoke_errors::direction_out_of_range};
     Json file;
     if (overrides.find_first_not_of(" \t\r\n")==std::string::npos) {
         file.kind=Json::Kind::object;
@@ -49,11 +50,11 @@ inline OverridesPatch patch_direction(const std::string& overrides,const std::ve
         Json yokes;yokes.kind=Json::Kind::array;
         file.members={{"schema",schema},{"yokes",yokes}};
     } else {
-        try {file=parse_json(overrides);} catch (const JsonError& e) {return {"",std::string("the presets file is not valid JSON: ")+e.what()};}
+        try {file=parse_json(overrides);} catch (const JsonError& e) {return {"",yoke_errors::presets_file_not_json(e.what())};}
     }
     Json* list=nullptr;
     if (file.kind==Json::Kind::object) for (auto& m:file.members) if (m.first=="yokes") list=&m.second;
-    if (!list || list->kind!=Json::Kind::array) return {"","the presets file has no \"yokes\" list"};
+    if (!list || list->kind!=Json::Kind::array) return {"",yoke_errors::presets_file_has_no_yokes_list};
     Json* entry=nullptr;
     for (auto& item:list->items) {
         const auto* name=item.kind==Json::Kind::object?item.get("name"):nullptr;
@@ -78,11 +79,11 @@ inline OverridesPatch patch_direction(const std::string& overrides,const std::ve
     if (!loaded.overrides_applied) {
         std::string why;
         for (const auto& n:loaded.notes) why+=(why.empty()?"":"; ")+n;
-        return {"",why.empty()?"the presets file was refused":why};
+        return {"",why.empty()?std::string(yoke_errors::presets_file_refused):why};
     }
     bool known=false;
     for (const auto& p:loaded.presets) known=known || p.name==model;
-    if (!known) return {"","no yoke model named "+model};
+    if (!known) return {"",yoke_errors::no_model_named(model)};
     return {std::move(text),""};
 }
 }

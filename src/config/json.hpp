@@ -1,5 +1,6 @@
 #pragma once
 // A strict JSON reader (request bodies, the profiles file) and a small writer.
+#include "config/json_errors.hpp"
 #include <charconv>
 #include <cmath>
 #include <cstdint>
@@ -30,7 +31,7 @@ class JsonReader {
     [[noreturn]] void fail(const char* why) const {throw JsonError(why);}
     void space() {while (i_<s_.size() && (s_[i_]==' ' || s_[i_]=='\t' || s_[i_]=='\n' || s_[i_]=='\r')) ++i_;}
     bool take(char c) {space();if (i_<s_.size() && s_[i_]==c) {++i_;return true;}return false;}
-    void literal(std::string_view word) {if (s_.substr(i_,word.size())!=word) fail("invalid literal");i_+=word.size();}
+    void literal(std::string_view word) {if (s_.substr(i_,word.size())!=word) fail(json_errors::invalid_literal);i_+=word.size();}
     static void utf8(std::string& out,std::uint32_t c) {
         if (c<0x80) out+=char(c);
         else if (c<0x800) {out+=char(0xc0|(c>>6));out+=char(0x80|(c&0x3f));}
@@ -38,60 +39,60 @@ class JsonReader {
         else {out+=char(0xf0|(c>>18));out+=char(0x80|((c>>12)&0x3f));out+=char(0x80|((c>>6)&0x3f));out+=char(0x80|(c&0x3f));}
     }
     std::uint32_t hex4() {
-        if (i_+4>s_.size()) fail("short escape");
+        if (i_+4>s_.size()) fail(json_errors::short_escape);
         std::uint32_t v=0;
         for (int k=0;k<4;++k) {
             const char c=s_[i_++];v<<=4;
             if (c>='0' && c<='9') v|=std::uint32_t(c-'0');
             else if (c>='a' && c<='f') v|=std::uint32_t(c-'a'+10);
             else if (c>='A' && c<='F') v|=std::uint32_t(c-'A'+10);
-            else fail("bad escape");
+            else fail(json_errors::bad_escape);
         }
         return v;
     }
     std::string string() {
-        if (!take('"')) fail("expected string");
+        if (!take('"')) fail(json_errors::expected_string);
         std::string out;
         for (;;) {
-            if (i_>=s_.size()) fail("unterminated string");
+            if (i_>=s_.size()) fail(json_errors::unterminated_string);
             const auto c=static_cast<unsigned char>(s_[i_++]);
             if (c=='"') return out;
-            if (c<0x20) fail("control character in string");
+            if (c<0x20) fail(json_errors::control_character_in_string);
             if (c!='\\') {
                 // Validate UTF-8 as it passes.
                 const int extra=c<0x80?0:(c>>5)==0x6?1:(c>>4)==0xe?2:(c>>3)==0x1e?3:-1;
-                if (extra<0 || (c&0xfe)==0xc0 || i_+extra>s_.size()) fail("invalid UTF-8");
+                if (extra<0 || (c&0xfe)==0xc0 || i_+extra>s_.size()) fail(json_errors::invalid_utf8);
                 out+=char(c);
                 for (int k=0;k<extra;++k) {
                     const auto d=static_cast<unsigned char>(s_[i_++]);
-                    if ((d&0xc0)!=0x80) fail("invalid UTF-8");
+                    if ((d&0xc0)!=0x80) fail(json_errors::invalid_utf8);
                     out+=char(d);
                 }
                 continue;
             }
-            if (i_>=s_.size()) fail("unterminated escape");
+            if (i_>=s_.size()) fail(json_errors::unterminated_escape);
             switch (s_[i_++]) {
             case '"':out+='"';break;case '\\':out+='\\';break;case '/':out+='/';break;
             case 'b':out+='\b';break;case 'f':out+='\f';break;case 'n':out+='\n';break;case 'r':out+='\r';break;case 't':out+='\t';break;
             case 'u': {
                 auto c1=hex4();
-                if (c1>=0xdc00 && c1<=0xdfff) fail("lone surrogate");
+                if (c1>=0xdc00 && c1<=0xdfff) fail(json_errors::lone_surrogate);
                 if (c1>=0xd800 && c1<=0xdbff) {
-                    if (i_+2>s_.size() || s_[i_]!='\\' || s_[i_+1]!='u') fail("lone surrogate");
+                    if (i_+2>s_.size() || s_[i_]!='\\' || s_[i_+1]!='u') fail(json_errors::lone_surrogate);
                     i_+=2;const auto c2=hex4();
-                    if (c2<0xdc00 || c2>0xdfff) fail("lone surrogate");
+                    if (c2<0xdc00 || c2>0xdfff) fail(json_errors::lone_surrogate);
                     c1=0x10000+((c1-0xd800)<<10)+(c2-0xdc00);
                 }
                 utf8(out,c1);break;
             }
-            default:fail("bad escape");
+            default:fail(json_errors::bad_escape);
             }
         }
     }
     Json value(int depth) {
-        if (depth>8) fail("too deep");
+        if (depth>8) fail(json_errors::too_deep);
         space();
-        if (i_>=s_.size()) fail("unexpected end");
+        if (i_>=s_.size()) fail(json_errors::unexpected_end);
         Json j;
         const char c=s_[i_];
         if (c=='{') {
@@ -99,18 +100,18 @@ class JsonReader {
             if (take('}')) return j;
             do {
                 space();auto key=string();
-                if (j.get(key)) fail("duplicate key");
-                if (!take(':')) fail("expected colon");
+                if (j.get(key)) fail(json_errors::duplicate_key);
+                if (!take(':')) fail(json_errors::expected_colon);
                 j.members.emplace_back(std::move(key),value(depth+1));
             } while (take(','));
-            if (!take('}')) fail("expected }");
+            if (!take('}')) fail(json_errors::expected_close_brace);
             return j;
         }
         if (c=='[') {
             ++i_;j.kind=Json::Kind::array;
             if (take(']')) return j;
             do j.items.push_back(value(depth+1)); while (take(','));
-            if (!take(']')) fail("expected ]");
+            if (!take(']')) fail(json_errors::expected_close_bracket);
             return j;
         }
         if (c=='"') {j.kind=Json::Kind::string;j.text=string();return j;}
@@ -119,35 +120,35 @@ class JsonReader {
         if (c=='n') {literal("null");return j;}
         const auto start=i_;
         if (s_[i_]=='-') ++i_;
-        if (i_>=s_.size() || s_[i_]<'0' || s_[i_]>'9') fail("invalid value");
-        if (s_[i_]=='0' && i_+1<s_.size() && s_[i_+1]>='0' && s_[i_+1]<='9') fail("leading zero");
+        if (i_>=s_.size() || s_[i_]<'0' || s_[i_]>'9') fail(json_errors::invalid_value);
+        if (s_[i_]=='0' && i_+1<s_.size() && s_[i_+1]>='0' && s_[i_+1]<='9') fail(json_errors::leading_zero);
         while (i_<s_.size() && s_[i_]>='0' && s_[i_]<='9') ++i_;
         bool real=false;
         if (i_<s_.size() && s_[i_]=='.') {
             real=true;++i_;
-            if (i_>=s_.size() || s_[i_]<'0' || s_[i_]>'9') fail("invalid number");
+            if (i_>=s_.size() || s_[i_]<'0' || s_[i_]>'9') fail(json_errors::invalid_number);
             while (i_<s_.size() && s_[i_]>='0' && s_[i_]<='9') ++i_;
         }
         if (i_<s_.size() && (s_[i_]=='e' || s_[i_]=='E')) {
             real=true;++i_;
             if (i_<s_.size() && (s_[i_]=='+' || s_[i_]=='-')) ++i_;
-            if (i_>=s_.size() || s_[i_]<'0' || s_[i_]>'9') fail("invalid number");
+            if (i_>=s_.size() || s_[i_]<'0' || s_[i_]>'9') fail(json_errors::invalid_number);
             while (i_<s_.size() && s_[i_]>='0' && s_[i_]<='9') ++i_;
         }
         const auto token=s_.substr(start,i_-start);
         if (real) {
             // Whatever the process's locale (X-Plane's may use a decimal comma).
             std::istringstream in{std::string(token)};in.imbue(std::locale::classic());
-            if (!(in>>j.real) || !std::isfinite(j.real)) fail("number out of range");
+            if (!(in>>j.real) || !std::isfinite(j.real)) fail(json_errors::number_out_of_range);
             j.kind=Json::Kind::real;return j;
         }
         const auto parsed=std::from_chars(token.data(),token.data()+token.size(),j.integer);
-        if (parsed.ec!=std::errc{}) fail("integer out of range");
+        if (parsed.ec!=std::errc{}) fail(json_errors::integer_out_of_range);
         j.kind=Json::Kind::integer;return j;
     }
 public:
     explicit JsonReader(std::string_view text):s_(text) {}
-    Json parse() {auto v=value(0);space();if (i_!=s_.size()) fail("trailing characters");return v;}
+    Json parse() {auto v=value(0);space();if (i_!=s_.size()) fail(json_errors::trailing_characters);return v;}
 };
 inline Json parse_json(std::string_view text) {return JsonReader(text).parse();}
 

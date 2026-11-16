@@ -7,7 +7,7 @@
 // Happy path: update() once per frame takes the ButtonHub's level (vjoy_word: bit n-1 for virtual joystick button n, a control's
 // number being its CAN slot, else 17 up) and gives it to the feeder: it takes the device when it can, lets every button up,
 // then presses and lets up the buttons as the word changes (only changes are sent). Every change and every refusal reaches `log`.
-// All buttons are up whenever nothing is known (no link, a read method's source gone, or CanBus readings older than 250 ms).
+// All buttons are up whenever nothing is known (no link, or readings older than 250 ms).
 //
 // Error cases (none thrown): no driver, the driver switched off, no buttons on device 1, or another program holding it: said
 // once ("Yoke buttons off: <why>; trying again every 5 seconds") and tried again every 5 seconds. A button the driver refuses

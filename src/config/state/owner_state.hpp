@@ -22,8 +22,10 @@
 // as read (buttons/commands.hpp judges them, so a save never erases an entry this version does not understand, and
 // it writes back the form that was read: a string stays a string, a list stays a list).
 #pragma once
+#include "config/state/button_commands.hpp"
+#include "config/state/state_errors.hpp"
 #include "brunner/core.hpp"
-#include "json.hpp"
+#include "config/json.hpp"
 #include <map>
 #include <optional>
 #include <string>
@@ -33,13 +35,6 @@
 namespace brunner {
 inline constexpr char state_file[]="BrunnerDirect.state.json";
 inline constexpr int owner_state_version=1;
-// One "button_commands" value as the owner wrote it: null, one command string, or a list of command strings. The form
-// is kept so that a save writes back what was read ("a" stays "a", ["a"] stays ["a"], null stays null).
-struct ButtonEntry {
-    enum class Form { none, single, list } form = Form::none;
-    std::vector<std::string> commands;   // empty for none, one for single, any number for list (items kept as written)
-    bool operator==(const ButtonEntry& o) const { return form == o.form && commands == o.commands; }
-};
 struct OwnerState {
     bool allow_unverified_yoke=false;
     std::optional<bool> auto_start;     // startup override of BrunnerDirect.ini's auto_start (hand-edited)
@@ -86,48 +81,32 @@ inline std::string serialize_owner_state(const OwnerState& s) {
 }
 inline OwnerStateRead read_owner_state(std::string_view text) {
     OwnerStateRead out;
-    const auto whole=[&](const std::string& why) {out=OwnerStateRead{};out.notes.push_back(std::string(state_file)+" ignored: "+why);return out;};
+    const auto whole=[&](const std::string& why) {out=OwnerStateRead{};out.notes.push_back(state_errors::ignored_whole(state_file,why));return out;};
     try {
         const auto root=parse_json(text);
-        if (root.kind!=Json::Kind::object) return whole("it is not a JSON object");
+        if (root.kind!=Json::Kind::object) return whole(state_errors::not_a_json_object);
         const auto* version=root.get("version");
-        if (!version || version->kind!=Json::Kind::integer || version->integer!=owner_state_version) return whole("it needs \"version\":1");
+        if (!version || version->kind!=Json::Kind::integer || version->integer!=owner_state_version) return whole(state_errors::needs_version);
         for (const auto& m:root.members) {
             const auto& key=m.first;
             if (key=="version") continue;
             const bool known=key=="allow_unverified_yoke" || key=="auto_start" || key=="force_feel" || key=="button_commands" || key=="reply_tolerance_ms";
-            if (!known) {out.notes.push_back(std::string(state_file)+": unknown key \""+key+"\" ignored");continue;}
+            if (!known) {out.notes.push_back(state_errors::unknown_key(state_file,key));continue;}
             if (key=="reply_tolerance_ms") {
                 if (m.second.kind!=Json::Kind::integer || m.second.integer<0 || m.second.integer>max_reply_tolerance_ms) {
-                    out.notes.push_back(std::string(state_file)+": reply_tolerance_ms must be a whole number from 0 to "+std::to_string(max_reply_tolerance_ms)+"; ignored ("+std::to_string(default_reply_tolerance_ms)+" is used)");
+                    out.notes.push_back(state_errors::reply_tolerance_range(state_file,max_reply_tolerance_ms,default_reply_tolerance_ms));
                     continue;
                 }
                 out.state.reply_tolerance_ms=static_cast<int>(m.second.integer);
                 continue;
             }
-            if (key=="button_commands") {
-                if (m.second.kind!=Json::Kind::object) {out.notes.push_back(std::string(state_file)+": button_commands must be an object; ignored");continue;}
-                for (const auto& entry:m.second.members) {
-                    ButtonEntry value;
-                    if (entry.second.kind==Json::Kind::null) {}
-                    else if (entry.second.kind==Json::Kind::string) {value.form=ButtonEntry::Form::single;value.commands.push_back(entry.second.text);}
-                    else if (entry.second.kind==Json::Kind::array) {
-                        value.form=ButtonEntry::Form::list;
-                        for (const auto& item:entry.second.items) {
-                            if (item.kind==Json::Kind::string) value.commands.push_back(item.text);
-                            else out.notes.push_back(std::string(state_file)+": button_commands."+entry.first+" has a list item that is not a command name; that item ignored");
-                        }
-                    } else {out.notes.push_back(std::string(state_file)+": button_commands."+entry.first+" must be a command name, a list of them, or null; ignored");continue;}
-                    out.state.button_commands[entry.first]=std::move(value);
-                }
-                continue;
-            }
-            if (m.second.kind!=Json::Kind::boolean) {out.notes.push_back(std::string(state_file)+": "+key+" must be true or false; ignored");continue;}
+            if (key=="button_commands") {read_button_commands(m.second,state_file,out.state.button_commands,out.notes);continue;}
+            if (m.second.kind!=Json::Kind::boolean) {out.notes.push_back(state_errors::not_a_boolean(state_file,key));continue;}
             if (key=="allow_unverified_yoke") out.state.allow_unverified_yoke=m.second.boolean;
             else if (key=="auto_start") out.state.auto_start=m.second.boolean;
             else out.state.force_feel=m.second.boolean;
         }
-    } catch (const std::exception&) {return whole("it is not valid JSON");}
+    } catch (const std::exception&) {return whole(state_errors::not_valid_json);}
     return out;
 }
 // Just the state (the notes dropped).

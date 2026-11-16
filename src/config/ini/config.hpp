@@ -1,4 +1,5 @@
 #pragma once
+#include "config/ini/ini_errors.hpp"
 #include "buttons/methods.hpp"
 #include "force/flight.hpp"
 #include <algorithm>
@@ -37,18 +38,18 @@ inline Configuration parse_configuration(std::istream& input) {
         line=config_trim(line);
         if (line.empty() || line.front()=='#') continue;
         const auto equals=line.find('=');
-        if (equals==std::string::npos) throw std::invalid_argument("Malformed Brunner configuration line");
+        if (equals==std::string::npos) throw std::invalid_argument(ini_errors::malformed_line);
         const auto key=config_trim(line.substr(0,equals)),value=config_trim(line.substr(equals+1));
-        if (values.count(key)) throw std::invalid_argument("Duplicate Brunner configuration key: "+key);
+        if (values.count(key)) throw std::invalid_argument(ini_errors::duplicate_key(key));
         int number=0;
         const auto parsed=std::from_chars(value.data(),value.data()+value.size(),number);
-        if (parsed.ec!=std::errc{} || parsed.ptr!=value.data()+value.size()) throw std::invalid_argument("Invalid integer for "+key);
+        if (parsed.ec!=std::errc{} || parsed.ptr!=value.data()+value.size()) throw std::invalid_argument(ini_errors::invalid_integer(key));
         values[key]=number;
     }
-    if (input.bad()) throw std::invalid_argument("Incomplete Brunner configuration");
+    if (input.bad()) throw std::invalid_argument(ini_errors::incomplete);
     const auto schema=values.find("schema_version");
-    if (schema==values.end()) throw std::invalid_argument("Incomplete Brunner configuration");
-    if (schema->second<2 || schema->second>6) throw std::invalid_argument("Unsupported Brunner configuration schema");
+    if (schema==values.end()) throw std::invalid_argument(ini_errors::incomplete);
+    if (schema->second<2 || schema->second>6) throw std::invalid_argument(ini_errors::unsupported_schema);
     const int version=schema->second;
     // Required keys first, then optional ones with their defaults.
     std::vector<std::string> required{"schema_version","pitch_trim_counts","auto_start","reference_airspeed_knots"},
@@ -69,11 +70,11 @@ inline Configuration parse_configuration(std::istream& input) {
     for (const auto& entry:values) {
         if (listed(required,entry.first) || listed(optional,entry.first)) continue;
         if (listed(retired,entry.first)) {result.retired.push_back(entry.first);continue;}
-        throw std::invalid_argument("Unknown Brunner configuration key: "+entry.first);
+        throw std::invalid_argument(ini_errors::unknown_key(entry.first));
     }
-    for (const auto& key:required) if (!values.count(key)) throw std::invalid_argument("Incomplete Brunner configuration");
+    for (const auto& key:required) if (!values.count(key)) throw std::invalid_argument(ini_errors::incomplete);
     const auto set=[&](const char* key,TuningField field) {
-        if (!set_tuning(result.tuning,field,values.at(key))) throw std::invalid_argument(std::string("Brunner configuration outside commissioning bounds: ")+key);
+        if (!set_tuning(result.tuning,field,values.at(key))) throw std::invalid_argument(ini_errors::outside_commissioning_bounds(key));
     };
     set("pitch_trim_counts",TuningField::pitch_trim);
     const auto value=[&](const char* key,int fallback) {const auto found=values.find(key);return found==values.end()?fallback:found->second;};
@@ -90,9 +91,9 @@ inline Configuration parse_configuration(std::istream& input) {
     if (version>=3) {
         result.workbench_port=values.at("workbench_port");
         if (result.workbench_port!=0 && (result.workbench_port<1024 || result.workbench_port>65535))
-            throw std::invalid_argument("Brunner workbench_port must be 0 or 1024-65535");
+            throw std::invalid_argument(ini_errors::workbench_port_range);
     }
-    if (!valid_flight_settings(result.flight)) throw std::invalid_argument("Flight defaults outside validated bounds");
+    if (!valid_flight_settings(result.flight)) throw std::invalid_argument(ini_errors::flight_defaults_out_of_bounds);
     return result;
 }
 }

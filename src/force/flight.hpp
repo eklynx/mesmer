@@ -8,7 +8,7 @@
 namespace brunner {
 // Startup defaults (BrunnerDirect.ini) and the workbench's settings. Pitch is
 // the elevator model and roll the aileron model on every aircraft (decisions
-// 6 and 15), their figures the aircraft's profile (force/profiles.hpp); the knobs
+// 6 and 15), their figures the aircraft's profile (config/aircraft/profiles.hpp); the knobs
 // here are the drive's. Roll's airflow spring and plain spring are retired.
 struct FlightSettings {
     int auto_start=0; // fail closed without explicit operator-managed startup defaults

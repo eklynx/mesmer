@@ -6,12 +6,10 @@ plugin reads them and does one of two things with them, depending on your yoke:
 | Action | What happens | Where |
 |---|---|---|
 | **vJoy** | The plugin presses the matching buttons of a virtual joystick, vJoy device 1. X-Plane lists it in its Joystick screen as `vJoy - Virtual Joystick`, and you bind its buttons like any other controller's. | the original CLS-E, on Windows |
-| **Direct** | The plugin runs the X-Plane commands you name in `button_commands`, no binding in X-Plane needed: [Button commands](dev/advanced-configuration.md#button-commands). | the CLS-E NG, and any yoke on a system with no virtual joystick |
+| **Direct** | The plugin runs the X-Plane commands you name in `button_commands`, no binding in X-Plane needed: [Commands on the yoke buttons](#commands-on-the-yoke-buttons), and [different ones for one aircraft](configuration.md#aircraftidjson). | the CLS-E NG, and any yoke on a system with no virtual joystick |
 
-Each yoke model says how its buttons are read and which action it uses ([yoke presets](dev/yoke-presets.md)); both the original CLS-E
-and the NG are read over the yoke's own bridge. There is nothing to set. See
-[Button read and action methods](dev/advanced-configuration.md#button-read-and-action-methods), which also says what each
-combination needs.
+Each yoke model's preset says which action it uses ([yoke presets](dev/yoke-presets.md)); there is nothing to set. See
+[The button action](dev/advanced-configuration.md#the-button-action), which also says what each needs.
 
 **vJoy is a Windows driver**, so it only works there for now; elsewhere the CLS-E's buttons use `Direct` too and `Log.txt` says so. Pitch, roll and
 force feel are not affected by any of this. The buttons work while X-Plane runs with the plugin, and all of them release whenever the
@@ -41,15 +39,10 @@ link to the yoke drops.
 Without vJoy the yoke flies exactly as before. Only the buttons are missing,
 and Log.txt says why: see [troubleshooting](troubleshooting.md#the-yokes-buttons-dont-reach-x-plane).
 
-**If buttons seem to press themselves.** Buttons or the hat that fire at random, with nobody touching the yoke, come from the yoke's
-firmware, not from the plugin or X-Plane: update the yoke's firmware (the CLS-E NG's older firmware could send false button
-reports; the newest does not). A yoke on firmware the plugin has not verified runs read-only until you allow it, see
-[Troubleshooting](troubleshooting.md#buttons-are-pressed-by-themselves).
-
 ## Which button is which
 
-**With `CanBus`, and on the vJoy joystick.** On the original CLS-E, the one yoke tested so far, the plugin presses vJoy button *n* for
-the yoke's button in slot *n*. The same numbers are the names `can_button_n` for `button_commands`:
+**On the vJoy joystick.** On the original CLS-E, the one yoke tested so far, the plugin presses vJoy button *n* for the yoke's button in
+slot *n*. The same numbers are the names `button_n` for `button_commands`:
 
 | Control | vJoy button |
 |---|---|
@@ -68,9 +61,8 @@ the yoke's button in slot *n*. The same numbers are the names `can_button_n` for
 **The hat.** The original CLS-E has no hat switch. The CLS-E NG has one, and a CLS-E MK2 is reported to as well (Mesmer has no preset for the MK2 yet).
 
 **The NG** has one grip, whose first five controls are the CLS-E's left grip slots (checked on an NG's own register, 2026-11-16): trigger
-1, top left 2, top right 3, rocker down 4, rocker up 5, the same vJoy numbers whichever way the buttons are read. Its hat push (6) and its
-hat are **not in that register** but in the NG's own button record, which Mesmer reads for the NG, so they are read
-over the bridge like the rest. The hat push is vJoy button 6 and the hat's eight directions are vJoy buttons 17 to 24 (up
+1, top left 2, top right 3, rocker down 4, rocker up 5, the same vJoy numbers. Its hat push (6) and its hat are in the NG's own button
+record, which Mesmer reads for the NG. The hat push is vJoy button 6 and the hat's eight directions are vJoy buttons 17 to 24 (up
 first, then clockwise).
 
 **Leave the three panel buttons alone in flight, and don't bind them.**
@@ -80,6 +72,22 @@ fault.
 
 If your yoke's buttons land elsewhere, please say so in a
 [compatibility report](compatibility-report.md).
+
+## Commands on the yoke buttons
+
+With the `Direct` action (the CLS-E NG's), each control runs the X-Plane commands you write in `button_commands` in
+`Output/BrunnerDirect/BrunnerDirect.state.json`, one entry per control: `"button_1": "sim/view/default_view"`. Nothing is bound until you
+write it. Add `_released` to the name to run something when the control is let go, and `_hold` for a command that should act for as long
+as it is held (trim, panning the view). An entry can be one command, a list of them (they run in order), or `null` for none. The names, the
+yoke's friendly names for its controls and a Cessna 172 example are in [Button commands](dev/advanced-configuration.md#button-commands).
+
+**Different commands for one aircraft.** Put a file named after the aircraft, such as `C172.json`, in the `aircraft/` folder beside the
+state file, with `"version": 1` and a `button_commands` section, and its commands replace the state file's for that aircraft, and only
+that one. It replaces; it does not add: if both files give `button_1` a command, only the aircraft's runs. Everything it leaves out keeps
+your state file's commands, and `null` switches one off for that aircraft. Pressed (`button_1`), let go (`button_1_released`) and held
+(`button_1_hold`) are separate entries and each is replaced only by an entry of its own: an aircraft that gives `button_1` a command does
+**not** unset your `button_1_released` or `button_1_hold`, which keep running (set them to `null` there to stop them). The file name, what is read and when are in
+[Configuration](configuration.md#aircraftidjson).
 
 ## Commands worth a button
 

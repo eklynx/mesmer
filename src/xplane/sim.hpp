@@ -47,6 +47,7 @@ class Sim {
     void bind_surfaces();    // panel and surface readings, the aircraft's name; restarts frame timing
     void identify_aircraft();// the user's aircraft file and path (default_cessna for the stock C172 SP)
     const std::string& aircraft_name() const {return aircraft_name_;}
+    const std::string& aircraft_icao() const {return aircraft_icao_;}   // the aircraft's ICAO type code, "" when it has none (sim/aircraft/view/acf_ICAO)
     const std::string& aircraft_path() const {return aircraft_path_;}
     const std::string& aircraft_file() const {return aircraft_file_;}
     bool default_cessna() const {return default_cessna_;}
@@ -96,9 +97,9 @@ class Sim {
     Ref paused_=nullptr,scenery_loading_=nullptr,flight_clock_=nullptr;
     Ref trim_override_=nullptr,sim_trim_=nullptr,airspeed_=nullptr,load_factor_=nullptr;
     Ref panel_speed_=nullptr,panel_area_=nullptr,air_density_=nullptr,native_pitch_=nullptr,native_roll_=nullptr;
-    Ref panel_aoa_=nullptr,panel_stalled_=nullptr,elevator_deg_=nullptr,aileron_deg_=nullptr,bank_=nullptr,vertical_=nullptr,flaps_=nullptr,aircraft_name_ref_=nullptr;
+    Ref panel_aoa_=nullptr,panel_stalled_=nullptr,elevator_deg_=nullptr,aileron_deg_=nullptr,bank_=nullptr,vertical_=nullptr,flaps_=nullptr,aircraft_name_ref_=nullptr,aircraft_icao_ref_=nullptr;
     bool owns_axes_=false,owns_trim_=false,default_cessna_=false;
-    std::string aircraft_name_,aircraft_path_,aircraft_file_;
+    std::string aircraft_name_,aircraft_path_,aircraft_file_,aircraft_icao_;
     Clock::time_point flow_stamp_{};
     float flow_clock_=-1;
 };
