@@ -8,9 +8,13 @@
 #endif
 #include <windows.h>
 #include <GL/gl.h>
-#else
+#elif APL
 #define GL_SILENCE_DEPRECATION
 #include <OpenGL/gl.h>
+#else
+#define GL_GLEXT_PROTOTYPES 1 // glBindBuffer, used by unbind_buffer
+#include <GL/gl.h>
+#include <GL/glext.h>
 #endif
 #include <memory>
 

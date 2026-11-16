@@ -1,6 +1,6 @@
 # Every push and pull request: the plugin's core tests on Linux and the packaging
 # script's tests, the full Windows and macOS (universal) builds with their tests, and
-# the installer. A Linux plugin build is a disabled stub until Linux builds.
+# the installer. The Linux plugin build is off until LINUX_BUILD is `true`.
 #
 # Each platform build can be switched off without editing this file, by a repository
 # variable (Settings > Secrets and variables > Actions > Variables):
@@ -95,9 +95,9 @@ jobs:
           tests/test-build-macos.sh
           tests/test-install-macos.sh
 
-  # Stub, off until LINUX_BUILD is `true`. TODO(linux): build with the Linux toolchain and
-  # test, then replace the failing step with the build; release.yml's `build-linux` needs
-  # the same, and package_release.sh already takes the result (lin_x64/BrunnerDirect.xpl).
+  # The Linux plugin through the same script a person runs by hand (docs/dev/linux-build.md):
+  # -Werror, ELF check, ctest. Off until the repository variable LINUX_BUILD is `true`.
+  # The script downloads the SDK and checks it against the same pin as XPLANE_SDK_* above.
   linux:
     if: ${{ vars.LINUX_BUILD == 'true' }}
     runs-on: ubuntu-24.04
@@ -106,10 +106,14 @@ jobs:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           persist-credentials: false
-      - name: Linux plugin build (not written yet)
+      - name: Install the build dependencies
+        run: sudo apt-get update && sudo apt-get install -y --no-install-recommends build-essential cmake libgl-dev
+      - name: Build and test
+        run: src/scripts/build_linux.sh
+      - name: Test the build and install scripts (no SDK, no X-Plane)
         run: |
-          echo "::error::LINUX_BUILD is true but the Linux plugin build is not written yet (TODO(linux) in ci.yml)"
-          exit 1
+          tests/test-build-linux.sh
+          tests/test-install-linux.sh
 
   # The installer against a fake X-Plane folder and a fake release zip (no network).
   # The README runs it with Windows PowerShell 5.1, so it must also parse there.

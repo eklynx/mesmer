@@ -100,6 +100,28 @@ elseif(APPLE AND XPLANE_SDK)
   target_include_directories(BrunnerDirect PRIVATE "${XPLANE_SDK}/CHeaders/XPLM")
   target_link_libraries(BrunnerDirect PRIVATE Threads::Threads "${XPLM_FRAMEWORK}" "${OPENGL_FRAMEWORK}" "${IOKIT_FRAMEWORK}" "${COREFOUNDATION_FRAMEWORK}")
   set_target_properties(BrunnerDirect PROPERTIES PREFIX "" SUFFIX ".xpl" CXX_VISIBILITY_PRESET hidden VISIBILITY_INLINES_HIDDEN ON)
+elseif(UNIX AND NOT APPLE AND XPLANE_SDK)
+  # Linux plugin (src/scripts/build_linux.sh); the yoke is reached through hid/lin/hid_lin.cpp (hidraw).
+  # No XPLM library is linked: X-Plane resolves its own symbols when it loads the plugin.
+  if(NOT EXISTS "${XPLANE_SDK}/CHeaders/XPLM/XPLMPlugin.h")
+    message(FATAL_ERROR "XPLANE_SDK is not the official SDK directory: ${XPLANE_SDK}")
+  endif()
+  find_package(OpenGL REQUIRED)
+  add_library(BrunnerDirect MODULE plugin.cpp xplane/published.cpp xplane/sim.cpp ui/menu/menu.cpp ui/view/startup_notice.cpp brunner/reader.cpp hid/hid_select.cpp hid/lin/hid_lin.cpp ${WORKBENCH_SOURCES})
+  target_compile_definitions(BrunnerDirect PRIVATE IBM=0 APL=0 LIN=1 XPLM200 XPLM210 XPLM300 XPLM301)
+  target_include_directories(BrunnerDirect PRIVATE "${XPLANE_SDK}/CHeaders/XPLM")
+  target_link_libraries(BrunnerDirect PRIVATE Threads::Threads OpenGL::GL)
+  # plugin.cpp writes "if (x) log(...);break;" on one line; GCC (unlike Clang) flags that. Kept out of the shared source.
+  target_compile_options(BrunnerDirect PRIVATE -Wno-misleading-indentation)
+  set_target_properties(BrunnerDirect PROPERTIES PREFIX "" SUFFIX ".xpl" CXX_VISIBILITY_PRESET hidden VISIBILITY_INLINES_HIDDEN ON)
+endif()
+if(UNIX AND NOT APPLE)
+  # Needs no X-Plane SDK: the Linux yoke reader and its read-only hardware check.
+  add_executable(brunner_hardware_read_test hid/lin/smoke_lin.cpp brunner/reader.cpp hid/hid_select.cpp hid/lin/hid_lin.cpp)
+  target_link_libraries(brunner_hardware_read_test PRIVATE Threads::Threads)
+  # Operator-run: opens the yoke read-only and prints its register survey (force mode included). Not a CTest.
+  add_executable(brunner_hardware_query hid/lin/query_lin.cpp brunner/reader.cpp hid/hid_select.cpp hid/lin/hid_lin.cpp)
+  target_link_libraries(brunner_hardware_query PRIVATE Threads::Threads)
 endif()
 if(APPLE)
   # Needs no X-Plane SDK: the macOS yoke reader and its read-only hardware check.

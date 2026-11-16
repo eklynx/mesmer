@@ -13,7 +13,7 @@ plugin side by side (X-Plane loads the one for its own platform):
 BrunnerDirect/
     win_x64/BrunnerDirect.xpl     Windows (a 64-bit PE DLL)
     mac_x64/BrunnerDirect.xpl     macOS (universal: arm64 + x86_64)
-    lin_x64/BrunnerDirect.xpl     Linux (a 64-bit ELF object); absent until Linux builds
+    lin_x64/BrunnerDirect.xpl     Linux (a 64-bit ELF object); absent while `LINUX_BUILD` is off
     BrunnerDirect.ini, BrunnerDirect.profiles.json, skunkcrafts_updater.cfg
     README.md, LICENSE, NOTICE, SAFETY.md
     yokes/                        the shipped yoke presets
@@ -49,10 +49,10 @@ checked where the binary is built (`build_macos.sh`, `codesign --verify`), not h
 ## Workflows
 
 - **`ci.yml`** (every push and pull request): `core` (Linux portable tests and this script's
-  tests), `windows`, `macos` (`build_macos.sh` plus the macOS script tests), `linux` (a stub) and
+  tests), `windows`, `macos` (`build_macos.sh` plus the macOS script tests), `linux` (`build_linux.sh` plus the Linux script tests, off until `LINUX_BUILD`) and
   `installer`.
 - **`release.yml`** (a tag `v*`): `plan` checks the tag and `skunkcrafts_updater.cfg` and decides
-  which platforms to build; `build-windows`, `build-macos` and `build-linux` (a stub) each build,
+  which platforms to build; `build-windows`, `build-macos` and `build-linux` (off until `LINUX_BUILD`) each build,
   test and upload their `BrunnerDirect.xpl`; optionally `sign-macos` has a separate signing
   repository sign the macOS plugin ([release-signing.md](release-signing.md)); `package` downloads
   them, runs this script, attests and publishes the pre-release.
@@ -75,9 +75,9 @@ A release made with a platform off has no folder for it. With `WINDOWS_BUILD=fal
 `win_x64/`, which `install.ps1` refuses to install: that is an emergency switch, not a normal
 release.
 
-### Linux (not built yet)
+### Linux
 
-`ci.yml`'s `linux` and `release.yml`'s `build-linux` are stubs behind `LINUX_BUILD`; setting it
-to `true` before the build exists fails them on purpose (`TODO(linux)` marks the spot). When the
-build is written, `build-linux` uploads `BrunnerDirect.xpl` as the artifact `plugin-lin`;
-`package` and this script already take it.
+`ci.yml`'s `linux` and `release.yml`'s `build-linux` run `src/scripts/build_linux.sh`
+([linux-build.md](linux-build.md)) behind `LINUX_BUILD`, which is off until it is exactly `true`.
+`build-linux` uploads `BrunnerDirect.xpl` as the artifact `plugin-lin`; `package` and this script
+take it as `lin_x64/`.

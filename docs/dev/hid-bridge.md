@@ -4,7 +4,7 @@ How Mesmer finds and talks to the yoke's USB bridge, on every platform. The
 code it describes: `src/hid/usb_ids.hpp` (which devices), `src/hid/hid_device.hpp`
 (the seam; read it first), `src/hid/hid_select.cpp` (which one), `src/brunner/bridge.hpp`
 (requests and replies), `src/brunner/reader.cpp` (the supervised reader), and one HID
-implementation per operating system: `src/hid/win/hid_win.cpp` and `src/hid/mac/hid_mac.cpp`.
+implementation per operating system: `src/hid/win/hid_win.cpp`, `src/hid/mac/hid_mac.cpp` and `src/hid/lin/hid_lin.cpp`.
 `src/brunner/bridge_tests.cpp` checks every statement in the first four sections.
 
 Mesmer talks to the bridge directly. CLS2Sim is not needed and must be closed
@@ -94,3 +94,14 @@ position from both controllers for 15 s and closes it. It never asks for force
 feel. The reader's session start would still disable motors that it finds
 already enabled (for example after a power glitch), as the Windows test does.
 Close X-Plane, CLS2Sim and Simux first.
+## Linux
+
+`hid/lin/hid_lin.cpp`: opens each `/dev/hidraw*` (`O_RDWR|O_NONBLOCK`), reads the ids with
+`HIDIOCGRAWINFO` and the report descriptor with `HIDIOCGRDESCSIZE` / `HIDIOCGRDESC`, and takes the
+top-level usage and the input and output report sizes (report ID included) from that descriptor, so
+`select_bridge` sees what it sees on the other platforms. Only nodes of a wanted id or vendor are
+described. The chosen device takes `flock(LOCK_EX|LOCK_NB)`; a held lock is `BridgeBusy`, and so is a
+bridge the OS refuses to open (no udev rule; sysfs's `HID_ID` says it was a bridge). `read()` polls with
+the timeout; `write()` writes the 64 bytes, byte 0 being report ID 0x3f; `flush()` drains the queue. No
+library is linked. Setup and the udev rule: [linux-build.md](linux-build.md).
+

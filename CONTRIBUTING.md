@@ -113,6 +113,23 @@ signed; copy the `BrunnerDirect` folder into `Resources/plugins/`. What the
 script promises and how it fails is in [docs/dev/macos-build.md](docs/dev/macos-build.md);
 `tests/test-build-macos.sh` checks it.
 
+**The plugin on Linux** is an x86-64 `.xpl` that loads in X-Plane 12 and reads the yoke through
+the kernel's hidraw interface. Like the macOS reader it has **not yet been run on hardware**; try
+`build/brunner_hardware_read_test` first. It is for development, not for flying. You need
+`build-essential`, `cmake` (3.20 or later) and `libgl-dev`:
+
+```sh
+sudo apt install build-essential cmake libgl-dev
+src/scripts/build_linux.sh       # downloads and verifies the pinned SDK
+src/scripts/build_linux.sh --sdk /path/to/SDK --no-test
+src/scripts/install_linux.sh     # into the X-Plane folder in ~/.x-plane/x-plane_install_12.txt
+```
+
+The result is `build/stage/BrunnerDirect/lin_x64/BrunnerDirect.xpl`. Reading the yoke needs a udev
+rule; what the script promises, the rule and how it fails are in
+[docs/dev/linux-build.md](docs/dev/linux-build.md); `tests/test-build-linux.sh` and
+`tests/test-install-linux.sh` check them.
+
 ## Writing an aircraft profile
 
 Every aircraft flies the Cessna 172's figures until it has its own profile.

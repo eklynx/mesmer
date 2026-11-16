@@ -1,0 +1,107 @@
+#!/usr/bin/env bash
+# Tests build_linux.sh against docs/dev/linux-build.md. The failure paths need no
+# network and no X-Plane SDK: the script is copied into a sandbox and the SDK
+# download is pointed at a local file:// zip. The full universal build runs only
+# when MESMER_TEST_SDK names an unpacked SDK directory (the one with CHeaders/).
+#   tests/test-build-linux.sh
+#   MESMER_TEST_SDK=/path/to/SDK tests/test-build-linux.sh
+set -uo pipefail
+ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
+failures=0
+check() { if [ "$1" -eq 0 ]; then echo "ok   $2"; else echo "FAIL $2"; failures=$((failures+1)); fi; }
+
+[ "$(uname -s)" = "Linux" ] || { echo "skip: needs Linux"; exit 0; }
+
+sandbox="$(mktemp -d "${TMPDIR:-/tmp}/mesmer-test.XXXXXX")"
+trap 'rm -rf "$sandbox"' EXIT
+mkdir -p "$sandbox/src/scripts"
+cp "$ROOT/src/scripts/build_linux.sh" "$sandbox/src/scripts/"
+script="$sandbox/src/scripts/build_linux.sh"
+
+# Spec: --help prints usage and exits 0 without building.
+out="$("$script" --help 2>&1)"; code=$?
+check $code "--help exits 0"
+echo "$out" | grep -q -- "--sdk PATH"; check $? "--help documents --sdk"
+[ ! -d "$sandbox/build" ]; check $? "--help builds nothing"
+
+# Spec: it can be run from the repository root, src/ or src/scripts/ (or elsewhere); the work
+# is always at the root (build/ there, none beside the caller) and a relative --sdk is relative
+# to where it was run from.
+mkdir -p "$sandbox/elsewhere" "$sandbox/fakesdk/CHeaders"
+for where in "" src src/scripts elsewhere; do
+    rm -rf "$sandbox/build"
+    dir="$sandbox${where:+/$where}"
+    rel="$(python3 -c 'import os,sys;print(os.path.relpath(sys.argv[1],sys.argv[2]))' "$sandbox/notsdk" "$dir")"
+    mkdir -p "$sandbox/notsdk"
+    out="$(cd "$dir" && "$script" --sdk "$rel" 2>&1)"; code=$?
+    [ $code -ne 0 ] && echo "$out" | grep -q "not an X-Plane SDK directory" && echo "$out" | grep -q "notsdk" \
+        && [ -d "$sandbox/build" ] && { [ "$dir" = "$sandbox" ] || [ ! -d "$dir/build" ]; }
+    check $? "runs from ${where:-the root} and works at the root with a relative --sdk"
+done
+out="$(cd "$sandbox/src" && "$script" --sdk x 2>&1)"; echo "$out" | grep -q "Run from src/;"; check $? "says when run from src/"
+out="$(cd "$sandbox/src/scripts" && "$script" --sdk x 2>&1)"; echo "$out" | grep -q "Run from src/scripts/;"; check $? "says when run from src/scripts/"
+rm -rf "$sandbox/build" "$sandbox/fakesdk"
+
+# Spec: an unknown option fails and says which.
+out="$("$script" --bogus 2>&1)"; code=$?
+[ $code -ne 0 ] && echo "$out" | grep -q "unknown option: --bogus"; check $? "unknown option is rejected"
+
+# Spec: --sdk without a path fails.
+out="$("$script" --sdk 2>&1)"; code=$?
+[ $code -ne 0 ] && echo "$out" | grep -q "needs a path"; check $? "--sdk without a path is rejected"
+
+# Spec: a directory that is not the SDK is rejected before any build.
+mkdir "$sandbox/notsdk"
+out="$("$script" --sdk "$sandbox/notsdk" 2>&1)"; code=$?
+[ $code -ne 0 ] && echo "$out" | grep -q "not an X-Plane SDK directory"; check $? "a non-SDK directory is rejected"
+
+# Spec: the XPLANE_SDK environment variable is honoured when --sdk is absent...
+out="$(XPLANE_SDK="$sandbox/notsdk" "$script" 2>&1)"; code=$?
+[ $code -ne 0 ] && echo "$out" | grep -q "notsdk"; check $? "XPLANE_SDK is used when no --sdk is given"
+# ...and --sdk wins over it.
+mkdir "$sandbox/other"
+out="$(XPLANE_SDK="$sandbox/notsdk" "$script" --sdk "$sandbox/other" 2>&1)"
+echo "$out" | grep -q "other"; check $? "--sdk overrides XPLANE_SDK"
+
+# Spec: with no SDK given, the pinned download is checksum-verified.
+mkdir "$sandbox/zipsrc" && echo "not an sdk" > "$sandbox/zipsrc/README.txt"
+(cd "$sandbox/zipsrc" && zip -q ../fake.zip README.txt)
+# file:// URLs need the sandbox path percent-encoded (it may hold spaces).
+url_base="file://${sandbox// /%20}"
+good="$(sha256sum "$sandbox/fake.zip" | awk '{print $1}')"
+
+out="$(MESMER_SDK_URL="$url_base/fake.zip" MESMER_SDK_SHA256="$(printf '0%.0s' $(seq 64))" "$script" 2>&1)"; code=$?
+[ $code -ne 0 ] && echo "$out" | grep -q "does not match the pin"; check $? "a download with the wrong checksum is rejected"
+[ ! -f "$sandbox/build/sdk/xplane-sdk.zip" ]; check $? "a rejected download is deleted"
+
+out="$(MESMER_SDK_URL="$url_base/fake.zip" MESMER_SDK_SHA256="$good" "$script" 2>&1)"; code=$?
+[ $code -ne 0 ] && echo "$out" | grep -q "not an X-Plane SDK directory"; check $? "a verified download is unpacked and then checked for SDK content"
+
+rm -rf "$sandbox/build" # the verified zip above is cached; start from nothing
+out="$(MESMER_SDK_URL="$url_base/missing.zip" "$script" 2>&1)"; code=$?
+[ $code -ne 0 ] && echo "$out" | grep -q "could not download"; check $? "an unreachable download fails with advice"
+
+# Spec: the pin matches the release workflow's.
+url="$(grep -o 'https://[^"]*XPSDK[0-9]*\.zip' "$ROOT/src/scripts/build_linux.sh" | head -1)"
+sha="$(grep -o '[0-9a-f]\{64\}' "$ROOT/src/scripts/build_linux.sh" | head -1)"
+grep -q "XPLANE_SDK_URL: $url" "$ROOT/.github/workflows/release.yml" && grep -q "XPLANE_SDK_SHA256: $sha" "$ROOT/.github/workflows/release.yml"
+check $? "the SDK pin equals release.yml's"
+
+# Spec: build/ is ignored by git.
+(cd "$ROOT" && git check-ignore -q build/)
+check $? "build/ is git-ignored"
+
+# Spec: the full build yields an x86-64 ELF plugin, staged where X-Plane looks.
+if [ -n "${MESMER_TEST_SDK:-}" ]; then
+    "$ROOT/src/scripts/build_linux.sh" --clean --sdk "$MESMER_TEST_SDK" >"$sandbox/full.log" 2>&1
+    check $? "full build succeeds (log: $sandbox/full.log)"
+    xpl="$ROOT/build/stage/BrunnerDirect/lin_x64/BrunnerDirect.xpl"
+    file "$xpl" 2>/dev/null | grep -q "ELF 64-bit.*x86-64"; check $? "plugin is a 64-bit x86-64 ELF"
+    nm -D --defined-only "$xpl" 2>/dev/null | grep -q " T XPluginStart"; check $? "plugin exports XPluginStart"
+    [ -f "$ROOT/build/stage/BrunnerDirect/BrunnerDirect.ini" ] && [ -f "$ROOT/build/stage/BrunnerDirect/LICENSE" ]; check $? "staging carries the release extras"
+    [ -f "$ROOT/build/stage/BrunnerDirect/yokes/cls-e.json" ] && [ -f "$ROOT/build/stage/BrunnerDirect/yokes/cls-e-ng.json" ]; check $? "staging carries the yoke models"
+else
+    echo "skip full build (set MESMER_TEST_SDK to an unpacked SDK directory)"
+fi
+
+[ $failures -eq 0 ] && echo "all passed" || { echo "$failures failed"; exit 1; }
