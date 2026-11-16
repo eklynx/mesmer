@@ -3,7 +3,7 @@
 // Only what is Windows' is here: finding the interface (hid/win/hid_common_win.hpp's walk, the same one the bridge
 // uses), opening it shared and read-only, asking Windows where each usage's bits sit, and the overlapped reads.
 // Everything else is shared with macOS: hid/report_decoder.hpp builds the layout (layout_from_fields) and decodes
-// the reports, brunner/button_runner.hpp turns them into presses.
+// the reports, buttons/input/hid_source.hpp hands them to the sink.
 //
 // The interface is opened GENERIC_READ with FILE_SHARE_READ | FILE_SHARE_WRITE: every program that opens a HID
 // joystick gets its own copy of each input report from Windows, so X-Plane keeps reading the same reports. Only

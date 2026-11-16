@@ -1,28 +1,29 @@
-// Implementation of brunner/button_runner.hpp (read that header for the contract).
-#include "brunner/button_runner.hpp"
+// Implementation of buttons/input/hid_source.hpp (read that header for the contract).
+#include "buttons/input/hid_source.hpp"
 #include <chrono>
 
-namespace brunner {
-ButtonRunner::ButtonRunner(Opener opener, int retry_ms) : opener_(std::move(opener)), retry_ms_(retry_ms) {}
+namespace buttons {
+HidSource::HidSource(Opener opener, int retry_ms) : opener_(std::move(opener)), retry_ms_(retry_ms) {}
 
-void ButtonRunner::start() {
+void HidSource::start(ButtonSink& sink) {
     if (thread_.joinable()) return;
+    sink_ = &sink;
     stop_ = false;
     thread_ = std::thread([this] { run(); });
 }
-void ButtonRunner::stop() {
+void HidSource::stop() {
     stop_ = true;
     if (thread_.joinable()) thread_.join();
 }
-std::string ButtonRunner::status() {
+std::string HidSource::status() {
     const std::lock_guard<std::mutex> lock(mutex_);
     return status_;
 }
-void ButtonRunner::set_status(std::string text) {
+void HidSource::set_status(std::string text) {
     const std::lock_guard<std::mutex> lock(mutex_);
     status_ = std::move(text);
 }
-std::string ButtonRunner::take_drops() {
+std::string HidSource::take_drops() {
     std::map<std::string, std::uint64_t> drops;
     {
         const std::lock_guard<std::mutex> lock(mutex_);
@@ -37,11 +38,11 @@ std::string ButtonRunner::take_drops() {
     }
     return "Joystick buttons: dropped " + std::to_string(total) + " glitched report" + (total == 1 ? "" : "s") + " (" + rules + ")";
 }
-void ButtonRunner::wait_retry() {
+void HidSource::wait_retry() {
     for (int waited = 0; waited < retry_ms_ && !stop_; waited += 25) std::this_thread::sleep_for(std::chrono::milliseconds(25));
 }
 
-void ButtonRunner::run() {
+void HidSource::run() {
     while (!stop_) {
         std::unique_ptr<hid::JoystickDevice> device;
         std::string why;
@@ -64,24 +65,25 @@ void ButtonRunner::run() {
             continue;
         }
         set_status("Joystick buttons: reading the yoke's joystick interface");
-        ButtonInput input(yoke_profile_for({device->vendor(), device->product()}));
+        const HidProfile& profile = hid_profile_for({device->vendor(), device->product()});
         std::vector<std::uint8_t> payload;
         try {
             while (!stop_) {
                 if (!device->read(payload, 100)) continue;
                 const auto state = hid::decode_report(*layout, payload.data(), payload.size());
                 if (!state) continue;
-                const auto result = input.feed(*state);
-                if (!result.dropped.empty()) {
+                const auto broken = profile.invalid_reason(*state);
+                if (!broken.empty()) {
                     const std::lock_guard<std::mutex> lock(mutex_);
-                    ++drops_[std::string(result.dropped)];
+                    ++drops_[std::string(broken)];
+                    continue;
                 }
-                for (const auto& edge : result.edges) presses_.push(edge);
+                sink_->publish(ButtonState{state->buttons, state->hat}, Clock::now());
             }
         } catch (const std::exception& e) {
             set_status(std::string("Joystick buttons: ") + e.what() + "; looking again");
         }
-        for (const auto& edge : input.release_all()) presses_.push(edge);   // nothing stays held when the yoke goes
+        sink_->release_all();   // nothing stays pressed or held when the yoke goes
         device.reset();
         wait_retry();
     }

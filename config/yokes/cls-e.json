@@ -63,7 +63,27 @@
       "roll_spring_sign": -1,
       "pitch_spring_sign": -1,
       "roll_input_reverse": true,
-      "pitch_input_reverse": false
+      "pitch_input_reverse": false,
+      "button_aliases": {
+        "left_index": ["can_button_1"],
+        "left_thumb_left": ["can_button_2"],
+        "left_thumb_right": ["can_button_3"],
+        "left_rocker_back": ["can_button_4"],
+        "left_rocker_forward": ["can_button_5"],
+        "right_index": ["can_button_7"],
+        "right_thumb_left": ["can_button_8"],
+        "right_thumb_right": ["can_button_9"],
+        "right_rocker_back": ["can_button_10"],
+        "right_rocker_forward": ["can_button_11"],
+        "panel_middle": ["can_button_12"],
+        "panel_right": ["can_button_13"],
+        "panel_left": ["can_button_14"]
+      },
+      "button_read_method": "CanBus",
+      "button_action_method": "VJoy",
+      "button_registers": {
+        "buttons": {"object": "0x60FD", "sub": 0, "shift": 16, "bits": 16}
+      }
     }
   ]
 }

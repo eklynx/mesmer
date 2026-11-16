@@ -9,7 +9,7 @@
 #include "brunner/reference.hpp"
 #include "brunner/loading.hpp"
 #include "brunner/readonly.hpp"
-#include "hid/yoke_buttons.hpp"
+#include "buttons/input/can_source.hpp"
 #include <functional>
 #include <cstdlib>
 #include <sstream>
@@ -30,7 +30,7 @@ template<class B> void sample(B& bridge,Snapshot& s,const std::atomic<bool>& sto
         status[i]=static_cast<std::uint16_t>(bridge.read(i+1,Object::status,stop,sample_reply_timeout_ms));
         encoder[i]=signed32(bridge.read(i+1,Object::encoder,stop,sample_reply_timeout_ms));
     }
-    sample_buttons(bridge,s,stop,s.sampled);
+    buttons::sample_buttons(bridge,s,stop,s.sampled);
     for (unsigned i=0;i<2;++i) {s.axes[i].status=status[i];s.axes[i].encoder=encoder[i];}
     s.connected=true;++s.cycles;
 }
@@ -372,6 +372,7 @@ void Reader::start() {
 void Reader::stop() {
     stop_=true;
     if (thread_.joinable()) thread_.join();
+    can_buttons_.link_lost();
     const auto final=snapshot();
     Snapshot disconnected;
     // An unconfirmed motor stop stays on record for the pilot and the lab.
@@ -397,6 +398,7 @@ void wait_before_retry(const std::atomic<bool>& stop,std::chrono::milliseconds d
 void Reader::session(Snapshot& s) {
     Bridge bridge(device_factory_());
     bridge.set_diagnostics(&link_diagnostics_);
+    bridge.set_can_source(&can_buttons_);
     MissPolicy misses(std::chrono::milliseconds(reply_tolerance_ms_.load()),&link_diagnostics_);
     s.usb_vendor=bridge.id().vendor;s.usb_product=bridge.id().product;
     s.bridge_present=true;s.message="Waiting for the yoke's controllers";publish(s);
@@ -421,6 +423,8 @@ void Reader::session(Snapshot& s) {
     std::optional<YokePreset> chosen;
     {std::lock_guard<std::mutex> lock(presets_mutex_);if (const auto* p=find_yoke_preset(presets_,bridge.id())) chosen=*p;}
     const YokePreset* preset=chosen?&*chosen:nullptr;
+    // The yoke's buttons are read from the registers its model names (the original CLS-E's when no preset is known).
+    can_buttons_.set_layout(preset?preset->button_registers:buttons::cls_e_can_layout());
     if (!preset && bridge.id().vendor!=brunner_vendor)
         throw std::runtime_error("No yoke preset for USB id "+usb_text(bridge.id())); // selection never opens another vendor's device; a factory that did is refused
     if (!preset) {
@@ -614,6 +618,7 @@ void Reader::run() {
         busy_=false;reference_requested_=false;inspection_requested_=false;loading_requested_=false;
         recovery_requested_=false;reset_requested_=false;gap_requested_=false;flight_requested_=false;end_requested_=false;
         s=Snapshot{};
+        can_buttons_.link_lost();   // the session is over: no button stays pressed or held
         wait_before_retry(stop_,std::chrono::milliseconds(1000));
     }
     busy_=false;

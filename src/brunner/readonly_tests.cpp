@@ -12,6 +12,7 @@
 #include <functional>
 #include <iostream>
 #include <map>
+#include <mutex>
 #include <sstream>
 #include <thread>
 #include <type_traits>
@@ -103,7 +104,7 @@ struct ControllerFake : HidDevice {
     }
     UsbId id() const override {return usb;}
     static unsigned width_of(unsigned index) {
-        switch (index) {case 0x20a1:case 0x2102:case 0x2115:case 0x2116:case 0x2117:case 0x6064:case 0x2106:return 4;default:return 2;}
+        switch (index) {case 0x20a1:case 0x2102:case 0x2115:case 0x2116:case 0x2117:case 0x6064:case 0x2106:case 0x60fd:return 4;case 0x2880:return 1;default:return 2;}   // 0x2880 is the NG's one-byte button record
     }
     void write(const Report& r,int) override {
         sent->push_back(r);
@@ -139,7 +140,7 @@ struct ControllerFake : HidDevice {
             }
             }
             if (known) {
-                reply[6]=width_of(index)==2?0x4b:0x43;
+                reply[6]=width_of(index)==1?0x4f:width_of(index)==2?0x4b:0x43;
                 for (unsigned i=0;i<4;++i) reply[10+i]=static_cast<std::uint8_t>(value>>(i*8));
             } else abort_with(0x06020000u);
         }
@@ -781,8 +782,85 @@ void the_tolerance_is_clamped() {
     reader.set_reply_tolerance_ms(750);check(reader.reply_tolerance_ms()==750);
 }
 
+// The CanBus read of the yoke's buttons (buttons/input/can_source.hpp), through the real reader: the register is only read when the
+// source is enabled and has a sink; the slots are published in CAN numbering; a session ending releases everything.
+struct RecordingSink final : buttons::ButtonSink {
+    std::mutex mutex;
+    std::vector<buttons::ButtonState> states;int releases=0;
+    void publish(const buttons::ButtonState& state,buttons::Clock::time_point) override {std::lock_guard<std::mutex> lock(mutex);states.push_back(state);}
+    void release_all() override {std::lock_guard<std::mutex> lock(mutex);++releases;}
+    std::size_t published() {std::lock_guard<std::mutex> lock(mutex);return states.size();}
+};
+std::size_t requests_for(const std::vector<Report>& sent,unsigned index) {
+    std::size_t n=0;
+    for (const auto& r:sent) if (r[6]==0x40 && static_cast<unsigned>(r[7]|(r[8]<<8))==index) ++n;
+    return n;
+}
+void the_can_buttons_are_read_only_when_enabled() {
+    // The NG (0x008b) keeps its buttons in its own record, 0x2880: entry 3 the buttons (bits 0 to 5), entry 4 the hat.
+    const auto slots_2_and_3=[](ControllerFake& fake) {
+        fake.regs[ControllerFake::key(2,0x2880,3)]=0b110u;fake.regs[ControllerFake::key(2,0x2880,4)]=3u;   // buttons 2 and 3, hat east
+    };
+    {   // The HID read method: the register is never asked for, though a source and a sink exist.
+        RecordingSink sink;                                                         // declared first: it must outlive the reader, which tells it when it stops
+        Run run({0x25bb,0x008b},slots_2_and_3);
+        run.reader.can_buttons().attach(&sink);
+        run.reader.start();
+        check(wait_for([&] {const auto s=run.reader.snapshot();return s.read_only && s.connected && s.cycles>5;}));
+        run.reader.stop();
+        check(requests_for(run.sent,0x2880)==0 && requests_for(run.sent,0x60fd)==0 && sink.published()==0 && !run.reader.snapshot().buttons);
+    }
+    {   // Enabled but with no sink: nothing is read either.
+        Run run({0x25bb,0x008b},slots_2_and_3);
+        run.reader.can_buttons().enable(true);
+        run.reader.start();
+        check(wait_for([&] {const auto s=run.reader.snapshot();return s.read_only && s.connected && s.cycles>5;}));
+        run.reader.stop();
+        check(requests_for(run.sent,0x2880)==0 && requests_for(run.sent,0x60fd)==0);
+    }
+    {   // CanBus on the NG: buttons 2 and 3 and the hat published together in every cycle (two reads a cycle), and everything released when the session ends.
+        RecordingSink sink;
+        Run run({0x25bb,0x008b},slots_2_and_3);
+        run.reader.can_buttons().attach(&sink);run.reader.can_buttons().enable(true);
+        run.reader.start();
+        check(wait_for([&] {return sink.published()>5;}));
+        const auto live=run.reader.snapshot();
+        check(live.buttons.has_value() && *live.buttons==0b110);                    // the slots are also in the snapshot
+        run.reader.stop();
+        check(requests_for(run.sent,0x2880)>10 && requests_for(run.sent,0x60fd)==0);   // the NG's own record, never the original's register
+        {
+            std::lock_guard<std::mutex> lock(sink.mutex);
+            const buttons::ButtonState both_slots{0b110u,3};
+            check(sink.states.front()==both_slots && sink.states.back()==both_slots && sink.releases>=1);
+        }
+    }
+    {   // The original CLS-E (0x0081) has no such record: its slots are node 2's 0x60fd, bits 16 to 31, and it has no hat.
+        RecordingSink sink;
+        Run run({0x25bb,0x0081},[](ControllerFake& fake) {fake.regs[ControllerFake::key(2,0x60fd,0)]=0x0006u<<16;});
+        run.reader.can_buttons().attach(&sink);run.reader.can_buttons().enable(true);
+        run.reader.start();
+        check(wait_for([&] {return sink.published()>5;}));
+        run.reader.stop();
+        check(requests_for(run.sent,0x60fd)>5 && requests_for(run.sent,0x2880)==0);
+        std::lock_guard<std::mutex> lock(sink.mutex);
+        const buttons::ButtonState slots{0b110u,0};
+        check(sink.states.front()==slots && sink.states.back()==slots);
+    }
+    {   // The controller refuses the register: nothing is published, the reason is in the snapshot, the flying goes on.
+        RecordingSink sink;
+        Run run({0x25bb,0x008b},[](ControllerFake&) {});                            // no 0x2880 in its table: it aborts the read
+        run.reader.can_buttons().attach(&sink);run.reader.can_buttons().enable(true);
+        run.reader.start();
+        check(wait_for([&] {return !run.reader.snapshot().button_refusal.empty() && run.reader.snapshot().cycles>5;}));
+        const auto s=run.reader.snapshot();
+        check(s.connected && s.read_only && !s.buttons && sink.published()==0);
+        run.reader.stop();
+    }
+}
+
 int main() {
     try {
+        the_can_buttons_are_read_only_when_enabled();
         a_short_silence_is_ridden_out();
         a_long_silence_ends_the_session();
         a_tolerance_of_zero_is_the_old_behaviour();

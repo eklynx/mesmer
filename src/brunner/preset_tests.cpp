@@ -71,7 +71,9 @@ bool same_preset(const YokePreset& a,const YokePreset& b) {
         && a.roll_spring_sign==b.roll_spring_sign && a.pitch_spring_sign==b.pitch_spring_sign
         && a.roll_input_low==b.roll_input_low && a.roll_input_high==b.roll_input_high && a.pitch_input_low==b.pitch_input_low && a.pitch_input_high==b.pitch_input_high
         && a.roll_input_reverse==b.roll_input_reverse && a.pitch_input_reverse==b.pitch_input_reverse
-        && a.pitch_units_per_lb==b.pitch_units_per_lb && a.roll_units_per_nm==b.roll_units_per_nm;
+        && a.pitch_units_per_lb==b.pitch_units_per_lb && a.roll_units_per_nm==b.roll_units_per_nm
+        && a.button_aliases==b.button_aliases && a.button_registers==b.button_registers
+        && a.button_read_method==b.button_read_method && a.button_action_method==b.button_action_method;
 }
 std::string shipped_text(const char* file) {
     std::ifstream in(std::string(BRUNNER_YOKES_DIR)+"/"+file,std::ios::binary);
@@ -273,8 +275,73 @@ void changing_a_direction() {
     check(direction_key(pitch_encoder)=="pitch_encoder_sign" && direction_key(roll_reverse)=="roll_input_reverse");
 }
 }
+// The yoke's control names (buttons/controls.hpp): what each shipped model says, and how a file may change it.
+void button_aliases() {
+    const auto ng=builtin_cls_e_ng(),cls_e=builtin_cls_e();
+    check(ng.button_aliases.size()==14 && ng.button_aliases.at("trigger")==(std::vector<std::string>{"hid_button_1","can_button_1"}));
+    check(cls_e.button_aliases.size()==13 && cls_e.button_aliases.at("left_index")==(std::vector<std::string>{"can_button_1"}) && !cls_e.button_aliases.count("trigger"));
+    const buttons::ControlMap ng_map(ng.button_aliases),cls_e_map(cls_e.button_aliases);
+    check(*ng_map.resolve("hid_button_5")==*ng_map.resolve("can_button_5") && *ng_map.resolve("rocker_up")==*ng_map.resolve("can_button_5"));
+    check(ng_map.can_source(*ng_map.resolve("hat_n"))==(buttons::Input{buttons::InputKind::can_hat,1}) && *ng_map.resolve("hat_push")==*ng_map.resolve("can_button_6"));   // the hat is on the bridge too
+    check(*cls_e_map.resolve("panel_left")==*cls_e_map.resolve("can_button_14") && !cls_e_map.hid_source(*cls_e_map.resolve("left_index")));
+    // A file may give the map: it replaces the model's whole map (other fields are kept).
+    const auto replaced=parse_yoke_presets(R"({"schema":1,"yokes":[{"name":"cls-e-ng","button_aliases":{"fire":["hid_button_1","can_button_9"],"hat_n":["can_button_15"]}}]})",builtin_yoke_presets());
+    const auto& n=named(replaced,"cls-e-ng");
+    check(n.button_aliases.size()==2 && n.button_aliases.at("hat_n")==(std::vector<std::string>{"can_button_15"}) && n.pitch_travel_counts==5300);
+    check(named(replaced,"cls-e").button_aliases==builtin_cls_e().button_aliases);   // the other model is untouched
+    // Where the buttons are read from: the original CLS-E's 0x60fd, the NG's own record 0x2880 (buttons and hat).
+    check(builtin_cls_e().button_registers==buttons::cls_e_can_layout() && builtin_cls_e().button_registers.buttons.index==0x60fd && !builtin_cls_e().button_registers.hat);
+    check(builtin_cls_e_ng().button_registers==buttons::cls_e_ng_can_layout() && builtin_cls_e_ng().button_registers.hat && builtin_cls_e_ng().button_registers.hat->sub==4);
+    const auto moved=parse_yoke_presets(R"({"schema":1,"yokes":[{"name":"cls-e","button_registers":{"buttons":{"object":"0x2880","sub":3,"shift":0,"bits":6},"hat":{"object":"0x2880","sub":4}}}]})",builtin_yoke_presets());
+    check(named(moved,"cls-e").button_registers==buttons::cls_e_ng_can_layout() && named(moved,"cls-e-ng").button_registers==buttons::cls_e_ng_can_layout());
+    // How the buttons are read and what they do: the CLS-E reads over the bridge and presses a virtual joystick, the NG reads over the
+    // bridge and runs X-Plane commands, a model that says nothing is CanBus + Direct; any case, two words each, nothing else.
+    check(builtin_cls_e().button_read_method==buttons::ReadMethod::can_bus && builtin_cls_e().button_action_method==buttons::ActionMethod::vjoy);
+    check(builtin_cls_e_ng().button_read_method==buttons::ReadMethod::can_bus && builtin_cls_e_ng().button_action_method==buttons::ActionMethod::direct);
+    const std::string club=R"({"name":"club-yoke","usb":[{"vendorId":"0x1234","productId":"0x5678"}],"roll_travel_counts":9000,"pitch_travel_counts":7000,"roll_ceiling_units":3000,"pitch_ceiling_units":3500,"target_torque":30})";
+    const auto club_yoke=named(parse_yoke_presets(R"({"schema":1,"yokes":[)"+club+"]}",builtin_yoke_presets()),"club-yoke");
+    check(club_yoke.button_read_method==buttons::ReadMethod::can_bus && club_yoke.button_action_method==buttons::ActionMethod::direct);
+    const auto methods=parse_yoke_presets(R"({"schema":1,"yokes":[{"name":"cls-e","button_read_method":"hid","button_action_method":"DIRECT"},{"name":"cls-e-ng","button_action_method":"VJoy"}]})",builtin_yoke_presets());
+    check(named(methods,"cls-e").button_read_method==buttons::ReadMethod::hid && named(methods,"cls-e").button_action_method==buttons::ActionMethod::direct);
+    check(named(methods,"cls-e-ng").button_read_method==buttons::ReadMethod::can_bus && named(methods,"cls-e-ng").button_action_method==buttons::ActionMethod::vjoy);   // the other field is kept
+    for (const char* bad:{R"("button_read_method":"VJoy")",R"("button_read_method":"")",R"("button_read_method":1)",R"("button_action_method":"HID")",R"("button_action_method":"v joy")",R"("button_action_method":null)"}) {
+        bool refused=false;
+        try {parse_yoke_presets(std::string(R"({"schema":1,"yokes":[{"name":"cls-e",)")+bad+"}]}",builtin_yoke_presets());} catch (const PresetError&) {refused=true;}
+        check(refused);
+    }
+    const auto bad_registers=[&](const char* registers) {
+        try {parse_yoke_presets(std::string(R"({"schema":1,"yokes":[{"name":"cls-e","button_registers":)")+registers+"}]}",builtin_yoke_presets());}
+        catch (const PresetError&) {return true;}
+        return false;
+    };
+    check(bad_registers(R"({"buttons":{"object":"0x6040","sub":0,"shift":0,"bits":4}})"));                      // not on the read-only allowlist
+    check(bad_registers(R"({"buttons":{"object":"0x2880","sub":3,"shift":4,"bits":6}})"));                      // bits outside the register
+    check(bad_registers(R"({"buttons":{"object":"0x2880","sub":3,"shift":0,"bits":6},"hat":{"object":"0x2880","sub":3}})"));   // the hat is the buttons' register
+    check(bad_registers(R"({"hat":{"object":"0x2880","sub":4}})") && bad_registers(R"({"buttons":{"object":"0x60fd","sub":0,"shift":16,"bits":16,"extra":1}})"));
+    // An empty map is allowed: canonical names only.
+    check(named(parse_yoke_presets(R"({"schema":1,"yokes":[{"name":"cls-e","button_aliases":{}}]})",builtin_yoke_presets()),"cls-e").button_aliases.empty());
+    // A new model without the field has none.
+    const std::string model=R"({"name":"club-yoke","usb":[{"vendorId":"0x1234","productId":"0x5678"}],"roll_travel_counts":9000,"pitch_travel_counts":7000,"roll_ceiling_units":3000,"pitch_ceiling_units":3500,"target_torque":30})";
+    check(named(parse_yoke_presets(R"({"schema":1,"yokes":[)"+model+"]}",builtin_yoke_presets()),"club-yoke").button_aliases.empty());
+    // Anything that does not make a sound map refuses the whole file, naming why.
+    const auto refuses=[&](const char* aliases,const char* part) {
+        try {parse_yoke_presets(std::string(R"({"schema":1,"yokes":[{"name":"cls-e","button_aliases":)")+aliases+"}]}",builtin_yoke_presets());}
+        catch (const PresetError& e) {return std::string(e.what()).find(part)!=std::string::npos;}
+        return false;
+    };
+    check(refuses("[1]","must be an object"));
+    check(refuses(R"({"x":"hid_button_1"})","must be a list"));
+    check(refuses(R"({"x":[1]})","names in quotes"));
+    check(refuses(R"({"hid_x":["hid_button_1"]})","not a usable name"));
+    check(refuses(R"({"x_hold":["hid_button_1"]})","not a usable name"));
+    check(refuses(R"({"x":["nothing"]})","neither a button name nor another alias"));
+    check(refuses(R"({"x":["hid_button_1","hid_button_2"]})","one HID input"));
+    check(refuses(R"({"x":["can_button_1","can_button_2"]})","one CAN input"));
+    check(refuses(R"({"a":["b"],"b":["a"]})","not linked to any button"));
+}
 int main() {
     try {
+        button_aliases();
         usb_ids_are_hex();
         the_built_ins();
         the_shipped_files_are_the_built_ins();

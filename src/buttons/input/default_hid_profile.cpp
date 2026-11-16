@@ -1,12 +1,11 @@
-// The default YokeProfile (brunner/yoke_profile.hpp), used for every model today.
-#include "brunner/yoke_profile.hpp"
+// The default HidProfile (buttons/input/hid_profile.hpp), used for every model today.
+#include "buttons/input/hid_profile.hpp"
 
-namespace brunner {
+namespace buttons {
 namespace {
-class DefaultYokeProfile final : public YokeProfile {
+class DefaultHidProfile final : public HidProfile {
 public:
     std::string_view name() const override { return "default"; }
-    int button_count() const override { return 6; }
     std::string_view invalid_reason(const hid::JoystickState& state) const override {
         constexpr std::uint32_t rocker = (1u << 3) | (1u << 4);   // buttons 4 (down) and 5 (up) are one rocker: never both
         if ((state.buttons & rocker) == rocker) return "buttons 4 and 5 together";
@@ -15,8 +14,8 @@ public:
     }
 };
 }
-const YokeProfile& yoke_profile_for(const UsbId&) {
-    static const DefaultYokeProfile profile;
+const HidProfile& hid_profile_for(const brunner::UsbId&) {
+    static const DefaultHidProfile profile;
     return profile;
 }
 }

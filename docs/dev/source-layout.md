@@ -36,8 +36,11 @@ C++17 with tests that run on macOS and Windows.
 | `brunner/reader.cpp`, `brunner/bridge.hpp` | The reader thread and its request/reply layer; the same on every platform |
 | `hid/hid_device.hpp`, `hid/usb_ids.hpp`, `hid/hid_select.cpp` | The seam to the operating system and the USB ids Mesmer opens ([spec](hid-bridge.md)) |
 | `hid/win/hid_win.cpp`, `hid/mac/hid_mac.cpp`, `hid/win/hid_common_win.hpp`, `hid/lin/hid_lin.cpp` | The Windows, macOS and Linux HID access; the Windows HID walk and handle the bridge and the joystick reader share |
-| `hid/joystick_device.hpp`, `hid/report_decoder.hpp`, `hid/mac/joystick_mac.cpp`, `hid/win/joystick_win.cpp` | The yoke's joystick interface, observed read-only: the seam, the shared report decoder (from the descriptor on macOS, from Windows' parse on Windows) and the two implementations; Windows uses it only with `windows_button_style=HID` ([spec](button-commands.md)) |
-| `brunner/yoke_profile.hpp`, `brunner/button_input.hpp`, `brunner/button_runner.hpp` | Which reports are genuine, press detection, the button-to-command map and the thread that runs them ([spec](button-commands.md)) |
+| `hid/joystick_device.hpp`, `hid/report_decoder.hpp`, `hid/mac/joystick_mac.cpp`, `hid/win/joystick_win.cpp` | The yoke's joystick interface, observed read-only: the seam, the shared report decoder (from the descriptor on macOS, from Windows' parse on Windows) and the two implementations ([spec](button-commands.md)) |
+| `buttons/controls.*`, `buttons/commands.*`, `buttons/edges.*`, `buttons/hold.*`, `buttons/hub.*` | The yoke's controls and what the buttons mean: names and aliases, `button_commands` resolved through them, press and release edges, per-command holds, and the hub every read method delivers to ([spec](button-commands.md)) |
+| `buttons/input/` | The two read methods: `can_source.hpp` (register `0x60fd` over the bridge, in the reader's sampling cycle) and `hid_source.*` with `hid_profile.hpp` (the joystick reports and which are genuine) |
+| `buttons/actions/` | The two actions: `direct_action.*` (X-Plane commands) and `vjoy_action.*` with `vjoy_presser.hpp` (a virtual joystick; the Windows driver is `win/vjoy_win.hpp`) |
+| `buttons/service.*`, `buttons/methods.hpp` | `ButtonService`, the one object the plugin talks to, and the two settings a yoke's preset gives (`button_read_method`, `button_action_method`) |
 | `plugin.cpp` | The X-Plane plugin's glue: commands, the flight loop, start and stop, and what the menu, the corner line and the datarefs show |
 | `xplane/sim.hpp`, `xplane/published.hpp` | Every X-Plane dataref the plugin reads or writes, and the `brunner_direct/...` datarefs it publishes |
 | `ui/menu/menu.hpp` | The Yoke (Brunner) menu and its Developer submenu |

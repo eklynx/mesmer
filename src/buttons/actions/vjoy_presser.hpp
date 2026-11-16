@@ -1,52 +1,20 @@
+// SOURCE OF TRUTH for the virtual joystick's logic: what a feeder must offer (VirtualJoystick), how the buttons are kept where
+// the yoke's controls are (ButtonPresser) and how their changes are logged (ButtonLog). Specification:
+// docs/dev/button-commands.md. Plain C++, no operating-system code: checked by buttons/vjoy_tests.cpp on every platform.
+// The feeders are per operating system (Windows: buttons/actions/win/vjoy_win.hpp, Brunner's signed vJoy driver, one
+// device of 32 buttons); the action that uses all of it is buttons/actions/vjoy_action.hpp. The word it presses is the
+// ButtonHub's vjoy_word: bit n-1 for virtual joystick button n, where a control's number is its CAN slot (controls.hpp).
 #pragma once
-#include "brunner/core.hpp"
+#include "buttons/state.hpp"
 #include <algorithm>
-#include <atomic>
 #include <chrono>
 #include <cstdint>
 #include <optional>
 #include <string>
 #include <vector>
 
-namespace brunner {
-// The yoke's buttons reach X-Plane as a joystick's (decision 9): Brunner's
-// signed vJoy driver holds one device of 32 buttons, and the plugin presses
-// the device's button n for the yoke's slot n. Windows only (the Mac has no vJoy):
-// the plugin reaches all of it through YokeButtons (hid/yoke_buttons.hpp). The logic
-// is plain C++, checked by hid/win/buttons_tests.cpp; the feeder is vjoy_win.hpp.
-
-// The yoke's buttons in a sampling cycle: node 2's 0x60fd, read in every
-// cycle of every loop, so a press shorter than one cycle can still fall
-// between two reads. A read that fails any way but the link (the controller's
-// refusal, or an answer that makes no sense) leaves the buttons unread, with
-// why, and is tried again from 5 s later: the buttons never stop pitch, roll
-// or force feel. The link failing, or the reader stopping, ends the cycle as
-// for any read. Link is the reader's bridge (brunner/bridge.hpp), or a test's.
-constexpr std::chrono::seconds button_retry_after{5};
-template<class Link> void sample_buttons(Link& link,Snapshot& s,const std::atomic<bool>& stop,Clock::time_point now) {
-    if (!s.button_refusal.empty() && now<s.button_retry) return;
-    try {
-        s.buttons=slots_1_to_16(link.read(2,Object::digital_inputs,stop));
-        s.button_refusal.clear();
-    } catch (const TransportError&) {throw;}
-    catch (const OperationCancelled&) {throw;}
-    catch (const std::exception& e) {
-        s.buttons.reset();s.button_refusal=e.what();s.button_retry=now+button_retry_after;
-    }
-}
-// The yoke's slots as one word, bit n-1 for slot n: vJoy's button n. Only
-// slots 1-16 are read (core.hpp), so bits 16-31 are always 0; buttons not
-// read show nothing pressed.
-inline std::uint32_t button_word(const Snapshot& s) {return s.buttons.value_or(0);}
-// What the joystick shows now: nothing known, so every button up, without a
-// live link or with readings older than flight input's 250 ms. A reading
-// stamped after now is fresh, not stale.
-inline std::optional<std::uint32_t> live_buttons(const Snapshot& s,Clock::time_point now) {
-    if (!s.connected || s.cycles==0) return std::nullopt;
-    if (now>s.sampled && now-s.sampled>std::chrono::milliseconds(250)) return std::nullopt;
-    return button_word(s);
-}
-// The slots a word holds down, for the log: "1, 17", or "none".
+namespace buttons {
+// The buttons a word holds down, for the log: "1, 17", or "none".
 inline std::string pressed_slots(std::uint32_t word) {
     std::string text;
     for (unsigned bit=0;bit<32;++bit) if (word&(1u<<bit)) {
@@ -56,7 +24,7 @@ inline std::string pressed_slots(std::uint32_t word) {
     return text.empty()?"none":text;
 }
 // What the plugin asks of the joystick's feeder: vJoy's calls on its device 1
-// (hid/win/vjoy_win.hpp), or a test's.
+// (buttons/actions/win/vjoy_win.hpp), or a test's.
 struct VirtualJoystick {
     enum class Status {owned,available,busy,missing,unknown}; // vJoy's VjdStat, in its order
     virtual ~VirtualJoystick()=default;
@@ -69,6 +37,7 @@ struct VirtualJoystick {
     virtual int buttons()=0;                        // GetVJDButtonNumber
     virtual bool set(unsigned button,bool down)=0;  // SetBtn, button 1 to 32
     virtual bool reset()=0;                         // ResetButtons: every button up
+    virtual void unload() {}                        // frees the driver's library: the plugin's XPluginStop, never a destructor
 };
 // Keeps the joystick's buttons where the yoke's are. It takes the device when
 // it can and lets every button up as soon as it has it (X-Plane may have quit
@@ -173,4 +142,4 @@ private:
     std::uint32_t logged_=0,last_=0,rose_=0;
     std::optional<Clock::time_point> said_;
 };
-} // namespace brunner
+} // namespace buttons

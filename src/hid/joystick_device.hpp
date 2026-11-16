@@ -1,4 +1,4 @@
-// SOURCE OF TRUTH for the seam between the portable button reader (brunner/button_runner.hpp) and an operating
+// SOURCE OF TRUTH for the seam between the portable HID button source (buttons/input/hid_source.hpp) and an operating
 // system's access to the yoke's joystick HID interface (hid/mac/joystick_mac.cpp, hid/win/joystick_win.cpp). Specification:
 // docs/dev/button-commands.md. This is a different interface from the bridge in hid/hid_device.hpp: the
 // bridge is the vendor interface Mesmer seizes and talks to; this one is the ordinary joystick the yoke also
