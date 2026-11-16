@@ -1,15 +1,20 @@
-// Tests for the yoke's buttons on a virtual joystick (hid/win/buttons.hpp), built on Windows
-// only with the code they check (hid/yoke_buttons.hpp). Plain C++, a fake joystick and a fake link.
-#include "hid/win/buttons.hpp"
+// Tests for the virtual joystick's logic (buttons/actions/vjoy_presser.hpp, vjoy_action.hpp) and for the CanBus read of the
+// yoke's buttons (buttons/input/can_source.hpp), on every platform: plain C++, a fake joystick, a fake link and a fake sink.
+#include "buttons/actions/vjoy_action.hpp"
+#include "buttons/input/can_source.hpp"
 #include <functional>
 #include <iostream>
 #include <map>
 #include <string>
 #include <vector>
 
-using namespace brunner;
+using namespace buttons;
+using brunner::Object;
+using brunner::Snapshot;
+using brunner::OperationCancelled;
+using brunner::TransportError;
 void check_at(bool okay,int line) { if (!okay) throw std::runtime_error("check failed line "+std::to_string(line)); }
-#define check(x) check_at((x),__LINE__)
+#define check(...) check_at((__VA_ARGS__),__LINE__)
 // vJoy's feeder as the plugin sees it, recording each call.
 struct FakeJoystick : VirtualJoystick {
     std::string missing;bool on=true,takes=true,obeys=true;Status state=Status::available;int count=32;
@@ -26,61 +31,101 @@ struct FakeJoystick : VirtualJoystick {
 };
 using Calls=std::vector<std::string>;
 // Node 2's button word as the reader's bridge answers it, or fails to.
+struct RecordingSink : ButtonSink {
+    std::vector<ButtonState> states;int releases=0;
+    void publish(const ButtonState& state,Clock::time_point) override {states.push_back(state);}
+    void release_all() override {++releases;}
+};
+// Registers as the reader's bridge answers them (key: index << 8 | sub), or fails to.
 struct ButtonLink {
-    std::map<Object,std::uint32_t> words;std::vector<Object> reads;std::function<void(Object)> fail;
-    std::uint32_t read(unsigned node,Object object,const std::atomic<bool>& stop) {
-        check(node==2);
+    static std::uint32_t key(unsigned index,unsigned sub) {return (index<<8)|sub;}
+    std::map<std::uint32_t,std::uint32_t> words;std::vector<std::uint32_t> reads;std::function<void(std::uint32_t)> fail;CanSource* can=nullptr;
+    CanSource* can_source() const {return can;}
+    std::uint32_t ref_read(unsigned node,brunner::Register reg,const std::atomic<bool>& stop,int reply_ms) {
+        check(node==2 && reply_ms==brunner::sample_reply_timeout_ms);   // a sampling read: one attempt, one sample period
         if (stop) throw OperationCancelled{};
-        reads.push_back(object);
-        if (fail) fail(object);
-        return words[object];
+        const auto k=key(reg.index,reg.sub);
+        reads.push_back(k);
+        if (fail) fail(k);
+        return words[k];
     }
 };
 int main() {
     try {
         check(pressed_slots(0x80018001u)=="1, 16, 17, 32" && pressed_slots(0x2800u)=="12, 14" && pressed_slots(0)=="none");
-        // What the joystick shows: the word as read, slot n in bit n-1, and
-        // nothing known without a live link or with readings over 250 ms old.
+        // Reading them over the bridge (the CanBus read method), the original CLS-E's layout: node 2's 0x60fd, bits 16 to 31, in every
+        // cycle when enabled and attached, published in CAN numbering. A refusal or a garble leaves the buttons unread and releases
+        // everything at the sink, retried from 5 s on; the link failing, a missed reply and the reader stopping pass through and record
+        // nothing. Disabled, nothing is read at all.
         {
             const auto t0=Clock::now();
-            Snapshot b;b.connected=true;b.cycles=3;b.sampled=t0;
-            check(live_buttons(b,t0)==0u); // not read yet: nothing pressed
-            b.buttons=std::uint16_t{0x8001};check(live_buttons(b,t0)==0x8001u);
-            check(live_buttons(b,t0+std::chrono::milliseconds(250))==0x8001u);
-            check(!live_buttons(b,t0+std::chrono::milliseconds(251)));
-            check(live_buttons(b,t0-std::chrono::milliseconds(5))==0x8001u); // stamped after now: fresh
-            auto off=b;off.connected=false;check(!live_buttons(off,t0));
-            auto none=b;none.cycles=0;check(!live_buttons(none,t0));
-        }
-        // Reading them: the one word, in every cycle. A refusal or a garble
-        // leaves the buttons unread, retried from 5 s on; the link failing
-        // and the reader stopping pass through and record nothing.
-        {
-            const auto t0=Clock::now();
-            ButtonLink link;link.words[Object::digital_inputs]=0x8001ffffu;
+            const auto digital=ButtonLink::key(0x60fd,0);
+            ButtonLink link;link.words[digital]=0x8001ffffu;
+            RecordingSink sink;CanSource can;link.can=&can;
             std::atomic<bool> halt{false};
             Snapshot b;
-            sample_buttons(link,b,halt,t0);check(b.buttons==0x8001 && button_word(b)==0x8001u);
-            link.words[Object::digital_inputs]=0x0002ffffu;
-            b.cycles=1;sample_buttons(link,b,halt,t0);check(b.buttons==0x0002 && button_word(b)==0x0002u); // odd cycles too
-            check((link.reads==std::vector<Object>{Object::digital_inputs,Object::digital_inputs}));
-            link.fail=[](Object) {throw std::runtime_error("Controller rejected SDO read");};
+            sample_buttons(link,b,halt,t0);check(link.reads.empty() && !b.buttons);               // not enabled, not attached: no request
+            can.enable(true);sample_buttons(link,b,halt,t0);check(link.reads.empty());            // enabled but nobody to tell
+            can.attach(&sink);
+            sample_buttons(link,b,halt,t0);check(b.buttons==0x8001 && sink.states.size()==1 && sink.states[0]==ButtonState{0x8001u,0});
+            link.words[digital]=0x0002ffffu;
+            b.cycles=1;sample_buttons(link,b,halt,t0);check(b.buttons==0x0002 && sink.states.back()==ButtonState{0x0002u,0});   // odd cycles too
+            check((link.reads==std::vector<std::uint32_t>{digital,digital}));
+            can.enable(false);sample_buttons(link,b,halt,t0);check(link.reads.size()==2);          // off again: no request
+            can.enable(true);
+            link.fail=[](std::uint32_t) {throw std::runtime_error("Controller rejected SDO read");};
             b.cycles=2;sample_buttons(link,b,halt,t0);
-            check(!b.buttons && button_word(b)==0u && b.button_refusal=="Controller rejected SDO read" && b.button_retry==t0+std::chrono::seconds(5));
+            check(!b.buttons && b.button_refusal=="Controller rejected SDO read" && b.button_retry==t0+std::chrono::seconds(5) && sink.releases==1);
             link.reads.clear();
             b.cycles=3;sample_buttons(link,b,halt,t0+std::chrono::milliseconds(4999));check(link.reads.empty() && !b.buttons);
-            link.fail=[](Object) {throw std::runtime_error("Short SDO reply");};
+            link.fail=[](std::uint32_t) {throw std::runtime_error("Short SDO reply");};
             sample_buttons(link,b,halt,t0+std::chrono::seconds(5));
-            check(b.button_refusal=="Short SDO reply" && b.button_retry==t0+std::chrono::seconds(10) && link.reads.size()==1);
+            check(b.button_refusal=="Short SDO reply" && b.button_retry==t0+std::chrono::seconds(10) && link.reads.size()==1 && sink.releases==2);
             link.fail=nullptr;
             sample_buttons(link,b,halt,t0+std::chrono::seconds(10));check(b.buttons==0x0002 && b.button_refusal.empty());
-            link.fail=[](Object) {throw TransportError("No matching controller reply");};
+            const auto published=sink.states.size();
+            link.fail=[](std::uint32_t) {throw TransportError("No matching controller reply");};
             bool passed=false;
             try {sample_buttons(link,b,halt,t0);} catch (const TransportError&) {passed=true;}
-            check(passed && b.button_refusal.empty() && b.buttons==0x0002);
+            check(passed && b.button_refusal.empty() && b.buttons==0x0002 && sink.states.size()==published);
+            link.fail=[](std::uint32_t) {throw brunner::ReplyMissed("HID I/O timed out");};        // a missed reply is thrown on, for the reader to tolerate
+            passed=false;
+            try {sample_buttons(link,b,halt,t0);} catch (const brunner::ReplyMissed&) {passed=true;}
+            check(passed && b.button_refusal.empty());
             link.fail=nullptr;halt=true;passed=false;
             try {sample_buttons(link,b,halt,t0);} catch (const OperationCancelled&) {passed=true;}
             check(passed && b.button_refusal.empty() && b.buttons==0x0002);
+            can.link_lost();check(sink.releases==3);                                                // the session ended: everything is released
+            ButtonLink none;                                                                        // a link with no CanSource reads nothing
+            std::atomic<bool> go{false};Snapshot c;sample_buttons(none,c,go,t0);check(none.reads.empty());
+        }
+        // The NG's layout: its own record, entry 3 the buttons (bits 0 to 5), entry 4 the hat. Two reads a cycle, published together;
+        // bits above the six are not buttons, and a hat value outside 1 to 8 is centred.
+        {
+            const auto t0=Clock::now();
+            const auto buttons=ButtonLink::key(0x2880,3),hat=ButtonLink::key(0x2880,4);
+            ButtonLink link;RecordingSink sink;CanSource can;link.can=&can;can.attach(&sink);can.enable(true);can.set_layout(cls_e_ng_can_layout());
+            std::atomic<bool> halt{false};Snapshot b;
+            link.words[buttons]=0x21;link.words[hat]=3;                                            // trigger and hat push, hat east
+            sample_buttons(link,b,halt,t0);
+            check((link.reads==std::vector<std::uint32_t>{buttons,hat}) && b.buttons==0x21 && sink.states.back()==ButtonState{0x21u,3});
+            link.words[buttons]=0xff;link.words[hat]=9;                                            // two high bits are not buttons; 9 is not a hat position
+            sample_buttons(link,b,halt,t0);check(sink.states.back()==ButtonState{0x3fu,0} && b.buttons==0x3f);
+            link.words[hat]=0;link.words[buttons]=0;sample_buttons(link,b,halt,t0);check(sink.states.back()==ButtonState{0,0});
+            // The hat read missing ends the whole cycle (nothing half-published), and a refusal of either releases everything.
+            const auto published=sink.states.size();
+            link.fail=[&](std::uint32_t k) {if (k==hat) throw brunner::ReplyMissed("HID I/O timed out");};
+            bool missed=false;
+            try {sample_buttons(link,b,halt,t0);} catch (const brunner::ReplyMissed&) {missed=true;}
+            check(missed && sink.states.size()==published);
+            link.fail=[&](std::uint32_t k) {if (k==hat) throw std::runtime_error("Controller rejected SDO read");};
+            sample_buttons(link,b,halt,t0);
+            check(!b.buttons && b.button_refusal=="Controller rejected SDO read" && sink.releases==1 && sink.states.size()==published);
+            // A layout without a hat reads one register.
+            ButtonLink plain;plain.can=&can;plain.words[ButtonLink::key(0x60fd,0)]=0x00040000u;
+            can.set_layout(cls_e_can_layout());Snapshot c;
+            sample_buttons(plain,c,halt,t0+std::chrono::seconds(30));
+            check(plain.reads.size()==1 && c.buttons==4 && sink.states.back()==ButtonState{4u,0});
         }
         // Pressing them: take the device and let every button up first, send
         // only changes, let all up when unknown, retry a refusal every 5 s and
@@ -184,7 +229,7 @@ int main() {
             check(taps.update(0u,at(700)).empty() && taps.update(0x2u,at(710))=="Yoke buttons down: 2");
         }
 
-        std::cout<<"brunner buttons tests passed\n";
+        std::cout<<"virtual joystick tests passed\n";
         return 0;
     } catch (const std::exception& e) {
         std::cerr<<e.what()<<"\n";

@@ -14,12 +14,17 @@
 #include <string>
 #include <thread>
 
+namespace buttons { class CanSource; }
 namespace brunner {
 class Bridge {
     std::unique_ptr<HidDevice> device_;
     std::uint16_t counter_=0;
     LinkDiagnostics* diag_=nullptr;
+    buttons::CanSource* can_source_=nullptr;
  public:
+    // The CanSource the reader reads the yoke's buttons through, in each sampling cycle (buttons/input/can_source.hpp); none by default.
+    void set_can_source(buttons::CanSource* source) {can_source_=source;}
+    buttons::CanSource* can_source() const {return can_source_;}
     // Where the stall log's facts go; the caller keeps it alive for the bridge's life. Optional.
     void set_diagnostics(LinkDiagnostics* diag) {diag_=diag;if (diag_) diag_->begin_session(Clock::now());}
 
@@ -118,6 +123,7 @@ class ReadOnlyBridge {
  public:
     explicit ReadOnlyBridge(Bridge& bridge):bridge_(bridge) {}
     std::uint32_t read(unsigned node,Object object,const std::atomic<bool>& stop,int reply_ms=retried_read) {return bridge_.read(node,object,stop,reply_ms);}
+    buttons::CanSource* can_source() const {return bridge_.can_source();}
     std::uint32_t ref_read(unsigned node,Register reg,const std::atomic<bool>& stop,int reply_ms=retried_read) {return bridge_.ref_read(node,reg,stop,reply_ms);}
 };
 }

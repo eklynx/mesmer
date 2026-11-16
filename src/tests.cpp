@@ -817,22 +817,6 @@ int main() {
             for (const auto* refused_line:{"debug_log=2\n","debug_log=-1\n","debug_log=\n"})
                 rejects([&]{std::istringstream stream(config+refused_line);parse_configuration(stream);});
         }
-        // Windows' button style: the virtual joystick unless the file says HID (the joystick's HID reports); VJoy or
-        // HID in any case, and nothing else, numbers included.
-        check(managed.windows_button_style==WindowsButtonStyle::virtual_joystick);
-        {
-            for (const auto* word:{"HID","hid","Hid"," hId "}) {
-                std::istringstream stream(config+"windows_button_style="+word+"\n");
-                check(parse_configuration(stream).windows_button_style==WindowsButtonStyle::hid_reports);
-            }
-            for (const auto* word:{"VJoy","vjoy","VJOY","vJoy"}) {
-                std::istringstream stream(config+"windows_button_style="+word+"\n");
-                check(parse_configuration(stream).windows_button_style==WindowsButtonStyle::virtual_joystick);
-            }
-            for (const auto* refused_line:{"windows_button_style=0\n","windows_button_style=1\n","windows_button_style=\n",
-                    "windows_button_style=usb\n","windows_button_style=v joy\n","windows_button_style=HID\nwindows_button_style=VJoy\n"})
-                rejects([&]{std::istringstream stream(config+refused_line);parse_configuration(stream);});
-        }
         // Buffet: off unless the file turns it on; its knobs held to their bounds.
         check(managed.flight.buffet==0 && managed.flight.buffet_percent==10 && managed.flight.buffet_period==80);
         {

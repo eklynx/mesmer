@@ -1,20 +1,21 @@
 # The yoke's buttons
 
-The yoke's own USB connection carries no game controller, so X-Plane can't
-see its buttons by itself. The plugin reads them and presses the matching
-buttons of a virtual joystick, vJoy device 1. X-Plane lists that joystick in
-its Joystick screen as `vJoy - Virtual Joystick`, and you bind its buttons
-like any other controller's. Nothing runs beside X-Plane: vJoy is a driver,
-and the plugin feeds it.
+X-Plane can't see the yoke's buttons by itself: the yoke's own USB connection carries them in a form X-Plane does not read. The
+plugin reads them and does one of two things with them, depending on your yoke:
 
-**The vJoy path is Windows only.** vJoy is a Windows driver, so the macOS build has no button code:
-it neither reads the yoke's buttons nor logs about them (`src/hid/yoke_buttons.hpp` is the
-seam). Pitch, roll and force feel are not affected. The NG's buttons and hat can instead run
-X-Plane commands directly: see [Button commands](dev/button-commands.md). On Windows that takes `windows_button_style=HID` in `BrunnerDirect.ini` ([advanced configuration](dev/advanced-configuration.md#windows-button-style)), which turns this vJoy path off; `VJoy`, the default, keeps it. The CLS-E NG needs none of this: its USB
-shows an ordinary joystick (6 buttons, a hat and X/Y), which X-Plane lists by itself.
+| Action | What happens | Where |
+|---|---|---|
+| **vJoy** | The plugin presses the matching buttons of a virtual joystick, vJoy device 1. X-Plane lists it in its Joystick screen as `vJoy - Virtual Joystick`, and you bind its buttons like any other controller's. | the original CLS-E, on Windows |
+| **Direct** | The plugin runs the X-Plane commands you name in `button_commands`, no binding in X-Plane needed: [Button commands](dev/advanced-configuration.md#button-commands). | the CLS-E NG, and any yoke on a system with no virtual joystick |
 
-The buttons work while X-Plane runs with the plugin. All of them release
-whenever the link to the yoke drops.
+Each yoke model says how its buttons are read and which action it uses ([yoke presets](dev/yoke-presets.md)); both the original CLS-E
+and the NG are read over the yoke's own bridge. There is nothing to set. See
+[Button read and action methods](dev/advanced-configuration.md#button-read-and-action-methods), which also says what each
+combination needs.
+
+**vJoy is a Windows driver**, so it only works there for now; elsewhere the CLS-E's buttons use `Direct` too and `Log.txt` says so. Pitch, roll and
+force feel are not affected by any of this. The buttons work while X-Plane runs with the plugin, and all of them release whenever the
+link to the yoke drops.
 
 ## Set up vJoy once
 
@@ -40,10 +41,15 @@ whenever the link to the yoke drops.
 Without vJoy the yoke flies exactly as before. Only the buttons are missing,
 and Log.txt says why: see [troubleshooting](troubleshooting.md#the-yokes-buttons-dont-reach-x-plane).
 
+**If buttons seem to press themselves.** Buttons or the hat that fire at random, with nobody touching the yoke, come from the yoke's
+firmware, not from the plugin or X-Plane: update the yoke's firmware (the CLS-E NG's older firmware could send false button
+reports; the newest does not). A yoke on firmware the plugin has not verified runs read-only until you allow it, see
+[Troubleshooting](troubleshooting.md#buttons-are-pressed-by-themselves).
+
 ## Which button is which
 
-On the one yoke tested so far, an original CLS-E, the plugin presses vJoy
-button *n* for the yoke's button in slot *n*:
+**With `CanBus`, and on the vJoy joystick.** On the original CLS-E, the one yoke tested so far, the plugin presses vJoy button *n* for
+the yoke's button in slot *n*. The same numbers are the names `can_button_n` for `button_commands`:
 
 | Control | vJoy button |
 |---|---|
@@ -58,6 +64,14 @@ button *n* for the yoke's button in slot *n*:
 | Right grip rocker, back | 10 |
 | Right grip rocker, forward | 11 |
 | Panel buttons: middle, right, left | 12, 13, 14 |
+
+**The hat.** The original CLS-E has no hat switch. The CLS-E NG has one, and a CLS-E MK2 is reported to as well (Mesmer has no preset for the MK2 yet).
+
+**The NG** has one grip, whose first five controls are the CLS-E's left grip slots (checked on an NG's own register, 2026-11-16): trigger
+1, top left 2, top right 3, rocker down 4, rocker up 5, the same vJoy numbers whichever way the buttons are read. Its hat push (6) and its
+hat are **not in that register** but in the NG's own button record, which Mesmer reads for the NG, so they are read
+over the bridge like the rest. The hat push is vJoy button 6 and the hat's eight directions are vJoy buttons 17 to 24 (up
+first, then clockwise).
 
 **Leave the three panel buttons alone in flight, and don't bind them.**
 They also work the yoke's own menu. On the tested yoke, one press switched

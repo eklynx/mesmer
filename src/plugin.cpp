@@ -2,7 +2,7 @@
 #define NOMINMAX
 #include "brunner/reader.hpp"
 #include "brunner/owner_state.hpp"
-#include "brunner/button_runner.hpp"
+#include "buttons/service.hpp"
 #include "hid/joystick_device.hpp"
 #include "brunner/readonly.hpp"
 #include "config.hpp"
@@ -17,7 +17,6 @@
 #include "force/slew.hpp"
 #include "ui/workbench/workbench_server.hpp"
 #include "xplane/look.hpp"
-#include "hid/yoke_buttons.hpp"
 #include "XPLMPlugin.h"
 #include "XPLMProcessing.h"
 #include "XPLMUtilities.h"
@@ -41,28 +40,12 @@
 namespace {
 namespace wb=brunner::workbench;
 brunner::Reader reader;
-// The yoke's joystick buttons and hat run X-Plane commands (brunner/button_runner.hpp, docs/dev/button-commands.md):
-// the runner's thread decodes and filters the reports, update() drains its presses on X-Plane's thread.
-brunner::ButtonRunner button_runner([](std::string& why) {return hid::open_joystick(brunner::brunner_vendor,why);});
-brunner::ButtonCommands button_commands;
-std::map<std::string,XPLMCommandRef> button_command_refs;   // resolved on first press: other plugins' commands may not exist at start
-std::set<std::string> button_command_warned;
-std::string last_button_status;
-brunner::Clock::time_point button_drops_logged{};
 brunner::monitor::Window force_monitor,force_hud{true};
 brunner::recording::Recorder recorder;
-// The yoke's buttons on a virtual joystick (Windows only; hid/yoke_buttons.hpp), pressed on this thread.
-brunner::YokeButtons yoke_buttons;
-// Which of the two the yoke's buttons go through: BrunnerDirect.ini's windows_button_style (config.hpp). macOS has
-// only the joystick's HID reports (button_runner); Windows has the virtual joystick (yoke_buttons) unless the ini says HID.
-brunner::WindowsButtonStyle windows_button_style=brunner::WindowsButtonStyle::virtual_joystick;
-bool buttons_from_hid_reports() {
-#ifdef _WIN32
-    return windows_button_style==brunner::WindowsButtonStyle::hid_reports;
-#else
-    return true;
-#endif
-}
+// The yoke's buttons (src/buttons, docs/dev/button-commands.md): where they are read from and what they do are the connected yoke's
+// button_read_method and button_action_method (its preset). The service is made once the presets have been read.
+std::unique_ptr<buttons::ButtonService> button_service;
+std::string last_button_model;
 XPLMCommandRef hud_command=nullptr,pin_command=nullptr,move_command=nullptr;
 struct HudDataref {const char* name;int* value;int low,high;};
 HudDataref hud_datarefs[]{
@@ -601,41 +584,45 @@ void apply_owner_overrides() {
     apply("force_feel",owner_state.force_feel,flight_settings.force_feel);
     reader.set_reply_tolerance_ms(owner_state.reply_tolerance_ms.value_or(brunner::default_reply_tolerance_ms));
     if (owner_state.reply_tolerance_ms) log("reply_tolerance_ms "+std::to_string(reader.reply_tolerance_ms())+" from "+brunner::state_file+" (default "+std::to_string(brunner::default_reply_tolerance_ms)+")");
-    std::vector<std::string> notes;
-    button_commands=brunner::ButtonCommands::from_state(owner_state.button_commands,brunner::yoke_profile_for({brunner::brunner_vendor,0}),notes);
-    for (const auto& note:notes) log(std::string(brunner::state_file)+": "+note);
-    button_command_refs.clear();button_command_warned.clear();
-    if (button_commands.size()) log("Button commands: "+std::to_string(button_commands.size())+" from "+brunner::state_file);
 }
-// Runs on X-Plane's thread: the reader thread's presses become X-Plane commands, and its status and glitch
-// count reach Log.txt. A glitch count is logged at most every 10 s, whether or not debug_log is on.
-// A press runs the input's commands once, a release the "<name>_released" ones once, and "<name>_hold" is begun on the
-// press and ended on the release (brunner/button_input.hpp). An entry may list several commands; they run in the order
-// written. Held commands are tracked so that they are always ended.
-brunner::HoldTracker button_holds;
-XPLMCommandRef button_command_ref(const brunner::InputId& key,const std::string& name) {
-    auto found=button_command_refs.find(name);
-    if (found==button_command_refs.end()) found=button_command_refs.emplace(name,XPLMFindCommand(name.c_str())).first;
-    if (!found->second && button_command_warned.insert(name).second) log("Button commands: "+brunner::input_name(key)+" -> \""+name+"\" is not an X-Plane command; nothing runs");
-    return found->second;
+void setup_buttons();
+// X-Plane's commands for the Direct action (buttons/actions/direct_action.hpp): found by name the first time they are needed, since
+// other plugins' and aircraft's commands may not exist when the plugin starts. A name X-Plane does not know is said once.
+class XplmCommandRunner final : public buttons::CommandRunner {
+public:
+    bool once(const std::string& name) override {const auto ref=find(name);if (ref) XPLMCommandOnce(ref);return ref!=nullptr;}
+    bool begin(const std::string& name) override {const auto ref=find(name);if (ref) XPLMCommandBegin(ref);return ref!=nullptr;}
+    bool end(const std::string& name) override {const auto ref=find(name);if (ref) XPLMCommandEnd(ref);return ref!=nullptr;}
+private:
+    XPLMCommandRef find(const std::string& name) {
+        auto found=refs_.find(name);
+        if (found==refs_.end()) found=refs_.emplace(name,XPLMFindCommand(name.c_str())).first;
+        if (!found->second && warned_.insert(name).second) log("Button commands: \""+name+"\" is not an X-Plane command; nothing runs");
+        return found->second;
+    }
+    std::map<std::string,XPLMCommandRef> refs_;
+    std::set<std::string> warned_;
+} xplm_commands;
+// Makes the buttons service from the owner's button_commands, and gives the reader the sink the CanBus read
+// publishes to. The yoke's own controls (its button_aliases) come when its model is known.
+void setup_buttons() {
+    button_service=std::make_unique<buttons::ButtonService>(xplm_commands,[](std::string& why) {return hid::open_joystick(brunner::brunner_vendor,why);});
+    buttons::ButtonCommands::Entries entries;
+    for (const auto& entry:owner_state.button_commands) entries[entry.first]=entry.second.commands;
+    button_service->set_commands(entries);
+    button_service->set_yoke("",{},log);
+    reader.can_buttons().attach(&button_service->sink());
+    reader.can_buttons().enable(button_service->wants_can());
+    last_button_model.clear();
 }
-void run_hold_actions(const std::vector<brunner::HoldAction>& actions) {
-    for (const auto& action:actions)
-        if (const auto ref=button_command_ref(action.source,action.command)) {if (action.begin) XPLMCommandBegin(ref);else XPLMCommandEnd(ref);}
-}
-void end_held_buttons() {run_hold_actions(button_holds.end_all());}
-void run_button_presses(brunner::Clock::time_point now) {
-    const auto edges=button_runner.presses().drain();
-    for (const auto& edge:edges)
-        for (const auto& name:button_commands.commands_for(edge)) if (const auto ref=button_command_ref(edge,name)) XPLMCommandOnce(ref);
-    // Held commands are kept per command: only what changes is ended or begun, ends first (brunner/button_input.hpp, HoldTracker).
-    run_hold_actions(button_holds.plan(edges,button_commands));
-    const auto status=button_runner.status();
-    if (status!=last_button_status) {last_button_status=status;if (!status.empty()) log(status);}
-    if (now-button_drops_logged>=std::chrono::seconds(10)) {
-        button_drops_logged=now;
-        const auto drops=button_runner.take_drops();
-        if (!drops.empty()) log(drops);
+// The connected yoke's model became known or changed: its button_aliases name its controls, and the commands are resolved through them.
+void buttons_follow_model(const std::string& model) {
+    if (!button_service || model.empty() || model==last_button_model) return;
+    last_button_model=model;
+    for (const auto& preset:yoke_presets) if (preset.name==model) {
+        button_service->set_yoke(preset.title,preset.button_aliases,{preset.button_read_method,preset.button_action_method},log);
+        reader.can_buttons().enable(button_service->wants_can());   // the registers are read only while this yoke's read method is CanBus
+        return;
     }
 }
 // Written atomically (temp file, then rename) into Output/BrunnerDirect. A failed save is logged and the
@@ -820,8 +807,7 @@ float update(float,float,int,void*) {
     retry_workbench(now);
     poll_profiles(now,false);
     const auto s=reader.snapshot();
-    if (!buttons_from_hid_reports()) yoke_buttons.update(s,now,log);
-    run_button_presses(now);
+    if (button_service) {buttons_follow_model(s.model);button_service->update(now,s,log);}
     if (!s.loading_result.empty() && s.loading_result!=last_loading) {log(s.loading_result);last_loading=s.loading_result;}
     if (!s.loading_inspection.empty() && s.loading_inspection!=last_inspection) {log("Loading inspection: "+s.loading_inspection);last_inspection=s.loading_inspection;}
     const auto input=current_input(s,now);
@@ -1254,7 +1240,7 @@ PLUGIN_API int XPluginStart(char* name,char* signature,char* description) {
             reader.request_tuning(brunner::TuningField::roll_percent,config.tuning.roll_percent);
             reader.request_tuning(brunner::TuningField::pitch_percent,config.tuning.pitch_percent);
             reader.request_tuning(brunner::TuningField::pitch_trim,config.tuning.pitch_trim);
-            flight_settings=config.flight;workbench_port=config.workbench_port;windows_button_style=config.windows_button_style;
+            flight_settings=config.flight;workbench_port=config.workbench_port;
             log("Loaded managed yoke defaults from BrunnerDirect.ini");
             for (const auto& key:config.retired) log("BrunnerDirect.ini: "+key+" is retired and ignored"+(key=="allow_unverified_yoke"?" (use Developer > Allow unverified yoke models; it is off until you turn it on)":""));
         } else {flight_settings.auto_start=0;log("No startup defaults file; the yoke waits for Re-centre in the plugin menu");}
@@ -1263,7 +1249,7 @@ PLUGIN_API int XPluginStart(char* name,char* signature,char* description) {
         for (const auto& line:wb::managed_adjustments(flight_settings)) log(line);
         bench=std::make_unique<wb::Workbench>(wb::from_managed(flight_settings));
         for (const auto& line:bench->load(plugin_folder)) log(line);
-        load_yoke_presets();apply_owner_overrides();
+        load_yoke_presets();apply_owner_overrides();setup_buttons();
         sync_feel(brunner::Clock::now());
     } catch (const std::exception& e) {log(std::string("Configuration invalid; plugin not started: ")+e.what());return 0;}
     yoke_menu.create({menu_action,[](const std::string& line) {log(line);}},feel_menu_text);
@@ -1354,23 +1340,14 @@ PLUGIN_API int XPluginEnable() {
         // auto_start=0 keeps the old fail-closed behaviour: nothing moves until the pilot's Re-centre.
         if (!flight_settings.auto_start) yoke.stop();
         reader.start();startup_readiness.reset();
-        // The joystick interface is only opened when some button has a command to run: with none, Mesmer touches nothing but the bridge.
-        // On Windows it is opened only with windows_button_style=HID; with VJoy the buttons go to the virtual joystick instead.
-#ifdef _WIN32
-        log(buttons_from_hid_reports()
-            ?"Yoke buttons: the yoke's joystick HID reports run button_commands (windows_button_style=HID in BrunnerDirect.ini); vJoy is not used"
-            :"Yoke buttons: the virtual joystick, vJoy device 1 (windows_button_style=VJoy in BrunnerDirect.ini); the yoke's joystick interface is not opened");
-#endif
-        if (buttons_from_hid_reports()) {
-            if (button_commands.size()) button_runner.start();
-            else log("Joystick buttons: no button_commands configured; the yoke's joystick interface is not opened");
-        }
+        // The yoke's buttons: read and used as the connected yoke's preset says (buttons/service.hpp).
+        if (button_service) {reader.can_buttons().enable(button_service->wants_can());button_service->start([](const std::string& line) {log(line);});}
         simulator_ready_for_start=false;enabled=true;
         XPLMRegisterFlightLoopCallback(update,0.1f,nullptr);XPLMScheduleFlightLoop(readiness_loop,-1.0f,1);
         start_workbench();
         return 1;
     } catch (const std::exception& e) {
-        log(e.what());reader.stop();button_runner.stop();force_hud.close();recorder.stop();
+        log(e.what());reader.stop();if (button_service) button_service->stop();force_hud.close();recorder.stop();
         if (readiness_loop) {XPLMDestroyFlightLoop(readiness_loop);readiness_loop=nullptr;}
         startup_notice.destroy();
         return 0;
@@ -1384,9 +1361,8 @@ PLUGIN_API void XPluginDisable() {
     diagnostic_trim.renew(0,false,brunner::Clock::now());
     yoke.stop();startup_readiness.reset();
     sim.release_axes();
-    yoke_buttons.close();
     if (enabled) XPLMUnregisterFlightLoopCallback(update,nullptr);
-    enabled=false;simulator_ready_for_start=false;reader.stop();button_runner.stop();end_held_buttons();button_runner.presses().drain();last_status.clear();
+    enabled=false;simulator_ready_for_start=false;reader.stop();if (button_service) button_service->stop();last_status.clear();
     recorder.event("Plugin disabled; reader stopped");recorder.stop();
     decision=brunner::YokeDecision{};decision.status="Yoke plugin is disabled";
     if (readiness_loop) {XPLMDestroyFlightLoop(readiness_loop);readiness_loop=nullptr;}
@@ -1395,7 +1371,8 @@ PLUGIN_API void XPluginDisable() {
 }
 PLUGIN_API void XPluginStop() {
     XPluginDisable();
-    yoke_buttons.unload();
+    if (button_service) button_service->unload();
+    reader.can_buttons().attach(nullptr);   // the reader must not tell a service that is going away
     for (auto command:{hud_command,pin_command,move_command}) if (command) XPLMUnregisterCommandHandler(command,hud_handler,1,nullptr);
     published.unpublish_all();
     if (monitor_command) XPLMUnregisterCommandHandler(monitor_command,monitor_handler,1,nullptr);

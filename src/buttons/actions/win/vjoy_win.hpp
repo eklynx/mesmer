@@ -1,5 +1,5 @@
 #pragma once
-#include "hid/win/buttons.hpp"
+#include "buttons/actions/vjoy_presser.hpp"
 #ifndef NOMINMAX
 #define NOMINMAX // buttons.hpp and its includes call std::min
 #endif
@@ -7,7 +7,7 @@
 #include <string>
 #include <type_traits>
 
-namespace brunner {
+namespace buttons {
 // vJoy's feeder on its device 1 (decision 9): Brunner's signed vJoy 2.2.2.0,
 // set to 32 buttons and no axes by ansible/files/software/vjoy.ps1. Its DLL
 // is loaded when first needed, by full path, from the folder vJoy's
@@ -37,7 +37,7 @@ public:
         }
         module_=library;return {};
     }
-    void unload() {if (module_) FreeLibrary(module_);module_=nullptr;clear();}
+    void unload() override {if (module_) FreeLibrary(module_);module_=nullptr;clear();}
     bool enabled() override {return enabled_ && enabled_()!=FALSE;}
     Status status() override {
         if (!status_) return Status::unknown;
@@ -81,4 +81,4 @@ private:
         return folder;
     }
 };
-} // namespace brunner
+} // namespace buttons

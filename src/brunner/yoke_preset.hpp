@@ -15,12 +15,16 @@
 // controller: the force ceiling actually used is the lower of the preset's and
 // the controller's own limit register (brunner/drive.hpp).
 #pragma once
+#include "buttons/controls.hpp"
+#include "buttons/input/can_layout.hpp"
+#include "buttons/methods.hpp"
 #include "json.hpp"
 #include "hid/usb_ids.hpp"
 #include <algorithm>
 #include <array>
 #include <cmath>
 #include <cstdint>
+#include <map>
 #include <optional>
 #include <stdexcept>
 #include <string>
@@ -111,14 +115,52 @@ struct YokePreset {
     // shutdown, instead of refusing; the CLS-E, which idles disabled, keeps the refusal.
     bool idle_enabled=false;
     RestSettings rest;
+    // How the yoke's controls are named and which of them are the same control, as a map of lists: each key and the names
+    // in its list are one control (buttons/controls.hpp). Canonical names are the NG joystick's hid_button_1..6 and its hat
+    // positions hat_n..hat_nw, and the CAN slots can_button_1..16 (the original CLS-E's, bits 16-31 of register 0x60fd);
+    // any other key is a friendly name. Linking a hid_button to a can_button is how a button written under one numbering
+    // fires under the other read method. Giving the field in BrunnerDirect.yokes.json replaces the model's whole map.
+    std::map<std::string,std::vector<std::string>> button_aliases;
+    // Where the yoke's buttons and hat are on the bridge, for the CanBus read method (buttons/input/can_layout.hpp): the original
+    // CLS-E's are node 2's 0x60fd (bits 16 to 31), the NG's its own record 0x2880 (entry 3 the buttons, entry 4 the hat). Only
+    // registers on brunner::button_register's read-only allowlist may be named.
+    buttons::CanLayout button_registers;
+    // How this model's buttons are read and what the plugin does with them (buttons/methods.hpp). A model that gives none is read
+    // over the bridge and runs button_commands. VJoy needs a virtual joystick: where the operating system has none it is Direct.
+    buttons::ReadMethod button_read_method=buttons::default_read_method;
+    buttons::ActionMethod button_action_method=buttons::default_action_method;
 };
 
 // ---- Built-in models ----
+// The original CLS-E's controls, from the pressed-one-by-one survey of 2026-11-10 (docs/buttons.md): slots 1-5 are the left
+// grip, 7-11 the right grip, 12-14 the panel buttons; slot 6 is not fitted. It has no joystick interface, so no hid_ names.
+inline std::map<std::string,std::vector<std::string>> cls_e_button_aliases() {
+    return {{"left_index",{"can_button_1"}},{"left_thumb_left",{"can_button_2"}},{"left_thumb_right",{"can_button_3"}},
+            {"left_rocker_back",{"can_button_4"}},{"left_rocker_forward",{"can_button_5"}},
+            {"right_index",{"can_button_7"}},{"right_thumb_left",{"can_button_8"}},{"right_thumb_right",{"can_button_9"}},
+            {"right_rocker_back",{"can_button_10"}},{"right_rocker_forward",{"can_button_11"}},
+            {"panel_middle",{"can_button_12"}},{"panel_right",{"can_button_13"}},{"panel_left",{"can_button_14"}}};
+}
+// The NG's controls, as its joystick interface numbers them (1 trigger, 2 top left, 3 top right, 4 rocker down, 5 rocker up, 6 hat push,
+// and the hat's eight positions), linked to the same controls on the bridge: its own button record 0x2880 holds the six buttons
+// as can_button_1..6 and the hat as can_hat_n..can_hat_nw (checked on the NG, 2026-11-16, docs/dev/button-commands.md). The original
+// CLS-E's 0x60fd carries buttons 1 to 5 of these too, but not the hat push or the hat.
+inline std::map<std::string,std::vector<std::string>> cls_e_ng_button_aliases() {
+    std::map<std::string,std::vector<std::string>> aliases{
+        {"trigger",{"hid_button_1","can_button_1"}},{"top_left",{"hid_button_2","can_button_2"}},{"top_right",{"hid_button_3","can_button_3"}},
+        {"rocker_down",{"hid_button_4","can_button_4"}},{"rocker_up",{"hid_button_5","can_button_5"}},{"hat_push",{"hid_button_6","can_button_6"}}};
+    for (const char* direction:{"n","ne","e","se","s","sw","w","nw"})
+        aliases[std::string("hat_")+direction]={std::string("can_hat_")+direction};
+    return aliases;
+}
 inline YokePreset builtin_cls_e() {
     YokePreset p;
     p.name="cls-e";p.title="Brunner CLS-E";
     p.usb_ids={{0x25bb,0x0081}};
     p.verified=true;p.verified_firmware={367};
+    p.button_aliases=cls_e_button_aliases();
+    p.button_registers=buttons::cls_e_can_layout();
+    p.button_read_method=buttons::ReadMethod::can_bus;p.button_action_method=buttons::ActionMethod::vjoy;   // the CLS-E: its buttons on a virtual joystick
     return p; // the defaults above are the CLS-E's
 }
 // The CLS-E NG. Travel is the midpoint of the controller's own limit flags
@@ -130,6 +172,9 @@ inline YokePreset builtin_cls_e_ng() {
     p.name="cls-e-ng";p.title="Brunner CLS-E NG";
     p.usb_ids={{0x25bb,0x008b}};
     p.verified=true;p.verified_firmware={642};
+    p.button_aliases=cls_e_ng_button_aliases();
+    p.button_registers=buttons::cls_e_ng_can_layout();
+    p.button_read_method=buttons::ReadMethod::can_bus;p.button_action_method=buttons::ActionMethod::direct;   // the NG: its buttons run X-Plane commands
     // Travel is the range the controller accepts for the resting point (0x2116), which bounds where the
     // force models may put the centre. Pitch clamps at +-5300 (measured 2026-11-13: a write of 5468 or 5369
     // read back 5300). Roll is inferred: the NG's own homing sweep stopped at roll -7412 and pitch -5320
@@ -217,6 +262,22 @@ inline void validate_preset(const YokePreset& p) {
         fail("power_on_spring_mode must be 0 (the same as spring_mode) or 1 to 65535 with bits 13, 11, 6 and 5 clear");
     if (p.spring_mode<1 || p.spring_mode>0xffff || (p.spring_mode&((1<<13)|(1<<11)|(1<<6)|(1<<5)))!=0)
         fail("spring_mode must be 1 to 65535 with bits 13, 11, 6 and 5 clear (they are the flow's, not the resting mode's)");
+    if (p.button_aliases.size()>64) fail("more than 64 button aliases");
+    for (const auto& alias:p.button_aliases) if (alias.second.size()>16) fail("button alias \""+alias.first+"\" lists more than 16 names");
+    try {buttons::ControlMap controls(p.button_aliases);} catch (const buttons::ControlError& e) {fail(e.what());}
+    {
+        const auto& layout=p.button_registers;
+        const auto named=[&](const buttons::CanRegister& r,const char* what) {
+            if (buttons::can_register_bytes(r.index,r.sub)!=r.bytes || r.bytes==0) fail(std::string("button_registers.")+what+" is not a register the yoke's buttons may be read from (0x60fd:0, 0x2880:3 or 0x2880:4)");
+        };
+        named(layout.buttons,"buttons");
+        if (layout.bits<1 || layout.bits>16 || layout.shift<0 || layout.shift+layout.bits>layout.buttons.bytes*8)
+            fail("button_registers.buttons needs 1 to 16 bits that lie inside the register");
+        if (layout.hat) {
+            named(*layout.hat,"hat");
+            if (layout.hat->bytes!=1 || *layout.hat==layout.buttons) fail("button_registers.hat must be a one-byte register other than the buttons'");
+        }
+    }
 }
 // No two models may claim one USB id: the model must follow from the device.
 inline void validate_presets(const std::vector<YokePreset>& presets) {
@@ -244,7 +305,9 @@ inline void validate_presets(const std::vector<YokePreset>& presets) {
 // status_ready_mask, status_acquired_mask, spring_mode, power_on_spring_mode, idle_enabled, rest {roll_curve, pitch_curve,
 // roll_spring_percent, pitch_spring_percent, pitch_gain_denominator, pitch_move_back, pitch_cutoff, mode},
 // roll_encoder_sign,
-// pitch_encoder_sign, roll_spring_sign, pitch_spring_sign, roll_input_reverse, pitch_input_reverse. Unknown fields are refused.
+// pitch_encoder_sign, roll_spring_sign, pitch_spring_sign, roll_input_reverse, pitch_input_reverse,
+// button_aliases {"friendlyName": ["hid_button_4", "can_button_11", "other_alias"], ...}, button_read_method "CanBus" | "HID" and button_action_method "VJoy" | "Direct" (any case), button_registers {"buttons": {"object":
+// "0x2880", "sub": 3, "shift": 0, "bits": 6}, "hat": {"object": "0x2880", "sub": 4}}. Unknown fields are refused.
 namespace preset_detail {
 inline double number(const Json& j,const std::string& what) {
     if (j.kind==Json::Kind::integer) return static_cast<double>(j.integer);
@@ -336,6 +399,65 @@ inline std::vector<YokePreset> parse_yoke_presets(std::string_view text,const st
             else if (key=="spring_mode") p.spring_mode=whole(v,what);
             else if (key=="power_on_spring_mode") p.power_on_spring_mode=whole(v,what);
             else if (key=="idle_enabled") p.idle_enabled=flag(v,what);
+            else if (key=="button_read_method" || key=="button_action_method") {
+                if (v.kind!=Json::Kind::string) throw PresetError(what+" must be text");
+                if (key=="button_read_method") {
+                    const auto method=buttons::parse_read_method(v.text);
+                    if (!method) throw PresetError(what+" must be CanBus or HID");
+                    p.button_read_method=*method;
+                } else {
+                    const auto method=buttons::parse_action_method(v.text);
+                    if (!method) throw PresetError(what+" must be VJoy or Direct");
+                    p.button_action_method=*method;
+                }
+            }
+            else if (key=="button_registers") {
+                if (v.kind!=Json::Kind::object) throw PresetError(what+" must be an object");
+                const auto reg=[&](const Json& j,const std::string& w) {
+                    if (j.kind!=Json::Kind::object) throw PresetError(w+" must be an object with object and sub");
+                    const auto* object=j.get("object");const auto* sub=j.get("sub");
+                    if (!object || !sub) throw PresetError(w+" needs \"object\" and \"sub\"");
+                    const auto index=hex_id(*object,w+".object");
+                    const int entry=whole(*sub,w+".sub");
+                    if (entry<0 || entry>255) throw PresetError(w+".sub must be 0 to 255");
+                    return buttons::CanRegister{index,static_cast<std::uint8_t>(entry),buttons::can_register_bytes(index,static_cast<std::uint8_t>(entry))};
+                };
+                buttons::CanLayout layout;
+                layout.hat.reset();
+                bool has_buttons=false;
+                for (const auto& r:v.members) {
+                    const auto rw=what+"."+r.first;
+                    if (r.first=="buttons") {
+                        has_buttons=true;
+                        layout.buttons=reg(r.second,rw);layout.shift=0;layout.bits=0;
+                        for (const auto& extra:r.second.members) {
+                            if (extra.first=="shift") layout.shift=whole(extra.second,rw+".shift");
+                            else if (extra.first=="bits") layout.bits=whole(extra.second,rw+".bits");
+                            else if (extra.first!="object" && extra.first!="sub") throw PresetError(at+"unknown field \""+key+".buttons."+extra.first+"\"");
+                        }
+                    }
+                    else if (r.first=="hat") {
+                        layout.hat=reg(r.second,rw);
+                        for (const auto& extra:r.second.members) if (extra.first!="object" && extra.first!="sub") throw PresetError(at+"unknown field \""+key+".hat."+extra.first+"\"");
+                    }
+                    else throw PresetError(at+"unknown field \""+key+"."+r.first+"\"");
+                }
+                if (!has_buttons) throw PresetError(what+" needs \"buttons\"");
+                p.button_registers=layout;
+            }
+            else if (key=="button_aliases") {
+                if (v.kind!=Json::Kind::object) throw PresetError(what+" must be an object of lists of names");
+                p.button_aliases.clear();
+                for (const auto& alias:v.members) {
+                    if (alias.second.kind!=Json::Kind::array) throw PresetError(what+"."+alias.first+" must be a list of names");
+                    std::vector<std::string> names;
+                    for (const auto& n:alias.second.items) {
+                        if (n.kind!=Json::Kind::string) throw PresetError(what+"."+alias.first+" must list names in quotes");
+                        names.push_back(n.text);
+                    }
+                    p.button_aliases[alias.first]=std::move(names);
+                }
+            }
             else if (key=="rest") {
                 if (v.kind!=Json::Kind::object) throw PresetError(what+" must be an object");
                 has_rest=true;p.rest.captured=false;

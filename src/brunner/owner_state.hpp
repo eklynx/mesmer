@@ -1,7 +1,7 @@
 // SOURCE OF TRUTH for the owner's saved choices that are not in BrunnerDirect.ini:
 // "allow unverified yoke" (Developer menu), which the plugin writes, and the optional startup overrides
 // "auto_start" and "force_feel", which the owner writes by hand and the plugin only reads and keeps, and the
-// optional "reply_tolerance_ms" and "button_commands" map (yoke button or hat position -> X-Plane command, brunner/button_input.hpp).
+// optional "reply_tolerance_ms" and "button_commands" map (a control of the yoke -> X-Plane command, buttons/commands.hpp).
 // Specification: docs/configuration.md (the overrides), docs/dev/advanced-configuration.md (the format and
 // every rule below) and docs/dev/yoke-presets.md (the gate). Saved as BrunnerDirect.state.json in X-Plane's
 // Output/BrunnerDirect (so updating the plugin never replaces it); an older install's copy in the plugin
@@ -19,7 +19,7 @@
 // absent means 1000, 0 means none (brunner/core.hpp). "button_commands" must be an object; inside it a value is null, one
 // command string, or a list of command strings (several commands run in the order written). Any other value is ignored
 // and named; inside a list an item that is not a string is dropped and named and the others stay. Entry names are kept
-// as read (brunner/button_input.hpp judges them, so a save never erases an entry this version does not understand, and
+// as read (buttons/commands.hpp judges them, so a save never erases an entry this version does not understand, and
 // it writes back the form that was read: a string stays a string, a list stays a list).
 #pragma once
 #include "brunner/core.hpp"

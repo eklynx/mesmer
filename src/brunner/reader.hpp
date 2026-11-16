@@ -1,6 +1,7 @@
 #pragma once
 #include "brunner/core.hpp"
 #include "brunner/link_diagnostics.hpp"
+#include "buttons/input/can_source.hpp"
 #include "brunner/loading.hpp"
 #include "force/buffet.hpp"
 #include "hid/hid_device.hpp"
@@ -57,6 +58,9 @@ public:
     // reply_tolerance_ms). Clamped to 0..max_reply_tolerance_ms; read when a USB session starts.
     void set_reply_tolerance_ms(int ms) {reply_tolerance_ms_=std::clamp(ms,0,max_reply_tolerance_ms);}
     int reply_tolerance_ms() const {return reply_tolerance_ms_;}
+    // The yoke's buttons over the bridge (the CanBus read method, buttons/input/can_source.hpp): attach a sink and enable it;
+    // off, no request for them is made. The reader releases everything at the sink when a USB session ends.
+    buttons::CanSource& can_buttons() {return can_buttons_;}
     // For tests: where the bridge comes from (default: open_bridge(ids), the real device).
     void set_device_factory(std::function<std::unique_ptr<HidDevice>()> factory) {device_factory_=std::move(factory);}
     // Read-only mode (brunner/readonly.hpp): every request that could write to the yoke is
@@ -142,6 +146,7 @@ private:
     void run();
     void session(Snapshot& s);
     std::atomic<int> reply_tolerance_ms_{default_reply_tolerance_ms};
+    buttons::CanSource can_buttons_;
     LinkDiagnostics link_diagnostics_;          // the reader thread's; explains a stalled link (bridge.hpp)
     void read_only_session(ReadOnlyBridge& bridge,Snapshot& s,const std::string& why);
     std::mutex presets_mutex_;                  // guards presets_ once the reader runs (update_presets)

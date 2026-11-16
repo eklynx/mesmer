@@ -121,7 +121,7 @@ struct Axis {
 struct Snapshot {
     std::array<Axis,2> axes{}; // roll, pitch
     // The yoke's buttons, slots 1-16: bits 16-31 of node 2's 0x60fd, read in
-    // every sampling cycle (sample_buttons in buttons.hpp). Unset until the
+    // every sampling cycle (buttons/input/can_source.hpp) when the read method is CanBus. Unset until the
     // first read in this USB session, and from a read that failed (why, in
     // button_refusal) until one succeeds, tried from button_retry on: the
     // buttons never stop pitch, roll or force feel.

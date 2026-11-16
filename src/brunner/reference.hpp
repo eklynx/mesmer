@@ -1,5 +1,6 @@
 #pragma once
 #include "brunner/core.hpp"
+#include "buttons/input/can_layout.hpp"
 #include <vector>
 #include <atomic>
 #include <thread>
@@ -22,6 +23,13 @@ inline bool reference_register(Register r) {
         || (r.index==center_mode.index && r.sub==center_mode.sub)))
         || (r.bytes==4 && r.index==center_position.index && r.sub==0);
 }
+// The registers the yoke's buttons are read from (buttons/input/can_layout.hpp): READ ONLY, never written. 0x60fd:00 is the
+// controller's digital inputs, whose bits 16-31 are the original CLS-E's slots; 0x2880 is the CLS-E NG's own button record,
+// entry 3 its buttons (bit n-1 is button n, 1 to 6) and entry 4 its hat (0 centred, 1 to 8 clockwise from up); found 2026-11-16,
+// docs/dev/button-commands.md. A yoke's preset may only name registers from this list.
+inline bool button_register(Register r) {
+    return r.bytes!=0 && buttons::can_register_bytes(r.index,r.sub)==r.bytes;
+}
 inline bool loading_read_register(Register r) {
     return (r.index==0x2113 && r.sub>=1 && r.sub<=18 && r.bytes==2)
         || (r.index==0x20a1 && r.sub>=1 && r.sub<=18 && r.bytes==4)
@@ -42,13 +50,13 @@ inline Report reference_write_request(unsigned node, const RegisterWrite& op, st
     return r;
 }
 inline Report reference_read_request(unsigned node,Register reg,std::uint16_t counter) {
-    if (!reference_register(reg) && !loading_read_register(reg)) throw std::invalid_argument("Unsupported controller read register");
+    if (!reference_register(reg) && !loading_read_register(reg) && !button_register(reg)) throw std::invalid_argument("Unsupported controller read register");
     auto r=read_request(node,Object::status,counter);
     r[7]=static_cast<std::uint8_t>(reg.index);r[8]=static_cast<std::uint8_t>(reg.index>>8);r[9]=reg.sub;
     return r;
 }
 inline std::optional<std::uint32_t> reference_reply(const Report& r,unsigned node,Register reg,bool written) {
-    if (node<1 || node>2 || (!reference_register(reg) && !loading_read_register(reg))) throw std::invalid_argument("Unsupported controller transaction");
+    if (node<1 || node>2 || (!reference_register(reg) && !loading_read_register(reg) && !button_register(reg))) throw std::invalid_argument("Unsupported controller transaction");
     // Reuse transport validation for all slots before interpreting an acknowledgement.
     (void)read_reply(r,node,Object::firmware);
     const unsigned kind=r[1]>>4,count=r[1]&15;
@@ -60,10 +68,10 @@ inline std::optional<std::uint32_t> reference_reply(const Report& r,unsigned nod
         const auto* d=slot+2;
         if (u16(d+1)!=reg.index || d[3]!=reg.sub) continue;
         if (d[0]==0x80) throw SdoAbort(u32(d+4));
-        const auto command=written?0x60:reg.bytes==2?0x4b:0x43;
+        const auto command=written?0x60:reg.bytes==1?0x4f:reg.bytes==2?0x4b:0x43;   // expedited upload: 0x43 four bytes, 0x4b two, 0x4f one
         if (d[0]!=command) throw std::runtime_error("Unexpected reference acknowledgement");
         if (result) throw std::runtime_error("Duplicate reference acknowledgement");
-        result=written?0:reg.bytes==2?u16(d+4):u32(d+4);
+        result=written?0:reg.bytes==1?d[4]:reg.bytes==2?u16(d+4):u32(d+4);
     }
     return result;
 }
