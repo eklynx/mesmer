@@ -5,7 +5,7 @@
 #include "brunner/loading.hpp"
 #include "force/buffet.hpp"
 #include "hid/hid_device.hpp"
-#include "brunner/yoke_preset.hpp"
+#include "config/yoke/yoke_preset.hpp"
 #include <algorithm>
 #include <atomic>
 #include <functional>
@@ -52,13 +52,13 @@ public:
     // session start reads them, so a reconnect keeps the change. The USB ids are not touched, so `presets`
     // must name the same ids. Safe from any thread.
     void update_presets(std::vector<YokePreset> presets) {std::lock_guard<std::mutex> lock(presets_mutex_);presets_=std::move(presets);}
-    // The owner's acknowledgement (Developer menu, brunner/owner_state.hpp): drive a model whose preset is not verified.
+    // The owner's acknowledgement (Developer menu, config/state/owner_state.hpp): drive a model whose preset is not verified.
     void set_allow_unverified(bool allow) {allow_unverified_=allow;}
     // How long the steady sampling loops tolerate a silent yoke before the link counts as lost (brunner/core.hpp,
     // reply_tolerance_ms). Clamped to 0..max_reply_tolerance_ms; read when a USB session starts.
     void set_reply_tolerance_ms(int ms) {reply_tolerance_ms_=std::clamp(ms,0,max_reply_tolerance_ms);}
     int reply_tolerance_ms() const {return reply_tolerance_ms_;}
-    // The yoke's buttons over the bridge (the CanBus read method, buttons/input/can_source.hpp): attach a sink and enable it;
+    // The yoke's buttons over the bridge (buttons/input/can_source.hpp): attach a sink and enable it;
     // off, no request for them is made. The reader releases everything at the sink when a USB session ends.
     buttons::CanSource& can_buttons() {return can_buttons_;}
     // For tests: where the bridge comes from (default: open_bridge(ids), the real device).

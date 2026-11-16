@@ -3,7 +3,7 @@
 // docs/dev/button-commands.md. Plain C++, no operating-system code: checked by buttons/vjoy_tests.cpp on every platform.
 // The feeders are per operating system (Windows: buttons/actions/win/vjoy_win.hpp, Brunner's signed vJoy driver, one
 // device of 32 buttons); the action that uses all of it is buttons/actions/vjoy_action.hpp. The word it presses is the
-// ButtonHub's vjoy_word: bit n-1 for virtual joystick button n, where a control's number is its CAN slot (controls.hpp).
+// ButtonHub's vjoy_word: bit n-1 for virtual joystick button n, where a control's number is its button number, 17 up for the hat positions (controls.hpp).
 #pragma once
 #include "buttons/state.hpp"
 #include <algorithm>

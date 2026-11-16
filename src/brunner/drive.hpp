@@ -1,5 +1,5 @@
 // SOURCE OF TRUTH for the numbers the force models and the drive writes use:
-// the active Drive, derived from a yoke model's preset (brunner/yoke_preset.hpp) and
+// the active Drive, derived from a yoke model's preset (config/yoke/yoke_preset.hpp) and
 // the controller's own limit registers. Specification: docs/dev/yoke-presets.md.
 //
 // Every use reads active_drive(); nothing is passed around, so no call can
@@ -18,7 +18,7 @@
 // drive never dangles. A mixed moment (a value computed under the old drive,
 // checked under the new) can only be refused by the checks, never accepted wrongly.
 #pragma once
-#include "brunner/yoke_preset.hpp"
+#include "config/yoke/yoke_preset.hpp"
 #include <algorithm>
 #include <atomic>
 #include <cmath>

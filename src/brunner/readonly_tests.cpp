@@ -2,8 +2,8 @@
 // the plugin does not drive. The point of most of them is the guarantee: on such
 // firmware nothing but read requests is ever sent to a controller. No hardware.
 #include "brunner/bridge.hpp"
-#include "config.hpp"
-#include "brunner/owner_state.hpp"
+#include "config/ini/config.hpp"
+#include "config/state/owner_state.hpp"
 #include "brunner/readonly.hpp"
 #include "brunner/reader.hpp"
 #include "brunner/yoke.hpp"
@@ -782,8 +782,8 @@ void the_tolerance_is_clamped() {
     reader.set_reply_tolerance_ms(750);check(reader.reply_tolerance_ms()==750);
 }
 
-// The CanBus read of the yoke's buttons (buttons/input/can_source.hpp), through the real reader: the register is only read when the
-// source is enabled and has a sink; the slots are published in CAN numbering; a session ending releases everything.
+// The read of the yoke's buttons (buttons/input/can_source.hpp), through the real reader: the register is only read when the
+// source is enabled and has a sink; the slots are published; a session ending releases everything.
 struct RecordingSink final : buttons::ButtonSink {
     std::mutex mutex;
     std::vector<buttons::ButtonState> states;int releases=0;
@@ -801,7 +801,7 @@ void the_can_buttons_are_read_only_when_enabled() {
     const auto slots_2_and_3=[](ControllerFake& fake) {
         fake.regs[ControllerFake::key(2,0x2880,3)]=0b110u;fake.regs[ControllerFake::key(2,0x2880,4)]=3u;   // buttons 2 and 3, hat east
     };
-    {   // The HID read method: the register is never asked for, though a source and a sink exist.
+    {   // Not enabled: the register is never asked for, though a sink exists.
         RecordingSink sink;                                                         // declared first: it must outlive the reader, which tells it when it stops
         Run run({0x25bb,0x008b},slots_2_and_3);
         run.reader.can_buttons().attach(&sink);
@@ -818,7 +818,7 @@ void the_can_buttons_are_read_only_when_enabled() {
         run.reader.stop();
         check(requests_for(run.sent,0x2880)==0 && requests_for(run.sent,0x60fd)==0);
     }
-    {   // CanBus on the NG: buttons 2 and 3 and the hat published together in every cycle (two reads a cycle), and everything released when the session ends.
+    {   // The NG: buttons 2 and 3 and the hat published together in every cycle (two reads a cycle), and everything released when the session ends.
         RecordingSink sink;
         Run run({0x25bb,0x008b},slots_2_and_3);
         run.reader.can_buttons().attach(&sink);run.reader.can_buttons().enable(true);

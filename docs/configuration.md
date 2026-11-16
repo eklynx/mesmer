@@ -11,7 +11,8 @@ The yoke models (`yokes/*.json`) and your optional overrides of them are develop
 settings: see [advanced configuration](dev/advanced-configuration.md).
 
 Your own startup choices that an update must not replace go in
-[`BrunnerDirect.state.json`](#brunnerdirectstatejson), in X-Plane's `Output` folder.
+[`BrunnerDirect.state.json`](#brunnerdirectstatejson), in X-Plane's `Output` folder, and what each
+aircraft's yoke buttons do can be changed per aircraft in [`aircraft/<id>.json`](#aircraftidjson) beside it.
 
 A third, `BrunnerDirect.feel.ini`, is written by the feel page's *Save*
 button. It overlays the drive calibration and the elevator figures you saved
@@ -66,6 +67,7 @@ starts, after the ini.
 | `version` | 1 | Required. A file without `"version":1` is ignored whole. |
 | `auto_start` | `true` or `false` | Overrides the ini's `auto_start`. With `true` the plugin centres the yoke by itself soon after X-Plane starts, so **keep clear of the yoke and read [SAFETY.md](../SAFETY.md) first**. |
 | `force_feel` | `true` or `false` | Overrides the ini's `force_feel`: whether force feel is on when X-Plane starts. |
+| `button_commands` | an object | What each control of the yoke does, as X-Plane commands: `"button_1": "sim/view/default_view"`. Nothing is bound until you write it. See [The yoke's buttons](buttons.md#commands-on-the-yoke-buttons). |
 
 A key you leave out keeps the ini's value, so the ini is still where the defaults are and the state
 file only changes what you name. The values are the words `true` and `false`, not 1, 0 or text.
@@ -77,6 +79,59 @@ the log says so: `auto_start 1 from BrunnerDirect.state.json (BrunnerDirect.ini:
 The plugin never changes your two settings: switching force feel on or off in the menu is for
 this session only. The file also holds a developer setting the plugin writes itself; it keeps your
 keys when it does ([advanced configuration](dev/advanced-configuration.md)).
+
+## `aircraft/<id>.json`
+
+Different yoke-button commands for one aircraft, in
+`X-Plane 12/Output/BrunnerDirect/aircraft/`, a folder you make yourself, one small file per
+aircraft. Like the state file it is yours: updating the plugin never touches it, and it is optional.
+
+The file is named after the aircraft. The plugin looks for, in this order, and uses the first it finds:
+
+1. the name of the aircraft's **`.acf` file**, such as `Cessna_172SP.json` for `Cessna_172SP.acf`, then
+2. the aircraft's **ICAO type code** as X-Plane reports it, such as `C172.json` or `A320.json`.
+
+So a file for one aircraft wins over a file for its whole type: with both `Cessna_172SP.json` and `C172.json`, that Cessna uses the first, and
+any other Cessna 172 add-on falls through to `C172.json`.
+
+```json
+{
+  "version": 1,
+  "button_commands": {
+    "button_1": "sim/operation/contact_atc",
+    "hat_n_hold": ["sim/general/rot_up"],
+    "button_5_hold": null
+  }
+}
+```
+
+| Key | Values | What it does |
+|---|---|---|
+| `version` | 1 | Required. A file without `"version":1` is ignored whole, and `Log.txt` says so. |
+| `button_commands` | an object | Written exactly like the one in `BrunnerDirect.state.json` ([The yoke's buttons](buttons.md#commands-on-the-yoke-buttons)). |
+
+**An aircraft's commands replace yours, they do not add to them.** Say your state file makes `button_1` run `sim/view/default_view`. An
+aircraft file that gives `button_1` a command makes it run *that* instead, on that aircraft, and not both. Anything the aircraft file does
+not mention stays as your state file has it, and a control the state file does not bind can be given a command here. To switch a command off
+for one aircraft, give it `null` (or `""`, or `[]`).
+
+**Pressed, let go and held are three separate entries, and each is replaced only by an entry of its own.** A control can have a command for
+being pressed (`button_1`), one for being let go (`button_1_released`) and one for being held (`button_1_hold`). An aircraft entry changes
+just the one it names, and **never unsets or replaces the other two**:
+
+| Your state file has | The aircraft file gives | On that aircraft |
+|---|---|---|
+| `button_1`, `button_1_released`, `button_1_hold` | `button_1` | the aircraft's command when pressed; **your released and held commands still run** |
+| the same three | `button_1_hold` | the aircraft's held command; your pressed and released commands still run |
+| the same three | `button_1_released: null` | nothing when let go; your pressed and held commands still run |
+| `button_1` only | `button_1_hold` | your pressed command **and** the aircraft's held command (the aircraft added one the state file did not have) |
+
+So to give an aircraft a completely different button, name all three that you use: replace the ones it should change and set the others to
+`null`. Naming only the pressed command leaves any `_released` or `_hold` command of yours in place.
+
+The plugin reads the file when X-Plane loads or changes the aircraft, so after editing it, reload the aircraft. `Log.txt` says
+which file was used, for example `Aircraft button commands: aircraft/C172.json (3 entries)`. Anything it cannot use is ignored on its own and
+named there; a key other than `version` and `button_commands` is ignored too.
 
 ## BrunnerDirect.profiles.json
 

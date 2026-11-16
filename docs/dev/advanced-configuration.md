@@ -20,7 +20,7 @@ settings are in [configuration](../configuration.md).
 ## The state file
 
 `Output/BrunnerDirect/BrunnerDirect.state.json` in X-Plane's folder (so updating the plugin keeps
-it). Source of truth: `src/brunner/owner_state.hpp`. The two startup overrides, `auto_start` and
+it). Source of truth: `src/config/state/owner_state.hpp`. The two startup overrides, `auto_start` and
 `force_feel`, are standard use and documented in [configuration](../configuration.md#brunnerdirectstatejson);
 this section is the format and the rules.
 
@@ -55,17 +55,16 @@ Rules:
 
 The yoke's controls can each run an X-Plane command. Source of truth: [button-commands.md](button-commands.md). Add a
 `button_commands` object to `BrunnerDirect.state.json`; every entry is optional, and anything you leave out (or set to `null` or
-`""`) does nothing. It is read when the plugin loads, so restart X-Plane after editing. The commands run when
-the yoke's action is `Direct` (the CLS-E NG's; the original CLS-E's is `VJoy` on Windows, so give its preset `"button_action_method": "Direct"` to use commands there, [below](#button-read-and-action-methods)).
-**Leave X-Plane's own bindings for these controls unset** when a preset reads the NG's joystick (`HID`): X-Plane sees the same joystick,
-and the yoke sometimes sends glitched reports that Mesmer ignores but X-Plane does not.
+`""`) does nothing. It is read when the plugin loads, so restart X-Plane after editing. The commands run when the yoke's action is
+`Direct` (the CLS-E NG's; the original CLS-E's is `VJoy` on Windows, so give its preset `"button_action_method": "Direct"` to use
+commands there, [below](#the-button-action)).
 
 A press runs the command once; holding does not repeat. To run something when a control is *released*, use the
-same key with `_released` added (`hid_button_1_released`, `hat_n_released`): it runs once when the button is let go,
+same key with `_released` added (`button_1_released`, `hat_n_released`): it runs once when the button is let go,
 or the hat leaves that position. Every `_released` key is optional and does nothing by default.
 
 For a command that should act **while the control is held** (trim, brakes, push to talk, panning the view), use
-the key with `_hold` added (`hid_button_4_hold`, `hat_w_hold`): the command is begun when the control is pressed and
+the key with `_hold` added (`button_4_hold`, `hat_w_hold`): the command is begun when the control is pressed and
 ended when it is let go (`XPLMCommandBegin` / `XPLMCommandEnd`), so it keeps acting in between. The plain key runs
 once instead (`XPLMCommandOnce`), which suits flaps and toggles. A control may have all three. If the yoke
 disconnects or the plugin is disabled while something is held, the held command is ended. A command that the
@@ -74,23 +73,20 @@ not ended and begun again.
 
 ### Names
 
-A control can be named three ways, and all three work whichever way the buttons are read: its NG joystick name (`hid_button_N` or a
-hat position), its CAN name (`can_button_N` or `can_hat_*`: the original CLS-E's slots, the NG's own record), and a friendly name from the yoke's
+A control can be named two ways, and both work: its own name (`button_N`, or a hat position) and a friendly name from the yoke's
 `button_aliases` ([yoke presets](yoke-presets.md)). Names are matched in any case. If two of your keys turn out to be the same
 control, **both run** and `Log.txt` says so at start.
 
-The NG's joystick (read with `HID`), and the friendly names the shipped NG file gives. Note that the hat can pass through a
-neighbouring position for a moment (22 to 44 ms) when moving to or from a diagonal, so a once-command on a straight direction can
-fire on the way to a diagonal; `_hold` entries that list the same commands for the diagonal (as the example below does) hide it:
+The CLS-E NG, with the friendly names its shipped file gives:
 
 | Key | Where on the yoke | Also called | Your notes |
 |---|---|---|---|
-| `hid_button_1` | Trigger | `trigger` | |
-| `hid_button_2` | Top left | `top_left` | |
-| `hid_button_3` | Top right | `top_right` | |
-| `hid_button_4` | Rocker, down | `rocker_down` | |
-| `hid_button_5` | Rocker, up | `rocker_up` | |
-| `hid_button_6` | Hat, pushed in | `hat_push` | |
+| `button_1` | Trigger | `trigger` | |
+| `button_2` | Top left | `top_left` | |
+| `button_3` | Top right | `top_right` | |
+| `button_4` | Rocker, down | `rocker_down` | |
+| `button_5` | Rocker, up | `rocker_up` | |
+| `button_6` | Hat, pushed in | `hat_push` | |
 | `hat_n` | Hat, up | | |
 | `hat_ne` | Hat, up and right | | |
 | `hat_e` | Hat, right | | |
@@ -100,27 +96,26 @@ fire on the way to a diagonal; `_hold` entries that list the same commands for t
 | `hat_w` | Hat, left | | |
 | `hat_nw` | Hat, up and left | | |
 
-The CAN slots (read with `CanBus`; on the original CLS-E bits 16 to 31 of the register `0x60fd`), as the original CLS-E has them. The
-shipped NG file links each of the NG's `hid_button_1` to `hid_button_6` to `can_button_1` to `can_button_6` and each hat position to its
-`can_hat_*` twin, and reads them from its own record `0x2880` ([button-commands.md](button-commands.md#what-each-yoke-has)), so on the
-NG a command under any name fires with either read method. The original CLS-E has no hat switch at all; a CLS-E MK2, reported to have
-one, has no preset yet:
+The NG reads its six buttons and its hat from its own record `0x2880` ([button-commands.md](button-commands.md#what-each-yoke-has)); a model's `button_registers` says where each control is ([yoke presets](yoke-presets.md)).
+
+The original CLS-E has 14 buttons (the slots are bits 16 to 31 of the register `0x60fd`) and no hat switch at all; a CLS-E MK2, reported
+to have one, has no preset yet:
 
 | Key | Control on the original CLS-E | Also called |
 |---|---|---|
-| `can_button_1` | Left grip, index finger | `left_index` |
-| `can_button_2` | Left grip, thumb left | `left_thumb_left` |
-| `can_button_3` | Left grip, thumb right | `left_thumb_right` |
-| `can_button_4` | Left grip rocker, back | `left_rocker_back` |
-| `can_button_5` | Left grip rocker, forward | `left_rocker_forward` |
-| `can_button_7` | Right grip, index finger | `right_index` |
-| `can_button_8` | Right grip, left thumb | `right_thumb_left` |
-| `can_button_9` | Right grip, right thumb | `right_thumb_right` |
-| `can_button_10` | Right grip rocker, back | `right_rocker_back` |
-| `can_button_11` | Right grip rocker, forward | `right_rocker_forward` |
-| `can_button_12` | Panel, middle | `panel_middle` |
-| `can_button_13` | Panel, right | `panel_right` |
-| `can_button_14` | Panel, left | `panel_left` |
+| `button_1` | Left grip, index finger | `left_index` |
+| `button_2` | Left grip, thumb left | `left_thumb_left` |
+| `button_3` | Left grip, thumb right | `left_thumb_right` |
+| `button_4` | Left grip rocker, back | `left_rocker_back` |
+| `button_5` | Left grip rocker, forward | `left_rocker_forward` |
+| `button_7` | Right grip, index finger | `right_index` |
+| `button_8` | Right grip, left thumb | `right_thumb_left` |
+| `button_9` | Right grip, right thumb | `right_thumb_right` |
+| `button_10` | Right grip rocker, back | `right_rocker_back` |
+| `button_11` | Right grip rocker, forward | `right_rocker_forward` |
+| `button_12` | Panel, middle | `panel_middle` |
+| `button_13` | Panel, right | `panel_right` |
+| `button_14` | Panel, left | `panel_left` |
 
 Slot 6 and slots 15 and 16 have no control on the CLS-E. **Leave the three panel buttons alone in flight, and don't bind them**: they
 also work the yoke's own menu.
@@ -140,12 +135,12 @@ commands. The diagonals of the hat combine the directions as there is no diagona
   "version": 1,
   "allow_unverified_yoke": false,
   "button_commands": {
-    "hid_button_1": "sim/operation/contact_atc",
-    "hid_button_2_hold": "sim/autopilot/CWSA ",
-    "hid_button_3": "sim/autopilot/ap_disc_trim_interrupt",
-    "hid_button_4_hold": "sim/flight_controls/pitch_trim_up",
-    "hid_button_5_hold": "sim/flight_controls/pitch_trim_down",
-    "hid_button_6": "sim/view/default_view",
+    "button_1": "sim/operation/contact_atc",
+    "button_2_hold": "sim/autopilot/CWSA",
+    "button_3": "sim/autopilot/ap_disc_trim_interrupt",
+    "button_4_hold": "sim/flight_controls/pitch_trim_up",
+    "button_5_hold": "sim/flight_controls/pitch_trim_down",
+    "button_6": "sim/view/default_view",
     "hat_e_hold": "sim/general/rot_right",
     "hat_n_hold": "sim/general/rot_up",
     "hat_ne_hold": [
@@ -170,45 +165,59 @@ commands. The diagonals of the hat combine the directions as there is no diagona
 }
 ```
 
-## Button read and action methods
+### Button commands for one aircraft
 
-Two fields of a yoke's preset ([yoke presets](yoke-presets.md)) choose where the yoke's buttons are read from and what the plugin
-does with them. Source of truth: [button-commands.md](button-commands.md), `src/buttons/methods.hpp` and `src/brunner/yoke_preset.hpp`. Their
-values are words, in any case (`hid`, `Hid`, `canbus`, `VJOY` all count); anything else refuses the presets file, naming the field.
-Leave them out of a model for the defaults (`CanBus` and `Direct`). What the shipped models say:
+The owner's description is in [Configuration](../configuration.md#aircraftidjson); this is the full rule. Each aircraft can change what the controls do for it. Put a file in `Output/BrunnerDirect/aircraft/` in X-Plane's folder (beside
+`BrunnerDirect.state.json`, so an update never replaces it), one per aircraft, named by the id X-Plane gives it. The plugin tries, in order:
 
-| Model | `button_read_method` | `button_action_method` |
-|---|---|---|
-| Original CLS-E | `CanBus` | `VJoy` |
-| CLS-E NG | `CanBus` | `Direct` |
+1. the name of the **`.acf` file** X-Plane loaded, `<name>.json` (`Cessna_172SP.json` for `Cessna_172SP.acf`), then
+2. the aircraft's **ICAO type code**, `<ICAO>.json` (X-Plane's `sim/aircraft/view/acf_ICAO`: `C172.json`, `A320.json`), for an aircraft with no file of its own,
 
-| `button_read_method` | The buttons are read |
+and uses the first that exists. A character in the id that is not a letter, a digit, `_`, `-` or `.` is written `_` in the file name, so an
+id can never name a path. `Log.txt` says which file was used (`Aircraft button commands: aircraft/C172.json (3 entries)`). The file is
+read when X-Plane loads or changes the aircraft: edit it, then reload the aircraft.
+
+```json
+{
+  "version": 1,
+  "button_commands": {
+    "button_1": "sim/operation/contact_atc",
+    "hat_n_hold": ["sim/general/rot_up"],
+    "button_5_hold": null
+  }
+}
+```
+
+`"version"` is required and is `1` (as in the state file): a file without it, or with another number, is ignored whole and `Log.txt` says
+so. The `button_commands` section is exactly the state file's (the same names, the same string, list or `null` values). Nothing else
+belongs in the file: any other key is ignored and named in `Log.txt`.
+
+**An aircraft's entries override the state file's, they do not add to them.** For each control and variant (the plain entry, `_released`,
+`_hold`) the aircraft names, what the state file gives that control and variant is dropped and the aircraft's commands run in its place, so
+the same press never runs both. `null`, `""` or `[]` means *no command* for that control on this aircraft, which switches off one the state
+file binds. Everything the aircraft does not name keeps the state file's commands, and an entry for a control the state file does not bind
+is simply used. **The three variants are independent**: an aircraft's `button_1` replaces only the state file's press command, never its
+`button_1_released` or `button_1_hold`, which keep running; each is replaced, or switched off with `null`, only by its own entry
+(`button_1_released`, `button_1_hold`). Two names of one control (`trigger` and `button_1`) are one control, whichever file names them. `Log.txt` says how many
+controls an aircraft replaced.
+
+## The button action
+
+A field of a yoke's preset ([yoke presets](yoke-presets.md)), `button_action_method`, chooses what the plugin does with the yoke's
+buttons. Source of truth: [button-commands.md](button-commands.md), `src/buttons/methods.hpp` and `src/config/yoke/yoke_preset.hpp`. Its
+value is a word, in any case (`vjoy`, `Direct`, `VJOY` all count); anything else refuses the presets file, naming the field. Leave it
+out of a model for the default (`Direct`). What the shipped models say:
+
+| Model | `button_action_method` |
 |---|---|
-| `CanBus` | over the yoke's bridge, from the registers its model names (the original CLS-E's `0x60fd`; the NG's `0x2880`, which has its hat too), in every sampling cycle. Works on the original CLS-E and the NG, and needs no second interface. Names: `can_button_N`, `can_hat_*`. |
-| `HID` | from the NG's own joystick HID reports, shared with X-Plane and read-only. Needs a yoke whose USB has a joystick interface (the CLS-E NG). Names: `hid_button_N` and the hat positions. |
+| Original CLS-E | `VJoy` |
+| CLS-E NG | `Direct` |
 
 | `button_action_method` | The plugin |
 |---|---|
 | `VJoy` | presses the buttons of a virtual joystick, which you bind in X-Plane's Joystick screen ([The yoke's buttons](../buttons.md)). Windows only for now: elsewhere a model asking for it gets `Direct`, and `Log.txt` says so. |
 | `Direct` | runs the X-Plane commands in [`button_commands`](#button-commands). |
 
-Every combination works where the operating system allows: `CanBus` with `Direct` runs commands from the original CLS-E's slots,
-`HID` with `VJoy` feeds the virtual joystick from the NG's reports, and a virtual joystick's button numbers are the same either way
-(a control's CAN slot number; controls with none take 17 and up). Nothing is read, and nothing is opened, unless something uses
-the buttons: `VJoy`, or at least one command. When the yoke's model is known, `Log.txt` says which read method and action are in use.
-macOS and Linux gain `VJoy` when a virtual joystick is written for them.
-
-## `BrunnerDirect.ini` keys that are developer-only or retired
-
-| Key | Default | Range | Meaning |
-|---|---|---|---|
-| `read_only_roll_reverse` | 0 | 0 or 1 | Read-only mode only ([read-only mode](read-only-mode.md)): 1 flips the roll direction of the learned travel. Optional. |
-| `read_only_pitch_reverse` | 0 | 0 or 1 | Likewise for pitch. Optional. |
-| `allow_unverified_yoke` | – | – | Retired: replaced by the Developer menu choice in the state file above. An ini that still has the line loads, and `Log.txt` says it is ignored. |
-
-## Fixing a travel the controller will not hold
-
-`Readback mismatch ... register=2116:0 expected=N actual=M` in `Log.txt` means the controller
-held a resting point at M instead of N: its own limit is lower than the model's travel, so force
-feel stopped. Lower that axis's `pitch_travel_counts` or `roll_travel_counts` for the model in
-`BrunnerDirect.yokes.json` to M or less (and tell us the number).
+A virtual joystick's button numbers are the controls' button numbers (hat positions take 17 to 24). Nothing is read unless something
+uses the buttons: `VJoy`, or at least one command. When the yoke's model is known, `Log.txt` says which action is in use. macOS and
+Linux gain `VJoy` when a virtual joystick is written for them.

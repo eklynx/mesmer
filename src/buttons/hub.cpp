@@ -3,13 +3,12 @@
 
 namespace buttons {
 ButtonHub::ButtonHub()
-    : map_(std::make_shared<const ControlMap>()), detector_(map_, read_) {}
+    : map_(std::make_shared<const ControlMap>()), detector_(map_) {}
 
-void ButtonHub::configure(std::shared_ptr<const ControlMap> map, ReadMethod read) {
+void ButtonHub::configure(std::shared_ptr<const ControlMap> map) {
     const std::lock_guard<std::mutex> lock(mutex_);
     map_ = std::move(map);
-    read_ = read;
-    detector_ = EdgeDetector(map_, read_);
+    detector_ = EdgeDetector(map_);
     edges_.clear();
     state_.reset();
 }
@@ -39,10 +38,9 @@ std::vector<Edge> ButtonHub::take_edges() {
 std::optional<std::uint32_t> ButtonHub::vjoy_word(Clock::time_point now) const {
     const std::lock_guard<std::mutex> lock(mutex_);
     if (!state_) return std::nullopt;
-    if (read_ == ReadMethod::can_bus && now > stamp_ && now - stamp_ > can_freshness) return std::nullopt;
+    if (now > stamp_ && now - stamp_ > freshness) return std::nullopt;
     std::uint32_t word = 0;
-    for (const int control : pressed_controls(*map_, read_, *state_))
-        if (const int button = map_->vjoy_button(control)) word |= 1u << (button - 1);   // 0: no virtual button
+    for (const int control : pressed_controls(*map_, *state_)) word |= 1u << (map_->vjoy_button(control) - 1);
     return word;
 }
 

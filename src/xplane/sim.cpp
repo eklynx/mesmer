@@ -20,6 +20,7 @@ void Sim::bind_surfaces() {
     vertical_=XPLMFindDataRef("sim/flightmodel/position/vh_ind_fpm");
     flaps_=XPLMFindDataRef("sim/flightmodel2/wing/flap1_deg");
     aircraft_name_ref_=XPLMFindDataRef("sim/aircraft/view/acf_ui_name");
+    aircraft_icao_ref_=XPLMFindDataRef("sim/aircraft/view/acf_ICAO");
     panel_speed_=XPLMFindDataRef("sim/flightmodel2/wing/elements/element_speed_msc");
     panel_area_=XPLMFindDataRef("sim/flightmodel2/wing/elements/element_surface_area_mtr_sq");
     air_density_=XPLMFindDataRef("sim/weather/rho");
@@ -29,6 +30,9 @@ void Sim::bind_surfaces() {
     std::array<char,251> name{};
     if (aircraft_name_ref_) XPLMGetDatab(ref(aircraft_name_ref_),name.data(),0,250);
     aircraft_name_=name.data();
+    std::array<char,48> icao{};   // read here with the name: the datarefs are found just above, after identify_aircraft()
+    if (aircraft_icao_ref_) XPLMGetDatab(ref(aircraft_icao_ref_),icao.data(),0,static_cast<int>(icao.size())-1);
+    aircraft_icao_=icao.data();
 }
 
 void Sim::bind_controls() {
@@ -47,7 +51,7 @@ void Sim::bind_controls() {
     flight_clock_=XPLMFindDataRef("sim/time/total_flight_time_sec");
 }
 
-// The user's aircraft: its file picks its profile (force/profiles.hpp); the stock
+// The user's aircraft: its file picks its profile (config/aircraft/profiles.hpp); the stock
 // C172 SP's also selects roll's airflow and the page's C172 details.
 void Sim::identify_aircraft() {
     char name[256]{},path[1024]{};

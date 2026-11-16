@@ -91,22 +91,15 @@ the yoke off loses its position reference, so it must find its centre again.
 **Pitch or roll are reversed.** Please report it with your yoke's model and
 firmware.
 
-### Buttons are pressed by themselves
-
-If buttons or the hat in X-Plane seem to press themselves at random, with nobody touching the yoke, **update the yoke's firmware**.
-The CLS-E NG's older firmware could send false button reports, and the newest firmware no longer does. After an update the plugin
-may say the firmware is not one it has verified; see [yoke presets](dev/yoke-presets.md#gates) for what that changes.
-
 ### The yoke's buttons don't reach X-Plane
 
-Search `Log.txt` for `Yoke buttons` and `Joystick buttons`. When the yoke's model is known, a line says which way its buttons are read and
-used (`Yoke buttons: Brunner CLS-E: read method CanBus, action VJoy`), as its preset says
-([advanced configuration](dev/advanced-configuration.md#button-read-and-action-methods)). With the action
+Search `Log.txt` for `Yoke buttons`. When the yoke's model is known, a line says which action its buttons use
+(`Yoke buttons: Brunner CLS-E: action VJoy`), as its preset says
+([advanced configuration](dev/advanced-configuration.md#the-button-action)). With the action
 `Direct`, the buttons run the commands in `button_commands`: if nothing runs, check that it has entries (`Log.txt` says
-`no button_commands configured` when it has none) and that its names are controls of your yoke (it notes each one that is not, and
-each one the read method cannot see). `Joystick buttons:` lines are the NG's joystick interface (only a preset whose read method is `HID` opens it): no joystick interface, or
-macOS refusing access, is said there. `Yoke buttons not read:` is the controller refusing the register (`CanBus`). The rest of this
-section is about the virtual joystick (`VJoy`), the Windows default.
+`no button_commands configured` when it has none) and that its names are controls of your yoke (it notes each one that is not).
+`Yoke buttons not read:` is the controller refusing the register. The rest of this
+section is about the virtual joystick (`VJoy`), the original CLS-E's action on Windows.
 
 While they work it reads
 `Yoke buttons: pressing vJoy device 1's 32 buttons`; otherwise

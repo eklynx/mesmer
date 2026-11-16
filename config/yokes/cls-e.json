@@ -65,24 +65,35 @@
       "roll_input_reverse": true,
       "pitch_input_reverse": false,
       "button_aliases": {
-        "left_index": ["can_button_1"],
-        "left_thumb_left": ["can_button_2"],
-        "left_thumb_right": ["can_button_3"],
-        "left_rocker_back": ["can_button_4"],
-        "left_rocker_forward": ["can_button_5"],
-        "right_index": ["can_button_7"],
-        "right_thumb_left": ["can_button_8"],
-        "right_thumb_right": ["can_button_9"],
-        "right_rocker_back": ["can_button_10"],
-        "right_rocker_forward": ["can_button_11"],
-        "panel_middle": ["can_button_12"],
-        "panel_right": ["can_button_13"],
-        "panel_left": ["can_button_14"]
+        "button_1": ["left_index"],
+        "button_2": ["left_thumb_left"],
+        "button_3": ["left_thumb_right"],
+        "button_4": ["left_rocker_back"],
+        "button_5": ["left_rocker_forward"],
+        "button_7": ["right_index"],
+        "button_8": ["right_thumb_left"],
+        "button_9": ["right_thumb_right"],
+        "button_10": ["right_rocker_back"],
+        "button_11": ["right_rocker_forward"],
+        "button_12": ["panel_middle"],
+        "button_13": ["panel_right"],
+        "button_14": ["panel_left"]
       },
-      "button_read_method": "CanBus",
       "button_action_method": "VJoy",
       "button_registers": {
-        "buttons": {"object": "0x60FD", "sub": 0, "shift": 16, "bits": 16}
+        "button_1": {"node": 2, "object": "0x60FD", "sub": 0, "mask": "0x00010000"},
+        "button_2": {"node": 2, "object": "0x60FD", "sub": 0, "mask": "0x00020000"},
+        "button_3": {"node": 2, "object": "0x60FD", "sub": 0, "mask": "0x00040000"},
+        "button_4": {"node": 2, "object": "0x60FD", "sub": 0, "mask": "0x00080000"},
+        "button_5": {"node": 2, "object": "0x60FD", "sub": 0, "mask": "0x00100000"},
+        "button_7": {"node": 2, "object": "0x60FD", "sub": 0, "mask": "0x00400000"},
+        "button_8": {"node": 2, "object": "0x60FD", "sub": 0, "mask": "0x00800000"},
+        "button_9": {"node": 2, "object": "0x60FD", "sub": 0, "mask": "0x01000000"},
+        "button_10": {"node": 2, "object": "0x60FD", "sub": 0, "mask": "0x02000000"},
+        "button_11": {"node": 2, "object": "0x60FD", "sub": 0, "mask": "0x04000000"},
+        "button_12": {"node": 2, "object": "0x60FD", "sub": 0, "mask": "0x08000000"},
+        "button_13": {"node": 2, "object": "0x60FD", "sub": 0, "mask": "0x10000000"},
+        "button_14": {"node": 2, "object": "0x60FD", "sub": 0, "mask": "0x20000000"}
       }
     }
   ]

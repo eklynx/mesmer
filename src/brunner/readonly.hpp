@@ -20,8 +20,8 @@
 // whatever the status says.
 #pragma once
 #include "brunner/core.hpp"
-#include "json.hpp"
-#include "brunner/yoke_preset.hpp"
+#include "config/json.hpp"
+#include "config/yoke/yoke_preset.hpp"
 #include <algorithm>
 #include <array>
 #include <cstdint>
@@ -31,7 +31,7 @@
 namespace brunner {
 // Why a yoke is read-only, if it is. A model whose preset is not verified is only driven
 // when the owner has acknowledged it (Developer > Allow unverified yoke models; saved
-// state in brunner/owner_state.hpp).
+// state in config/state/owner_state.hpp).
 // Firmware never decides this: a firmware outside the preset's verified list is noted
 // in the log and the Force Monitor, nothing more.
 inline std::optional<std::string> read_only_reason(const YokePreset& preset,bool allow_unverified) {

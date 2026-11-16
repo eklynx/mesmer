@@ -4,9 +4,10 @@
 // flies one: its own, matched by aircraft file, else the default (the stock
 // C172 SP). The plugin reloads the file when it changes; one that does not
 // parse is refused whole and the figures already flown stay.
+#include "config/aircraft/aircraft_errors.hpp"
 #include "force/aileron.hpp"
 #include "force/elevator.hpp"
-#include "json.hpp"
+#include "config/json.hpp"
 #include <array>
 #include <optional>
 #include <string>
@@ -98,42 +99,42 @@ inline const FigureSpec* settable_figure(std::string_view key) {
 struct ProfileError:std::runtime_error {using std::runtime_error::runtime_error;};
 inline ProfileSet parse_profiles(std::string_view text) {
     Json root;
-    try {root=parse_json(text);} catch (const JsonError& e) {throw ProfileError(std::string("not JSON: ")+e.what());}
+    try {root=parse_json(text);} catch (const JsonError& e) {throw ProfileError(aircraft_errors::not_json(e.what()));}
     const auto fail=[](const std::string& why) {throw ProfileError(why);};
     const auto need=[&](const Json& o,const char* key,Json::Kind kind,const std::string& where)->const Json& {
         const auto* v=o.get(key);
-        if (!v || v->kind!=kind) fail(where+" needs "+key);
+        if (!v || v->kind!=kind) fail(aircraft_errors::needs(where,key));
         return *v;
     };
-    if (root.kind!=Json::Kind::object) fail("not an object");
-    for (const auto& m:root.members) if (m.first!="schema" && m.first!="default" && m.first!="profiles") fail("unknown key "+m.first);
+    if (root.kind!=Json::Kind::object) fail(aircraft_errors::not_an_object);
+    for (const auto& m:root.members) if (m.first!="schema" && m.first!="default" && m.first!="profiles") fail(aircraft_errors::unknown_key(m.first));
     // Schema 2 (2026-11-09): every profile has its ailerons. Schema 1, the
     // elevator alone, is refused: roll has no other feel (decision 6).
-    if (need(root,"schema",Json::Kind::integer,"the file").integer!=2) fail("unsupported schema");
+    if (need(root,"schema",Json::Kind::integer,"the file").integer!=2) fail(aircraft_errors::unsupported_schema);
     ProfileSet set;
     set.default_name=need(root,"default",Json::Kind::string,"the file").text;
     for (const auto& entry:need(root,"profiles",Json::Kind::object,"the file").members) {
         const auto& name=entry.first;const auto& p=entry.second; // lambdas capture these (no captured bindings in C++17)
         const std::string where="profile "+name;
-        if (name.empty() || p.kind!=Json::Kind::object) fail(where+" is not an object");
+        if (name.empty() || p.kind!=Json::Kind::object) fail(aircraft_errors::profile_not_an_object(where));
         Profile out;out.name=name;
         for (const auto& m:p.members) if (m.first!="aircraft" && m.first!="tail_sections" && m.first!="elevator" && m.first!="aileron_sections" && m.first!="aileron"
             && m.first!="wing_root_sections")
-            fail(where+": unknown key "+m.first);
+            fail(aircraft_errors::profile_unknown_key(where,m.first));
         for (const auto& a:need(p,"aircraft",Json::Kind::array,where).items) {
-            if (a.kind!=Json::Kind::string || a.text.empty() || a.text.size()>512) fail(where+": an aircraft is not a path");
+            if (a.kind!=Json::Kind::string || a.text.empty() || a.text.size()>512) fail(aircraft_errors::aircraft_not_a_path(where));
             out.aircraft.push_back(a.text);
         }
         const auto sections=[&](const char* key)->std::optional<std::array<int,2>> {
             const auto* t=p.get(key);
             if (!t) return {};
-            if (t->kind!=Json::Kind::array || t->items.size()!=2) fail(where+": "+key+" needs two wings");
+            if (t->kind!=Json::Kind::array || t->items.size()!=2) fail(aircraft_errors::sections_need_two_wings(where,key));
             std::array<int,2> wings{};
             for (std::size_t i=0;i<2;++i) {
-                if (t->items[i].kind!=Json::Kind::integer || t->items[i].integer<0 || t->items[i].integer>9) fail(where+": a section of "+key+" is not a wing 0-9");
+                if (t->items[i].kind!=Json::Kind::integer || t->items[i].integer<0 || t->items[i].integer>9) fail(aircraft_errors::section_not_a_wing(where,key));
                 wings[i]=static_cast<int>(t->items[i].integer);
             }
-            if (wings[0]==wings[1]) fail(where+": "+key+" names one wing twice");
+            if (wings[0]==wings[1]) fail(aircraft_errors::sections_same_wing(where,key));
             return wings;
         };
         out.tail_sections=sections("tail_sections");
@@ -145,38 +146,38 @@ inline ProfileSet parse_profiles(std::string_view text) {
             for (const auto& m:block.members) {
                 bool known=false;
                 for (const auto& spec:table) known=known || m.first==spec.key;
-                if (!known) fail(where+": unknown "+key+" figure "+m.first);
+                if (!known) fail(aircraft_errors::unknown_figure(where,key,m.first));
             }
             for (const auto& spec:table) {
                 const auto* f=block.get(spec.key);
                 if (!f) {
-                    if (spec.field) fail(where+" needs "+key+" "+spec.key);
+                    if (spec.field) fail(aircraft_errors::needs_figure(where,key,spec.key));
                     continue;
                 }
                 const std::string fwhere=where+" "+key+" "+spec.key;
-                if (f->kind!=Json::Kind::object || f->members.size()!=3) fail(fwhere+" needs value, tag and source only");
+                if (f->kind!=Json::Kind::object || f->members.size()!=3) fail(aircraft_errors::figure_needs_value_tag_source(fwhere));
                 const auto* v=f->get("value");
-                if (!v || (v->kind!=Json::Kind::integer && v->kind!=Json::Kind::real)) fail(fwhere+" needs a number");
+                if (!v || (v->kind!=Json::Kind::integer && v->kind!=Json::Kind::real)) fail(aircraft_errors::figure_needs_a_number(fwhere));
                 const double value=v->kind==Json::Kind::integer?double(v->integer):v->real;
                 if (!std::isfinite(value) || value<spec.low || value>spec.high)
-                    fail(fwhere+" must be "+decimal_or_null(spec.low,2)+" to "+decimal_or_null(spec.high,2));
+                    fail(aircraft_errors::figure_range(fwhere,decimal_or_null(spec.low,2),decimal_or_null(spec.high,2)));
                 const auto& tag=need(*f,"tag",Json::Kind::string,fwhere).text;
-                if (tag!="published" && tag!="derived" && tag!="guessed") fail(fwhere+": tag must be published, derived or guessed");
+                if (tag!="published" && tag!="derived" && tag!="guessed") fail(aircraft_errors::figure_tag(fwhere));
                 const auto& source=need(*f,"source",Json::Kind::string,fwhere).text;
-                if (source.empty() || source.size()>600) fail(fwhere+" needs a source");
+                if (source.empty() || source.size()>600) fail(aircraft_errors::figure_needs_a_source(fwhere));
                 if (spec.field) figures.*spec.field=value;
                 shown.push_back({spec.key,spec.unit,tag,source,value});
             }
         };
         surface("elevator",figure_table(),out.elevator,out.figures);
         surface("aileron",aileron_figure_table(),out.aileron,out.aileron_figures);
-        if (!valid_figures(out.elevator)) fail(where+": figures out of bounds");
-        if (!valid_figures(out.aileron)) fail(where+": aileron figures out of bounds");
+        if (!valid_figures(out.elevator)) fail(aircraft_errors::figures_out_of_bounds(where));
+        if (!valid_figures(out.aileron)) fail(aircraft_errors::aileron_figures_out_of_bounds(where));
         set.profiles.push_back(std::move(out));
     }
     bool found=false;
     for (const auto& p:set.profiles) found=found || p.name==set.default_name;
-    if (!found) fail("no default profile "+set.default_name);
+    if (!found) fail(aircraft_errors::no_default_profile_named(set.default_name));
     return set;
 }
 // The aircraft's profile: the first naming its file (the path, or a path
@@ -190,7 +191,7 @@ inline Profile profile_for(const ProfileSet& set,const std::string& aircraft_pat
     };
     for (const auto& p:set.profiles) for (const auto& a:p.aircraft) if (ends(a)) {auto out=p;out.matched=true;return out;}
     for (const auto& p:set.profiles) if (p.name==set.default_name) {auto out=p;out.matched=false;return out;}
-    throw ProfileError("no default profile");
+    throw ProfileError(aircraft_errors::no_default_profile);
 }
 inline bool same_figures(const ElevatorFigures& a,const ElevatorFigures& b) {
     return a.area_m2==b.area_m2 && a.chord_m==b.chord_m && a.hinge_slope_per_rad==b.hinge_slope_per_rad && a.up_deg==b.up_deg

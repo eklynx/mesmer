@@ -1,6 +1,6 @@
 #include "ui/view/hud.hpp"
 #include "ui/view/preview_frames.hpp"
-#include "force/profiles.hpp"
+#include "config/aircraft/profiles.hpp"
 #include <filesystem>
 #include <fstream>
 #include <iomanip>

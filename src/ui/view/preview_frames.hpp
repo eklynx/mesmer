@@ -15,7 +15,7 @@
 // Preview and demo only: nothing in the plugin includes this. In the aircraft
 // X-Plane computes all of it (decision 4); the plugin computes no air.
 #include "ui/view/hud.hpp"
-#include "json.hpp"
+#include "config/json.hpp"
 #include <cmath>
 #include <optional>
 #include <string>
