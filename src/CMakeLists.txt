@@ -123,6 +123,8 @@ elseif(UNIX AND NOT APPLE AND XPLANE_SDK)
   add_library(BrunnerDirect MODULE plugin.cpp xplane/published.cpp xplane/sim.cpp ui/menu/menu.cpp ui/view/startup_notice.cpp brunner/reader.cpp hid/hid_select.cpp hid/lin/hid_lin.cpp ${WORKBENCH_SOURCES})
   target_compile_definitions(BrunnerDirect PRIVATE IBM=0 APL=0 LIN=1 XPLM200 XPLM210 XPLM300 XPLM301)
   target_include_directories(BrunnerDirect PRIVATE "${XPLANE_SDK}/CHeaders/XPLM")
+  # mesmer_buttons is a static library linked into this shared object: it must be position independent.
+  set_target_properties(mesmer_buttons PROPERTIES POSITION_INDEPENDENT_CODE ON)
   target_link_libraries(BrunnerDirect PRIVATE Threads::Threads OpenGL::GL)
   # plugin.cpp writes "if (x) log(...);break;" on one line; GCC (unlike Clang) flags that. Kept out of the shared source.
   target_compile_options(BrunnerDirect PRIVATE -Wno-misleading-indentation)
