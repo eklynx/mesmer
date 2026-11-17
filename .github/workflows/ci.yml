@@ -1,11 +1,10 @@
 # Every push and pull request: the plugin's core tests on Linux and the packaging
 # script's tests, the full Windows and macOS (universal) builds with their tests, and
-# the installer. The Linux plugin build is off until LINUX_BUILD is `true`.
+# the installer. The Linux plugin builds too.
 #
 # Each platform build can be switched off without editing this file, by a repository
 # variable (Settings > Secrets and variables > Actions > Variables):
-#   WINDOWS_BUILD, MACOS_BUILD   on unless the variable is exactly `false`
-#   LINUX_BUILD                  off unless the variable is exactly `true`
+#   WINDOWS_BUILD, MACOS_BUILD, LINUX_BUILD   on unless the variable is exactly `false`
 # release.yml reads the same three; docs/dev/release-packaging.md is the specification.
 name: ci
 
@@ -96,10 +95,10 @@ jobs:
           tests/test-install-macos.sh
 
   # The Linux plugin through the same script a person runs by hand (docs/dev/linux-build.md):
-  # -Werror, ELF check, ctest. Off until the repository variable LINUX_BUILD is `true`.
+  # -Werror, ELF check, ctest.
   # The script downloads the SDK and checks it against the same pin as XPLANE_SDK_* above.
   linux:
-    if: ${{ vars.LINUX_BUILD == 'true' }}
+    if: ${{ vars.LINUX_BUILD != 'false' }}
     runs-on: ubuntu-24.04
     timeout-minutes: 30
     steps:

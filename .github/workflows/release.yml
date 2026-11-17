@@ -1,5 +1,5 @@
 # A tag v* builds the plugin on every enabled platform from this tree (Windows and
-# macOS, and Linux once LINUX_BUILD is `true`), runs each one's tests, merges the builds into
+# macOS and Linux), runs each one's tests, merges the builds into
 # one Mesmer-<version>.zip with src/scripts/package_release.sh, and publishes it, its
 # SHA256SUMS and a build provenance attestation as a GitHub pre-release, with the
 # CHANGELOG entry as its notes. Nothing is published unless every enabled platform
@@ -8,8 +8,7 @@
 #
 # Each platform can be switched off without editing this file, by a repository
 # variable (the same three ci.yml reads):
-#   WINDOWS_BUILD, MACOS_BUILD   on unless the variable is exactly `false`
-#   LINUX_BUILD                  off unless the variable is exactly `true`
+#   WINDOWS_BUILD, MACOS_BUILD, LINUX_BUILD   on unless the variable is exactly `false`
 #
 # The macOS plugin can be signed and notarized by a separate signing repository
 # (docs/dev/release-signing.md). Off unless the repository variable MACOS_SIGNING_REPO
@@ -81,7 +80,7 @@ jobs:
           "signing_repo=$signing" >> $env:GITHUB_OUTPUT
           "windows=$(($env:WINDOWS_BUILD -ne 'false').ToString().ToLowerInvariant())" >> $env:GITHUB_OUTPUT
           "macos=$(($env:MACOS_BUILD -ne 'false').ToString().ToLowerInvariant())" >> $env:GITHUB_OUTPUT
-          "linux=$(($env:LINUX_BUILD -eq 'true').ToString().ToLowerInvariant())" >> $env:GITHUB_OUTPUT
+          "linux=$(($env:LINUX_BUILD -ne 'false').ToString().ToLowerInvariant())" >> $env:GITHUB_OUTPUT
           Get-Content $env:GITHUB_OUTPUT
 
   build-windows:
@@ -178,7 +177,7 @@ jobs:
           if-no-files-found: error
           retention-days: 7
 
-  # Off until LINUX_BUILD is `true`. -Werror, ELF check, ctest: docs/dev/linux-build.md.
+  # -Werror, ELF check, ctest: docs/dev/linux-build.md.
   build-linux:
     needs: plan
     if: ${{ needs.plan.outputs.linux == 'true' }}

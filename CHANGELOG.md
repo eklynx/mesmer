@@ -24,7 +24,7 @@ The first release numbered major.minor.patch. The plugin flies as 0.1.0-alpha.3 
 
 ## Unreleased
 
-- **A Linux build of the plugin (development, not for flying).** `src/scripts/build_linux.sh` builds `lin_x64/BrunnerDirect.xpl`, `src/scripts/install_linux.sh` installs it into the folder named in `~/.x-plane/x-plane_install_N.txt`, and the yoke is read through the kernel's hidraw interface (`src/hid/lin/hid_lin.cpp`). Like the macOS reader it has not been run on hardware yet. The CI and release Linux jobs are real now but stay off until the repository variable `LINUX_BUILD` is `true`. Windows and macOS builds are unchanged. See [docs/dev/linux-build.md](docs/dev/linux-build.md).
+- **A Linux build of the plugin (development, not for flying).** `src/scripts/build_linux.sh` builds `lin_x64/BrunnerDirect.xpl`, `src/scripts/install_linux.sh` installs it into the folder named in `~/.x-plane/x-plane_install_N.txt`, and the yoke is read through the kernel's hidraw interface (`src/hid/lin/hid_lin.cpp`). Like the macOS reader it has not been run on hardware yet. The CI and release workflows build it by default, so a release zip carries `lin_x64/` (set the repository variable `LINUX_BUILD` to `false` to leave it out). Windows and macOS builds are unchanged. See [docs/dev/linux-build.md](docs/dev/linux-build.md).
 
 - **The `ffb-*.jsonl` debug log is off by default.** The session recorder used to write `Output/BrunnerDirect/ffb-*.jsonl` (up to 256 MB) on every run. It now writes nothing unless `BrunnerDirect.ini` has the new optional key `debug_log=1`; `Log.txt` says which at startup and the HUD reads *Debug log: off*. See [configuration](docs/configuration.md).
 - **`BrunnerDirect.state.json` can override `auto_start` and `force_feel`.** The file in X-Plane's `Output/BrunnerDirect` folder, which an update never replaces, now takes optional `"auto_start"` and `"force_feel"` values (`true` or `false`) that beat the same keys in `BrunnerDirect.ini`. A wrong value or unknown key is ignored on its own and named in `Log.txt`, and each override in effect is logged. The plugin never writes them and keeps them when it saves the Developer toggle. A file that has an unknown key no longer switches off `allow_unverified_yoke` as a whole; only that key is ignored. See [configuration](docs/configuration.md#brunnerdirectstatejson).
@@ -46,7 +46,7 @@ The first release numbered major.minor.patch. The plugin flies as 0.1.0-alpha.3 
   Linux builds) in one `BrunnerDirect/` folder, merged by `src/scripts/package_release.sh`
   ([release-packaging.md](docs/dev/release-packaging.md)); nothing is published unless every enabled platform
   built and passed. The repository variables `WINDOWS_BUILD`, `MACOS_BUILD` (on unless `false`) and
-  `LINUX_BUILD` (on only when `true`, a stub for now) switch a platform's build off or on in both
+  `LINUX_BUILD` (on only when `true`, a stub for now; since changed, see Unreleased) switch a platform's build off or on in both
   workflows.
 - **Pitch and roll reach their real limits.** The position sent to X-Plane was scaled by the preset's travel,
   which for the NG is how far the spring's centre may be written, not where the yoke stops. A model now
