@@ -204,7 +204,7 @@ class LinuxHidDevice final : public HidDevice {
         const auto deadline=std::chrono::steady_clock::now()+std::chrono::milliseconds(timeout_ms);
         for (;;) {
             const auto left=std::chrono::duration_cast<std::chrono::milliseconds>(deadline-std::chrono::steady_clock::now()).count();
-            if (!wait_readable(left<0?0:static_cast<int>(left))) throw TransportError("HID I/O timed out");
+            if (!wait_readable(left<0?0:static_cast<int>(left))) throw ReadTimeout{};   // a missed reply, not a lost link: the reader rides it out (brunner/core.hpp)
             std::uint8_t buffer[256];
             const ssize_t n=::read(fd_.get(),buffer,sizeof(buffer));
             if (n<0 && (errno==EAGAIN || errno==EINTR)) continue;
