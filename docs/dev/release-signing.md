@@ -1,6 +1,6 @@
-# Signing the macOS plugin in a release: specification
+# Signing the MacOS plugin in a release: specification
 
-A downloaded macOS plugin that is only ad hoc signed (what `build_macos.sh` makes) is blocked by
+A downloaded MacOS plugin that is only ad hoc signed (what `build_macos.sh` makes) is blocked by
 Gatekeeper until the user removes the quarantine flag. A release can instead ship a plugin signed with a
 Developer ID and notarized by Apple, made by a **separate signing repository** so the key is never
 reachable from this project. `.github/workflows/release.yml` can ask that repository for it;
@@ -8,7 +8,7 @@ reachable from this project. `.github/workflows/release.yml` can ask that reposi
 statement here.
 
 **Off by default.** With the repository variable `MACOS_SIGNING_REPO` unset, a release is exactly as
-[release-packaging.md](release-packaging.md) describes, with the ad hoc macOS plugin.
+[release-packaging.md](release-packaging.md) describes, with the ad hoc MacOS plugin.
 
 ## Switching it on
 
@@ -26,7 +26,7 @@ and `gh secret set MACOS_SIGNING_TOKEN`.
 
 ## What a release does when it is on
 
-1. `plan` sets `sign_macos` (macOS enabled and `MACOS_SIGNING_REPO` set; a value that is not
+1. `plan` sets `sign_macos` (MacOS enabled and `MACOS_SIGNING_REPO` set; a value that is not
    `OWNER/NAME` stops the release).
 2. `build-macos` builds and tests as usual. Then `sign-macos` (only after those tests passed, so only a
    commit that tests green is signed) runs `fetch_signed_plugin.sh` with the token: it starts the signing

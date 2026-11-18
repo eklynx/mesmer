@@ -21,7 +21,7 @@ A yoke is read-only in exactly two cases, and **firmware is never one of them**
 2. **Unverified model.** A known model whose **preset is not verified**, until the owner
    turns on **Developer > Allow unverified yoke models** (saved in
    `Output/BrunnerDirect/BrunnerDirect.state.json` in X-Plane's folder; off by default). No built-in model is unverified now: the original CLS-E (firmware 367) and
-   the **CLS-E NG** (`0x25BB:0x008B`, firmware 642) are verified and always driven. A model you add
+   the **CLS-E NG** (`0x25BB:0x008B`, firmware 642 and 810) are verified and always driven. A model you add
    with `verified` left out or false is read-only until the key is on, and then its first
    writes are one setting written back unchanged (see the presets spec).
 
@@ -49,8 +49,8 @@ changes nothing.
    verified: read-only* with the menu item that turns it on, and, until the travel is
    learned, how far each axis has come.
    A yoke that reports *stopped, not referenced* (status `0x0421`: motors off, target reached, no
-   `0x1000`) is not homing and will not finish by itself: the line says to power-cycle it, or to turn on
-   the Developer toggle and use **Reset yoke** and **Re-centre**. A yoke still starting up (`0x0021`,
+   `0x1000`) is not homing and will not finish by itself: the line says to power-cycle it, or to use
+   **Reset yoke** and **Re-centre** (from the Developer menu, with its toggle on). A yoke still starting up (`0x0021`,
    `0x0027`) reads *homing; wait*.
 2. **Leaves pitch and roll to X-Plane.** Both override datarefs
    (`sim/operation/override/override_joystick_pitch` and `..._roll`) are set to 0, so X-Plane reads the

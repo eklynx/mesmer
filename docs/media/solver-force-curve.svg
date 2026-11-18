@@ -1,0 +1,42 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 720 380" width="720" height="380" role="img" aria-labelledby="t d" font-family="-apple-system, 'Segoe UI', Helvetica, Arial, sans-serif">
+  <title id="t">The model's force curve and the drive's curve</title>
+  <desc id="d">Force at the yoke against yoke position. The model's force curve bends and crosses zero at the rest point. The drive's curve is set to pass through the rest point and the force at the yoke's position, and stops at the drive's force limit. Where the model asks for more than the limit, the drive's force is lighter than the model's.</desc>
+
+  <rect x="0.5" y="0.5" width="719" height="379" rx="10" fill="#ffffff" stroke="#c9ced6"/>
+
+  <!-- axes -->
+  <line x1="70" y1="20" x2="70" y2="340" stroke="#444" stroke-width="1.5"/>
+  <line x1="70" y1="340" x2="690" y2="340" stroke="#444" stroke-width="1.5"/>
+  <line x1="70" y1="180" x2="690" y2="180" stroke="#9aa1ab" stroke-width="1"/>
+  <text x="62" y="184" font-size="12" fill="#444" text-anchor="end">0</text>
+  <text x="380" y="368" font-size="13" fill="#222" text-anchor="middle">yoke position (back stop to forward stop)</text>
+  <text transform="translate(22 180) rotate(-90)" font-size="13" fill="#222" text-anchor="middle">force at the yoke</text>
+
+  <!-- the drive's force limit -->
+  <line x1="70" y1="90" x2="690" y2="90" stroke="#8a4b00" stroke-width="1.2" stroke-dasharray="6 4"/>
+  <line x1="70" y1="270" x2="690" y2="270" stroke="#8a4b00" stroke-width="1.2" stroke-dasharray="6 4"/>
+  <text x="78" y="82" font-size="12" fill="#8a4b00">the drive's force limit</text>
+  <text x="684" y="288" font-size="12" fill="#8a4b00" text-anchor="end">the drive's force limit</text>
+
+  <!-- the model's force curve -->
+  <path d="M70,250 C170,235 240,210 300,180 C380,140 470,100 560,70 S650,40 690,36" fill="none" stroke="#1a56c4" stroke-width="3"/>
+  <text x="84" y="205" font-size="13" fill="#1a56c4" font-weight="600">model's force curve</text>
+
+  <!-- the drive's curve: through the rest point and the yoke's position, held at the limit -->
+  <path d="M130,260 L491,90 L690,90" fill="none" stroke="#c2410c" stroke-width="3"/>
+  <text x="140" y="292" font-size="13" fill="#c2410c" font-weight="600">drive's curve</text>
+  <text x="140" y="308" font-size="12" fill="#c2410c">(rest point, strength)</text>
+
+  <!-- the yoke's position -->
+  <line x1="400" y1="133" x2="400" y2="340" stroke="#555" stroke-width="1" stroke-dasharray="2 4"/>
+  <circle cx="400" cy="133" r="5.5" fill="#ffffff" stroke="#222" stroke-width="2"/>
+  <text x="408" y="332" font-size="12" fill="#222">yoke's position</text>
+
+  <!-- the rest point -->
+  <circle cx="300" cy="180" r="5.5" fill="#222"/>
+  <text x="300" y="203" font-size="12" fill="#222" text-anchor="middle">rest point</text>
+
+  <!-- where the model wants more than the drive can give -->
+  <text x="600" y="130" font-size="12" fill="#1a56c4" text-anchor="middle">here the model wants more</text>
+  <text x="600" y="144" font-size="12" fill="#1a56c4" text-anchor="middle">than the drive can give</text>
+</svg>

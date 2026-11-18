@@ -12,6 +12,6 @@ their source of truth.
 | [hid-bridge.md](hid-bridge.md) | Which USB devices are the yoke's bridge, and how it is opened |
 | [button-commands.md](button-commands.md) | The yoke's buttons and hat: reading them over the bridge, what each yoke model has, running X-Plane commands |
 | [advanced-configuration.md](advanced-configuration.md) | Developer-only settings and files, retired keys, adding a model |
-| [macos-build.md](macos-build.md) | Building, installing and testing the macOS plugin |
+| [macos-build.md](macos-build.md) | Building, installing and testing the MacOS plugin |
 | [release-packaging.md](release-packaging.md) | What the release zip contains and the guarantees of its script |
-| [release-signing.md](release-signing.md) | The contract with the separate macOS signing repository |
+| [release-signing.md](release-signing.md) | The contract with the separate MacOS signing repository |

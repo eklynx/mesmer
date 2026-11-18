@@ -98,7 +98,7 @@ The CLS-E NG, with the friendly names its shipped file gives:
 
 The NG reads its six buttons and its hat from its own record `0x2880` ([button-commands.md](button-commands.md#what-each-yoke-has)); a model's `button_registers` says where each control is ([yoke presets](yoke-presets.md)).
 
-The original CLS-E has 14 buttons (the slots are bits 16 to 31 of the register `0x60fd`) and no hat switch at all; a CLS-E MK2, reported
+The original CLS-E has 14 buttons (the slots are bits 16 to 31 of the register `0x60fd`), of which ten are given here, and no hat switch at all; a CLS-E MK2, reported
 to have one, has no preset yet:
 
 | Key | Control on the original CLS-E | Also called |
@@ -113,12 +113,9 @@ to have one, has no preset yet:
 | `button_9` | Right grip, right thumb | `right_thumb_right` |
 | `button_10` | Right grip rocker, back | `right_rocker_back` |
 | `button_11` | Right grip rocker, forward | `right_rocker_forward` |
-| `button_12` | Panel, middle | `panel_middle` |
-| `button_13` | Panel, right | `panel_right` |
-| `button_14` | Panel, left | `panel_left` |
-
-Slot 6 and slots 15 and 16 have no control on the CLS-E. **Leave the three panel buttons alone in flight, and don't bind them**: they
-also work the yoke's own menu.
+Slot 6 and slots 15 and 16 have no control on the CLS-E. Slots 12 to 14, the three front panel buttons, are **deliberately left out** of
+its `button_registers` and `button_aliases`, so they cannot be named or bound: they also work the yoke's own menu, and one press
+switched the motors on while the plugin was driving the yoke ([The yoke's buttons](../buttons.md#the-cls-es-front-panel-buttons)).
 
 Format: `"key": "command"`, `"key": ["command", "another"]` or `"key": null`, inside `"button_commands": { ... }`,
 with `"version":1` still required. A control can run **several commands**: give a list, and they run in the order
@@ -217,7 +214,8 @@ out of a model for the default (`Direct`). What the shipped models say:
 |---|---|
 | `VJoy` | presses the buttons of a virtual joystick, which you bind in X-Plane's Joystick screen ([The yoke's buttons](../buttons.md)). Windows only for now: elsewhere a model asking for it gets `Direct`, and `Log.txt` says so. |
 | `Direct` | runs the X-Plane commands in [`button_commands`](#button-commands). |
+| `None` | **Not yet implemented.** Turns the buttons off entirely: the plugin reads no buttons, presses no virtual joystick and runs no commands, so any `button_commands` are ignored. For a yoke that already appears as a joystick in X-Plane, when you wish to use that interface. Until it is implemented a preset that says `None` is refused like any other unknown word. |
 
 A virtual joystick's button numbers are the controls' button numbers (hat positions take 17 to 24). Nothing is read unless something
-uses the buttons: `VJoy`, or at least one command. When the yoke's model is known, `Log.txt` says which action is in use. macOS and
+uses the buttons: `VJoy`, or at least one command. When the yoke's model is known, `Log.txt` says which action is in use. MacOS and
 Linux gain `VJoy` when a virtual joystick is written for them.

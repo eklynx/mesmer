@@ -53,7 +53,7 @@ inline Configuration parse_configuration(std::istream& input) {
     const int version=schema->second;
     // Required keys first, then optional ones with their defaults.
     std::vector<std::string> required{"schema_version","pitch_trim_counts","auto_start","reference_airspeed_knots"},
-        optional{"force_feel","debug_log","buffet","buffet_percent","buffet_period","read_only_roll_reverse","read_only_pitch_reverse","centre_drift_permille"}; // centre_drift_permille: accepted and ignored, the setting is the yoke's centre_drift_percent
+        optional{"force_feel","debug_log","buffet","buffet_percent","buffet_period","read_only_roll_reverse","read_only_pitch_reverse"};
     const std::vector<std::string> drive{"pitch_force_units_per_lb","pitch_force_gain_divisor","pitch_move_back_gain"};
     // What only the firmness pitch read (main's schemas 2 and 3), the
     // never-deployed elevator_model switch, and roll's airflow and plain

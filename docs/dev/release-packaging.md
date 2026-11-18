@@ -12,7 +12,7 @@ plugin side by side (X-Plane loads the one for its own platform):
 ```
 BrunnerDirect/
     win_x64/BrunnerDirect.xpl     Windows (a 64-bit PE DLL)
-    mac_x64/BrunnerDirect.xpl     macOS (universal: arm64 + x86_64)
+    mac_x64/BrunnerDirect.xpl     MacOS (universal: arm64 + x86_64)
     lin_x64/BrunnerDirect.xpl     Linux (a 64-bit ELF object); absent only when `LINUX_BUILD` is `false`
     BrunnerDirect.ini, BrunnerDirect.profiles.json, skunkcrafts_updater.cfg
     README.md, LICENSE, NOTICE, SAFETY.md
@@ -40,21 +40,21 @@ and writes nothing (the zip is built in a temporary folder and moved into `--out
 | No `--version` or `--out`; version not `X.Y.Z` or `X.Y.Z-(alpha\|beta\|rc).N` | `--version is required`, `is not X.Y.Z ...` |
 | No platform given | `no platform given` |
 | A platform folder missing, with no `BrunnerDirect.xpl`, or an empty one | `no such folder`, `has no BrunnerDirect.xpl`, `is empty` |
-| Wrong object format: not a 64-bit PE DLL (Windows); not a universal Mach-O with both `arm64` and `x86_64` (macOS); not a 64-bit ELF (Linux) | `not a 64-bit Windows DLL`, `not a universal arm64 + x86_64 Mach-O`, `not a 64-bit ELF object` |
+| Wrong object format: not a 64-bit PE DLL (Windows); not a universal Mach-O with both `arm64` and `x86_64` (MacOS); not a 64-bit ELF (Linux) | `not a 64-bit Windows DLL`, `not a universal arm64 + x86_64 Mach-O`, `not a 64-bit ELF object` |
 | A shared file missing from the repository | `the repository has no X` |
 
-The macOS plugin's ad hoc signature is inside the Mach-O file, so zipping keeps it; it is
+The MacOS plugin's ad hoc signature is inside the Mach-O file, so zipping keeps it; it is
 checked where the binary is built (`build_macos.sh`, `codesign --verify`), not here.
 
 ## Workflows
 
 - **`ci.yml`** (every push and pull request): `core` (Linux portable tests and this script's
-  tests), `windows`, `macos` (`build_macos.sh` plus the macOS script tests), `linux` (`build_linux.sh` plus the Linux script tests) and
+  tests), `windows`, `macos` (`build_macos.sh` plus the MacOS script tests), `linux` (`build_linux.sh` plus the Linux script tests) and
   `installer`.
 - **`release.yml`** (a tag `v*`): `plan` checks the tag and `skunkcrafts_updater.cfg` and decides
   which platforms to build; `build-windows`, `build-macos` and `build-linux` each build,
   test and upload their `BrunnerDirect.xpl`; optionally `sign-macos` has a separate signing
-  repository sign the macOS plugin ([release-signing.md](release-signing.md)); `package` downloads
+  repository sign the MacOS plugin ([release-signing.md](release-signing.md)); `package` downloads
   them, runs this script, attests and publishes the pre-release.
 - **`package` publishes only if every platform that was enabled built and passed.** A build
   skipped because its platform is switched off is fine; one that was meant to run and did not

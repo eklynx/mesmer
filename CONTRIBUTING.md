@@ -43,7 +43,7 @@ If the project gains regular contributors, it may move here as its home.
 
 The surface models, the solver, the supervisor, the parsers and the feel
 page's server are portable C++17 with no X-Plane in them. You can build and
-test them on macOS or Windows with CMake 3.20 or later:
+test them on MacOS or Windows with CMake 3.20 or later:
 
 ```sh
 cmake -S src -B build
@@ -97,7 +97,7 @@ a header-only change.
 GitHub Actions builds every release on Windows against an SDK pinned by
 SHA-256 and runs the tests.
 
-**The plugin on macOS** is a universal (arm64 and x86_64) `.xpl` that loads in
+**The plugin on MacOS** is a universal (arm64 and x86_64) `.xpl` that loads in
 X-Plane 12 and reads the yoke through IOKit. That reader has **not yet been
 run on hardware**; try it with `build/brunner_hardware_read_test` (read-only,
 X-Plane and CLS2Sim closed) before anything else. It is for development, not
@@ -114,7 +114,7 @@ script promises and how it fails is in [docs/dev/macos-build.md](docs/dev/macos-
 `tests/test-build-macos.sh` checks it.
 
 **The plugin on Linux** is an x86-64 `.xpl` that loads in X-Plane 12 and reads the yoke through
-the kernel's hidraw interface. Like the macOS reader it has **not yet been run on hardware**; try
+the kernel's hidraw interface. Like the MacOS reader it has **not yet been run on hardware**; try
 `build/brunner_hardware_read_test` first. It is for development, not for flying. You need
 `build-essential`, `cmake` (3.20 or later) and `libgl-dev`:
 

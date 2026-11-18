@@ -74,10 +74,7 @@
         "button_8": ["right_thumb_left"],
         "button_9": ["right_thumb_right"],
         "button_10": ["right_rocker_back"],
-        "button_11": ["right_rocker_forward"],
-        "button_12": ["panel_middle"],
-        "button_13": ["panel_right"],
-        "button_14": ["panel_left"]
+        "button_11": ["right_rocker_forward"]
       },
       "button_action_method": "VJoy",
       "button_registers": {
@@ -90,10 +87,7 @@
         "button_8": {"node": 2, "object": "0x60FD", "sub": 0, "mask": "0x00800000"},
         "button_9": {"node": 2, "object": "0x60FD", "sub": 0, "mask": "0x01000000"},
         "button_10": {"node": 2, "object": "0x60FD", "sub": 0, "mask": "0x02000000"},
-        "button_11": {"node": 2, "object": "0x60FD", "sub": 0, "mask": "0x04000000"},
-        "button_12": {"node": 2, "object": "0x60FD", "sub": 0, "mask": "0x08000000"},
-        "button_13": {"node": 2, "object": "0x60FD", "sub": 0, "mask": "0x10000000"},
-        "button_14": {"node": 2, "object": "0x60FD", "sub": 0, "mask": "0x20000000"}
+        "button_11": {"node": 2, "object": "0x60FD", "sub": 0, "mask": "0x04000000"}
       }
     }
   ]

@@ -15,7 +15,7 @@ opens are the ids the presets name, so a model added to the presets file is foun
 without a rebuild. A Brunner bridge whose id no preset names is opened read-only (see [read-only-mode.md](read-only-mode.md)); another vendor's is never opened.
 
 Built in: `cls-e` (USB `0x25BB:0x0081`, verified on firmware 367) and `cls-e-ng`
-(`0x25BB:0x008B`, verified on firmware 642).
+(`0x25BB:0x008B`, verified on firmware 642 and 810).
 
 ## What a preset holds
 
@@ -58,7 +58,7 @@ hardware's frame) in the presets file; no rebuild.
 ## The shipped models: the `yokes/` folder
 
 Each model is a file in the plugin's `yokes/` folder (`config/yokes/` in the source):
-`cls-e.json` (the original, verified on firmware 367) and `cls-e-ng.json` (verified on firmware 642). A file is a complete
+`cls-e.json` (the original, verified on firmware 367) and `cls-e-ng.json` (verified on firmware 642 and 810). A file is a complete
 `{"schema":1,"yokes":[{...}]}` with every field spelled out, so a new model is a copy
 and an edit; numbers are decimal (JSON has no hex: `status_stopped` 1057 is 0x0421,
 `spring_mode` 1541 is 0x0605). The files are read once at start, each on its own (a

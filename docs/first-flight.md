@@ -4,6 +4,10 @@ About fifteen minutes in the stock Cessna 172 SP. You'll centre the yoke, fly
 with it as a plain control, then try force feel on the ground before you
 take it into the air. Read [SAFETY.md](../SAFETY.md) first.
 
+Menu items and status lines are written in *italics* and **bold** exactly as
+they appear in X-Plane. If a step doesn't behave as described, look the status
+line up in [troubleshooting](troubleshooting.md).
+
 ## Before you start
 
 - Bind a key or a spare joystick button to **`brunner_direct/stop_motors`**
@@ -24,6 +28,9 @@ take it into the air. Read [SAFETY.md](../SAFETY.md) first.
 4. The line reads **Yoke centring - hands off**. Once the yoke has been still
    for a second it drives itself to the middle of its travel, then lets go.
 5. The line disappears. The menu's top line reads **Ready - force feel off**.
+
+**If it doesn't:** no line at all, or a different one, see
+[troubleshooting](troubleshooting.md#every-status-and-what-to-do).
 
 From here on you don't need to do this again in this X-Plane session. If
 you switch the yoke off and on, or pull and replug the USB cable, the
@@ -50,6 +57,10 @@ X-Plane pitch and roll in any aircraft. Check:
    nothing centres it.
 4. Turn on *Plugins > Yoke (Brunner) > Keep yoke feel on screen* to keep
    the feel card up in the corner.
+
+**If it doesn't:** the check mark doesn't stay, or the line reads *Force feel
+unavailable* or *Yoke fault*: see
+[troubleshooting](troubleshooting.md#something-needs-you).
 
 ## 4. A run-up
 
@@ -89,5 +100,5 @@ the airspeed, power and what the feel page showed.
 
 Force feel is off again the next time X-Plane starts. To start every flight
 with it on, set `force_feel=1` in `BrunnerDirect.ini`; to skip the first
-*Retry*, set `auto_start=1`. Both can also go in `BrunnerDirect.state.json`, which an
-update does not replace. See [configuration](configuration.md).
+*Retry*, set `auto_start=1`. Both can also go in `BrunnerDirect.state.json`,
+which is preserved between updates. See [configuration](configuration.md).

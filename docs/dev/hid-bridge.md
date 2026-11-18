@@ -84,15 +84,15 @@ starting `Yoke link stall:`, which says where it failed and what each side had l
 | Part of the line | Meaning |
 |---|---|
 | the error | `HID I/O timed out`, `HID I/O failed` (the device went away or a write failed), `Short HID report`, `No matching controller reply` |
-| `while writing a request` / `while waiting for the reply` / `between requests` | The stage the failure was in. Waiting means the request went out and nothing (or nothing right) came back; writing means macOS or Windows refused or timed out the send |
+| `while writing a request` / `while waiting for the reply` / `between requests` | The stage the failure was in. Waiting means the request went out and nothing (or nothing right) came back; writing means MacOS or Windows refused or timed out the send |
 | `request node 2 read of trim position (0x2116:0) [..] sent N ms ago` | What the request in flight was, decoded from its bytes: the controller (node 1 roll, node 2 pitch), `read` or `write` (with the value written), the register's name and its object:sub-index (`status word (sampling)`, `encoder position (sampling)`, `trim position`, `constant force (bias)`, `spring strength`, `centre mode`, ... or `unnamed register`), then its first 14 bytes, and how long ago it was written. The sampling reads say `(sampling)`; the other reads are the live-update confirmation and read-backs |
 | `last good reply N ms ago` | How long the yoke had been silent: a short time means it stopped suddenly, a long one that it was slow before |
 | `N other reports arrived since it was sent` | Reports that came but were not the reply: 0 is silence, more means the yoke answered other traffic |
 | `N requests and M replies this session (K unmatched)` | Totals since this USB session opened, and the session's age |
-| `macOS: ...` (macOS only, `HidDevice::describe`) | How many input reports IOKit delivered, how long ago the last arrived, how many writes were made and failed, and whether the removal callback fired (macOS saying the device left the bus) |
+| `macOS: ...` (MacOS only, `HidDevice::describe`) | How many input reports IOKit delivered, how long ago the last arrived, how many writes were made and failed, and whether the removal callback fired (MacOS saying the device left the bus) |
 
 Reading it: *removal callback FIRED* means the bus dropped the device; *did not fire* with the last input report
-long ago means the yoke stopped sending while macOS still saw it; reports still arriving but unmatched means the
+long ago means the yoke stopped sending while MacOS still saw it; reports still arriving but unmatched means the
 protocol, not the link, is at fault; a failed write names the sending side. The line is only logged on a transport
 error, so a healthy session logs nothing extra.
 
@@ -154,7 +154,7 @@ The lines above are logged whether or not `debug_log` is on (the recording gets 
 `hid/win/hid_win.cpp`: SetupDi enumeration, `CreateFileW` with share mode 0, overlapped
 `ReadFile`/`WriteFile`, `HidD_FlushQueue`.
 
-## macOS
+## MacOS
 
 `hid/mac/hid_mac.cpp`: `IOHIDManager` enumeration matching every listed id, then
 `IOHIDDeviceOpen` with `kIOHIDOptionsTypeSeizeDevice`. Input reports arrive by
@@ -162,9 +162,9 @@ callback on a private run-loop thread into a queue; writes use
 `IOHIDDeviceSetReportWithCallback` so the timeout holds. Needs the frameworks
 IOKit and CoreFoundation.
 
-Paths: X-Plane on macOS hands plugins classic `Volume:Folder:` paths unless
+Paths: X-Plane on MacOS hands plugins classic `Volume:Folder:` paths unless
 the plugin asks for POSIX ones, so `XPluginStart` calls
-`XPLMEnableFeature("XPLM_USE_NATIVE_PATHS",1)` on macOS before any path is read.
+`XPLMEnableFeature("XPLM_USE_NATIVE_PATHS",1)` on MacOS before any path is read.
 
 `brunner_hardware_read_test` opens the bridge, reads status, encoder and
 position from both controllers for 15 s and closes it. It never asks for force

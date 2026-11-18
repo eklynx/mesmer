@@ -133,13 +133,13 @@ struct YokePreset {
 
 // ---- Built-in models ----
 // The original CLS-E's controls, from the pressed-one-by-one survey of 2026-11-10 (docs/buttons.md): slots 1-5 are the left
-// grip, 7-11 the right grip, 12-14 the panel buttons; slot 6 is not fitted.
+// grip, 7-11 the right grip; slot 6 is not fitted. Slots 12-14 are the three front panel buttons: deliberately left out (they also
+// work the yoke's own menu, and one press switched the motors on while the plugin was driving it).
 inline std::map<std::string,std::vector<std::string>> cls_e_button_aliases() {
     return {{"button_1",{"left_index"}},{"button_2",{"left_thumb_left"}},{"button_3",{"left_thumb_right"}},
             {"button_4",{"left_rocker_back"}},{"button_5",{"left_rocker_forward"}},
             {"button_7",{"right_index"}},{"button_8",{"right_thumb_left"}},{"button_9",{"right_thumb_right"}},
-            {"button_10",{"right_rocker_back"}},{"button_11",{"right_rocker_forward"}},
-            {"button_12",{"panel_middle"}},{"button_13",{"panel_right"}},{"button_14",{"panel_left"}}};
+            {"button_10",{"right_rocker_back"}},{"button_11",{"right_rocker_forward"}}};
 }
 // The NG's controls: its own button record 0x2880 holds six buttons (1 trigger, 2 top left, 3 top right, 4 rocker down, 5 rocker up,
 // 6 hat push) and the hat as the eight positions (checked on the NG, 2026-11-16, docs/dev/button-commands.md). The original CLS-E's
@@ -166,7 +166,7 @@ inline YokePreset builtin_cls_e_ng() {
     YokePreset p;
     p.name="cls-e-ng";p.title="Brunner CLS-E NG";
     p.usb_ids={{0x25bb,0x008b}};
-    p.verified=true;p.verified_firmware={642};
+    p.verified=true;p.verified_firmware={642,810};
     p.button_aliases=cls_e_ng_button_aliases();
     p.button_registers=buttons::cls_e_ng_can_layout();
     p.button_action_method=buttons::ActionMethod::direct;   // the NG: its buttons run X-Plane commands

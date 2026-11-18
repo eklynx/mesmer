@@ -1,6 +1,6 @@
 # How it works
 
-For the curious pilot first, then for developers.
+For the curious pilot.
 
 ## The split: X-Plane flies the aircraft
 
@@ -21,7 +21,8 @@ linkage to the yoke. That is all the plugin models. It reads from X-Plane:
 
 and from the yoke, where it is. Then it works out the force at the yoke and
 where the yoke would come to rest with nobody holding it, and sets the
-yoke's motors to match.
+yoke's motors to match. The motors are real: read [SAFETY.md](../SAFETY.md)
+before you turn force feel on.
 
 ## The elevator, in pilot's terms
 
@@ -59,80 +60,88 @@ leans a little into the turn as the two wings meet the air differently.
 
 ## The solver: matching the motor to the model
 
-The CLS-E's drive behaves like a spring with an adjustable strength, an
-adjustable centre and an optional constant push. It cannot follow an
-arbitrary curve on its own, and the plugin talks to it only a few times a
-second.
-
-So each update the plugin does this for pitch and for roll:
+The yoke's drive follows a force curve: how hard it pushes at each position along
+the yoke's travel. The plugin sets that curve through a few settings: a **rest
+point**, where the force is zero; a **strength**, how hard it pushes back as you
+move away from the rest point; and an optional **constant force**, added along
+the whole travel. The curve the yoke should follow is not a fixed one: it changes
+with every simulation step. So the plugin keeps working out the curve and sends
+the yoke a new one on each update. For pitch and for roll it does the following:
 
 1. Read where the yoke is.
 2. Work out, from the model, the force there and the yoke's **rest**, where
    the force would be zero with nobody holding it. If the weight pushes the
    yoke to a stop, the rest is that stop and the force there is the weight's.
-3. Set the drive's spring so that it passes through both points: its centre
-   on the rest (with the constant push holding the weight's force when the
-   rest is a stop), and its strength the slope from the rest to the yoke's
-   position.
+3. Set the drive's curve so that it passes through both points: its rest
+   point on the model's rest (with the constant force holding the weight's
+   force when the rest is a stop), and its strength set so the force at the
+   yoke's position matches the model's.
+
+![The model's force curve against yoke position, with the drive's curve set to pass through the rest point and the force at the yoke's position, stopping at the drive's force limit](media/solver-force-curve.svg)
+
+*The model's curve (blue) is matched by the drive's curve (orange) at the yoke's
+position and at the rest point. Past the drive's force limit the drive can't
+follow the model.*
 
 The result: **the yoke always rests exactly where the model says**, and the
 force under your hand is the model's, to within the drive's resolution and
 one update's delay.
 
-**When the model is stiffer than the drive.** In cruise the Cessna's real
-elevator would want more than 80 lb per inch, far more than the motors can
-give. The drive has its own protection limit (roughly 20 lb at the grip), and
-the plugin keeps every command about 11% under it, anywhere in the travel,
-counting the constant push. So when the model asks for more, the strength
-stops at the drive's limit for that update. The rest stays exact; the force
-is lighter than the model. The feel card says *Saturated* and the feel page
-says *at the drive's limit*, with how stiff the yoke is compared with the
-model.
+### When the model is stiffer than the drive
 
-**When the model is softer than the drive.** The drive's softest spring is
-20%. Below that the yoke is firmer than the model away from its rest
-(*Floored* on the card). Roll is placed so that the wheel still feels the
-model's torque where it is.
+The drive can only produce so much force. It has its own protection limit
+(roughly 20 lb at the grip), and the plugin keeps every command about 11%
+under it, anywhere in the travel, counting the constant force. In cruise the
+Cessna's real elevator would want more than 80 lb per inch: the force curve
+asks the yoke for more force than the drive can produce. So when the model
+asks for more, the strength stops at the drive's limit for that update. The
+rest stays exact; the force is lighter than the model. The feel card says
+*Saturated* and the feel page says *at the drive's limit*, with how stiff the
+yoke is compared with the model.
 
-**Changes the flight didn't make blend in.** Force feel switching on, a new
-profile, or a figure changed on the feel page blend over half a second, and
-each says what caused it on the feel page and in X-Plane's corner.
+### When the model is softer than the drive
 
-**Trim.** While force feel runs, the yoke's position already carries the
-trim (trim moves the rest, and so the yoke), so the plugin tells X-Plane not
-to add its own trim offset to the pitch input, on any aircraft. Your trim
-control still sets X-Plane's trim, and the plugin never writes it. If another
-plugin already holds that override, force feel stays off and the line says
-*Ready - force feel off: another plugin holds the pitch trim*.
+The drive's lowest strength is 20%. Below that the yoke is firmer than the
+model away from its rest (*Floored* on the card). Roll is placed so that the
+wheel still feels the model's torque where it is.
+
+### Changes the flight didn't make blend in
+
+Force feel switching on, a new
+[profile](configuration.md#brunnerdirectprofilesjson), or a figure changed on
+the feel page blend over half a second, and each says what caused it on the
+feel page and in X-Plane's corner.
+
+### Trim
+
+While force feel runs, the yoke's position already carries the trim (trim
+moves the rest, and so the yoke), so the plugin tells X-Plane not to add its
+own trim offset to the pitch input, on any aircraft. Your trim control still
+sets X-Plane's trim, and the plugin never writes it. If another plugin already
+holds that override, force feel stays off and the line says *Ready - force
+feel off: another plugin holds the pitch trim*.
 
 ## Keeping the yoke working
 
 A small supervisor runs from plugin start to stop and decides, every frame,
 what the yoke should do and what the pilot is told:
 
-- No yoke: keep looking, once a second.
-- Yoke found but not centred: wait until X-Plane is running steadily
+- **No yoke:** keep looking, once a second.
+- **Yoke found but not centred:** wait until X-Plane is running steadily
   (unpaused, physics advancing, controls free) and the yoke has been still
   for a second, show *Yoke centring - hands off*, then centre.
-- A controller fault: stop the motors, then recover by itself at most twice
-  (resting settings with the motors off, clear the fault, centre). After
-  that, ask the pilot with one action, *Retry*.
-- Pause: an engaged force-feel session holds. The motors stay on with the
-  last spring and pitch force, the plugin stops updating them, and on resume
+- **A controller fault:** stop the motors, then recover by itself at most
+  twice (resting settings with the motors off, clear the fault, centre).
+  After that, ask the pilot with one action, *Retry*.
+- **Pause:** an engaged force-feel session holds. The motors stay on with the
+  last curve settings and pitch force, the plugin stops updating them, and on resume
   there is nothing to rebuild. (The pitch and roll axes are released to
   X-Plane as before.) A session that has not started yet waits for the
-  unpause. The first 0.5 s after a pause, "controls not ready" is not
+  unpause. For the first 0.5 s after a pause, "controls not ready" is not
   believed, because the first frames have no fresh physics yet.
-- Aircraft change, or any real lapse (controls lost, no frames for half a
+- **Aircraft change, or any real lapse** (controls lost, no frames for half a
   second): force feel is released and comes back by itself.
 
 Every message the pilot sees comes from one status text, shared by the
 menu, the corner line, the feel card and the feel page. The full list is in
 [troubleshooting](troubleshooting.md).
-
-## For developers
-
-The source is in [`src/`](../src), grouped by idea. The folders, what each file holds,
-the threads, and how the models are kept equal in two languages are in
-[source layout](dev/source-layout.md); building and testing are in
-[CONTRIBUTING.md](../CONTRIBUTING.md).

@@ -18,7 +18,7 @@ specification; `tests/test-build-linux.sh` checks each statement, and
   `/dev/hidraw*`, reads the ids and the report descriptor with the `HIDIOCG*` ioctls, and works out
   the usage page, usage and report sizes from the descriptor itself. The build also makes
   `build/brunner_hardware_read_test`, a 15 s check to run first, and `build/brunner_hardware_query`.
-- **Text** is drawn with X-Plane's own font (`XPLMDrawString`), as on macOS: the panel's glyph atlas is a Windows feature.
+- **Text** is drawn with X-Plane's own font (`XPLMDrawString`), as on MacOS: the panel's glyph atlas is a Windows feature.
 
 ## Needs
 
@@ -64,7 +64,7 @@ logged-in desktop user; with no logind seat use a group rule instead, and note t
 Debian and Ubuntu only.) The pilot-facing version, for any distribution, is
 [install.md](../install.md#linux-let-your-account-open-the-yoke-once); keep the two in step.
 
-hidraw has no equivalent of macOS's seize or Windows' share-mode 0. The plugin takes an advisory
+hidraw has no equivalent of MacOS's seize or Windows' share-mode 0. The plugin takes an advisory
 `flock` on the device, so a second Mesmer (another X-Plane, `brunner_hardware_read_test`) reads as busy, but a
 program that ignores the lock can still read the same reports. Nothing on Linux plays CLS2Sim's role.
 

@@ -35,8 +35,8 @@ The shipped models: the original CLS-E is `VJoy`, the CLS-E NG is `Direct`. It i
 `ButtonService::set_yoke` applies it when the model becomes known (and again if another model connects), switching the action.
 
 **The virtual joystick is per operating system** (`make_virtual_joystick()`): only Windows has one today. A model asking for `VJoy`
-elsewhere gets `Direct` and `Log.txt` says so once per model; macOS and Linux gain it by implementing that one factory (what was found
-looking for a macOS one is in [macos-virtual-joystick.md](macos-virtual-joystick.md)).
+elsewhere gets `Direct` and `Log.txt` says so once per model; MacOS and Linux gain it by implementing that one factory (what was found
+looking for a MacOS one is in [macos-virtual-joystick.md](macos-virtual-joystick.md)).
 
 **When the buttons are read at all.** They are only read when something uses them: the `VJoy` action, or at least one command in
 `button_commands`. With neither, no register is read (no bus traffic) and `Log.txt` says so once per model. Reading costs one or two
@@ -166,9 +166,37 @@ controls (`hub`, `edges`) are not touched by a change of aircraft: only the comm
 
 | Yoke | Hat switch | Where its buttons are on the bridge |
 |---|---|---|
-| Original CLS-E | **none** | node 2, `0x60fd`, slots 1 to 14 (slot 6 not fitted): two grips, three panel buttons |
+| Original CLS-E | **none** | node 2, `0x60fd`, slots 1 to 5 and 7 to 11: two grips. Slots 12 to 14 (the three front panel buttons) are on the bridge but deliberately not given a control |
 | CLS-E NG | yes (8 positions) | node 2, **`0x2880`**: entry 3 the six buttons, entry 4 the hat (its `0x60fd` has slots 1 to 5 only) |
 | CLS-E MK2 | reported to have one (not verified) | not known; **no preset yet** |
+
+### The original CLS-E's disabled panel buttons
+
+The original CLS-E has three more controls, the front panel buttons, in slots 12 to 14 of `0x60fd` (found by pressing each control
+in turn, 2026-11-10). They are **deliberately disabled**: they also work the yoke's own menu, and on the tested yoke one press switched
+the motors on while the plugin was driving it, and the plugin stopped with a fault ([The yoke's buttons](../buttons.md#the-cls-es-front-panel-buttons)).
+They have no entry in the model's `button_registers` or `button_aliases`, so they have no name and are never read. What they were,
+kept here so they can be turned on again:
+
+| Slot | Control | Name | Friendly name | `button_registers` entry |
+|---|---|---|---|---|
+| 12 | Panel, middle | `button_12` | `panel_middle` | `{"node": 2, "object": "0x60FD", "sub": 0, "mask": "0x08000000"}` |
+| 13 | Panel, right | `button_13` | `panel_right` | `{"node": 2, "object": "0x60FD", "sub": 0, "mask": "0x10000000"}` |
+| 14 | Panel, left | `button_14` | `panel_left` | `{"node": 2, "object": "0x60FD", "sub": 0, "mask": "0x20000000"}` |
+
+Each mask is `1 << (15 + slot)`, the same rule as slots 1 to 11 (bits 16 to 26, with no slot 6). To enable them:
+
+1. In `config/yokes/cls-e.json`, add the three names to `button_aliases` (`"button_12": ["panel_middle"]`, and so on) and the three
+   entries above to `button_registers`.
+2. For the built-in model, which is used when no file is found, raise the loop in `cls_e_can_layout()` (`src/buttons/input/can_layout.hpp`)
+   from `n <= 11` to `n <= 14` and add the three names to `cls_e_button_aliases()` (`src/config/yoke/yoke_preset.hpp`).
+3. Update the tests in `src/config/yoke/preset_tests.cpp` (`button_aliases`: ten controls and `panel_*` not controls today).
+4. Undo the "disabled" wording in [The yoke's buttons](../buttons.md#the-cls-es-front-panel-buttons) and
+   [advanced configuration](advanced-configuration.md#names).
+
+In a file you write yourself, `button_aliases` and `button_registers` each replace the model's whole map, so a `BrunnerDirect.yokes.json`
+override must list all thirteen controls, not just the three. Before turning them on, find out what the yoke's own menu does with a press
+while the plugin is driving it: that is what stopped the plugin.
 
 The CLS-E MK2 is something the owner has been told about, not something Mesmer has run on: it needs its own yoke preset (its USB ids,
 its `button_registers` and its `button_aliases`) once someone has one to test, and the probes in `src/hid/mac/` say where its buttons

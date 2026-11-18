@@ -17,7 +17,7 @@ README naming its source-of-truth headers):
 
 Everything except the Windows USB reader and the files under `xplane/`,
 `ui/menu/`, `ui/view/startup_notice.*`, `ui/view/panel_win.hpp` and `plugin.cpp` is portable
-C++17 with tests that run on macOS and Windows.
+C++17 with tests that run on MacOS and Windows.
 
 | File | What it holds |
 |---|---|
@@ -34,7 +34,7 @@ C++17 with tests that run on macOS and Windows.
 | `brunner/readonly.hpp` | What happens with a yoke the plugin does not drive (an unknown model, or an unverified one): only reads, a learned travel for pitch and roll ([spec](read-only-mode.md)) |
 | `brunner/reader.cpp`, `brunner/bridge.hpp` | The reader thread and its request/reply layer; the same on every platform |
 | `hid/hid_device.hpp`, `hid/usb_ids.hpp`, `hid/hid_select.cpp` | The seam to the operating system and the USB ids Mesmer opens ([spec](hid-bridge.md)) |
-| `hid/win/hid_win.cpp`, `hid/mac/hid_mac.cpp`, `hid/lin/hid_lin.cpp` | The Windows, macOS and Linux HID access |
+| `hid/win/hid_win.cpp`, `hid/mac/hid_mac.cpp`, `hid/lin/hid_lin.cpp` | The Windows, MacOS and Linux HID access |
 | `buttons/controls.*`, `buttons/commands.*`, `buttons/edges.*`, `buttons/hold.*`, `buttons/hub.*` | The yoke's controls and what the buttons mean: names and aliases, `button_commands` resolved through them, press and release edges, per-command holds, and the hub the reader delivers to ([spec](button-commands.md)) |
 | `buttons/input/` | `can_layout.hpp` (where a model's buttons are on the bridge) and `can_source.hpp` (reading them in the reader's sampling cycle) |
 | `buttons/actions/` | The two actions: `direct_action.*` (X-Plane commands) and `vjoy_action.*` with `vjoy_presser.hpp` (a virtual joystick; the Windows driver is `win/vjoy_win.hpp`) |

@@ -108,7 +108,7 @@ inline ReadOnlyResult read_only_flight_input(const Snapshot& s,Travel& travel,co
         // (the power-on self-test passes through 0x0021 and 0x0027).
         const bool stopped=(axis.status&0x0004)==0 && (axis.status&0x0400)!=0;
         return unavailable(stopped
-            ?"Read-only: the yoke is stopped, not referenced. Power-cycle it, or turn on Developer > Allow unverified yoke models, then Reset yoke and Re-centre"
+            ?"Read-only: yoke stopped, not referenced. Power-cycle it, or Reset yoke and Re-centre"
             :"Read-only: the yoke is homing; wait for it to finish");
     }
     for (unsigned i=0;i<2;++i) result.widened=travel[i].observe(s.axes[i].encoder) || result.widened;

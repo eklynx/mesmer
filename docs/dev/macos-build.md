@@ -1,6 +1,6 @@
-# macOS build: specification
+# MacOS build: specification
 
-`src/scripts/build_macos.sh` is the interface to the macOS build. This page is its
+`src/scripts/build_macos.sh` is the interface to the MacOS build. This page is its
 specification; `tests/test-build-macos.sh` checks each statement.
 
 ## What it produces
@@ -11,12 +11,12 @@ with the files the Windows release ships (`BrunnerDirect.ini`,
 `LICENSE`, `NOTICE`, `SAFETY.md`) beside it in `BrunnerDirect/`.
 
 - Slices: exactly `arm64` and `x86_64`.
-- Deployment target: macOS 11.0. Release build.
+- Deployment target: MacOS 11.0. Release build.
 - Ad hoc signed (`codesign --sign -`), and verified.
 - Exports `XPluginStart`, `XPluginEnable`, `XPluginDisable`, `XPluginStop`,
   `XPluginReceiveMessage`; links `XPLM.framework` at X-Plane's own path.
 - **Yoke reader: IOKit, not yet run on hardware.** Mesmer reads the yoke over
-  USB HID itself (no CLS2Sim). On macOS that is `src/hid/mac/hid_mac.cpp`, behind the
+  USB HID itself (no CLS2Sim). On MacOS that is `src/hid/mac/hid_mac.cpp`, behind the
   seam in `src/hid/hid_device.hpp` (spec: [hid-bridge.md](hid-bridge.md)). The build
   also makes `build/brunner_hardware_read_test`, a 15 s check to run first.
 
@@ -42,7 +42,7 @@ The SDK comes from `--sdk`, else `$XPLANE_SDK`, else the pinned download
 SHA-256 before it is unpacked, and the pin equals the one in
 `.github/workflows/release.yml` and `ci.yml`.
 
-CI runs this script on every push (`ci.yml`, job `macos`), and the release builds the macOS
+CI runs this script on every push (`ci.yml`, job `macos`), and the release builds the MacOS
 plugin with it before it is merged into the release zip
 ([release-packaging.md](release-packaging.md)).
 
@@ -57,7 +57,7 @@ No build starts after one of the first four.
 | Cause | Reason says |
 |---|---|
 | Unknown option / `--sdk` without a value | `unknown option: X` / `--sdk needs a path` |
-| Not macOS, or a tool is missing (`cmake lipo codesign curl shasum unzip`) | which one |
+| Not MacOS, or a tool is missing (`cmake lipo codesign curl shasum unzip`) | which one |
 | `--sdk`/`XPLANE_SDK` is not an SDK, or lacks `Libraries/Mac/XPLM.framework` | `not an X-Plane SDK directory ...` |
 | Download fails | `could not download ... pass --sdk PATH or set XPLANE_SDK` |
 | Download's SHA-256 differs from the pin | `checksum ... does not match the pin`; the file is deleted |

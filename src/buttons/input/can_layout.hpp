@@ -38,10 +38,11 @@ struct CanSignal {
 };
 using CanLayout = std::map<Input, CanSignal>;
 
-// The original CLS-E's (the default for a model that gives none): slots 1 to 5 and 7 to 14, bits 16 to 31 of node 2's 0x60fd.
+// The original CLS-E's (the default for a model that gives none): slots 1 to 5 and 7 to 11, bits 16 to 31 of node 2's 0x60fd. Slots 12
+// to 14, the three front panel buttons, are deliberately not here: they also work the yoke's own menu (docs/buttons.md).
 inline CanLayout cls_e_can_layout() {
     CanLayout layout;
-    for (int n = 1; n <= 14; ++n)
+    for (int n = 1; n <= 11; ++n)
         if (n != 6) layout[{InputKind::button, n}] = CanSignal{2, 0x60fd, 0, true, 1u << (15 + n)};
     return layout;
 }

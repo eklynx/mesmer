@@ -41,9 +41,9 @@ void the_built_ins() {
     check(e.pitch_units_per_lb==222 && e.roll_units_per_nm==1000);
     check(std::fabs(e.margin_fraction-500.0/4500.0)<1e-12);
     check(e.usb_ids.size()==1 && e.usb_ids[0].vendor==0x25BB && e.usb_ids[0].product==0x0081);
-    // The NG: its measured travel, spec ceilings, own torque; verified on firmware 642.
+    // The NG: its measured travel, spec ceilings, own torque; verified on firmware 642 and 810.
     const auto& n=named(presets,"cls-e-ng");
-    check(n.verified && n.verified_firmware==std::vector<std::uint16_t>{642});
+    check(n.verified && n.verified_firmware==(std::vector<std::uint16_t>{642,810}));
     check(n.roll_travel_counts==7350 && n.pitch_travel_counts==5300 && n.wheel_deg==90 && n.pitch_travel_mm==160);
     check(n.roll_ceiling_units==11000 && n.pitch_ceiling_units==9500);   // 11 N.m / 0.001, 190 N / 0.02
     check(n.target_torque==25 && n.pitch_units_per_lb==222 && n.roll_units_per_nm==1000);
@@ -55,7 +55,7 @@ void the_built_ins() {
     const auto ids=preset_usb_ids(presets);
     check(ids.size()==2 && is_bridge_id(ids[0].vendor,ids[0].product) && is_bridge_id(ids[1].vendor,ids[1].product));
     // Firmware is only a note.
-    check(firmware_verified(e,367) && !firmware_verified(e,368) && firmware_verified(n,642) && !firmware_verified(n,643));
+    check(firmware_verified(e,367) && !firmware_verified(e,368) && firmware_verified(n,642) && firmware_verified(n,810) && !firmware_verified(n,643) && !firmware_verified(n,811));
 }
 // The shipped files (config/yokes/) must stay equal to the built-ins: the CLS-E's are what the project
 // was built on, and the fallback must never differ from what a healthy install loads.
@@ -279,10 +279,10 @@ void changing_a_direction() {
 void button_aliases() {
     const auto ng=builtin_cls_e_ng(),cls_e=builtin_cls_e();
     check(ng.button_aliases.size()==6 && ng.button_aliases.at("button_1")==(std::vector<std::string>{"trigger"}));
-    check(cls_e.button_aliases.size()==13 && cls_e.button_aliases.at("button_1")==(std::vector<std::string>{"left_index"}) && !cls_e.button_aliases.count("button_6"));
+    check(cls_e.button_aliases.size()==10 && cls_e.button_aliases.at("button_1")==(std::vector<std::string>{"left_index"}) && !cls_e.button_aliases.count("button_6"));
     const buttons::ControlMap ng_map(ng.button_aliases),cls_e_map(cls_e.button_aliases);
     check(*ng_map.resolve("button_5")==*ng_map.resolve("rocker_up") && *ng_map.resolve("hat_push")==*ng_map.resolve("button_6"));
-    check(*cls_e_map.resolve("panel_left")==*cls_e_map.resolve("button_14"));
+    check(!cls_e_map.resolve("panel_left") && !cls_e_map.resolve("panel_middle") && !cls_e_map.resolve("panel_right"));   // the three front panel buttons are deliberately not controls
     // A file may give the map: it replaces the model's whole map (other fields are kept).
     const auto replaced=parse_yoke_presets(R"({"schema":1,"yokes":[{"name":"cls-e-ng","button_aliases":{"button_1":["fire"],"hat_n":["north","up"]}}]})",builtin_yoke_presets());
     const auto& n=named(replaced,"cls-e-ng");
@@ -291,9 +291,9 @@ void button_aliases() {
     // Where each control is on the bridge: a map from the control's name to the object and the mask or value that says pressed. The
     // original CLS-E's are bits 16 to 31 of 0x60fd (no slot 6, no hat), the NG's bits of 0x2880:3 and the values of 0x2880:4.
     const auto& cls_e_signals=builtin_cls_e().button_registers;
-    check(cls_e_signals==buttons::cls_e_can_layout() && cls_e_signals.size()==13 && !cls_e_signals.count({buttons::InputKind::button,6}) && !cls_e_signals.count({buttons::InputKind::hat,1}));
+    check(cls_e_signals==buttons::cls_e_can_layout() && cls_e_signals.size()==10 && !cls_e_signals.count({buttons::InputKind::button,6}) && !cls_e_signals.count({buttons::InputKind::hat,1}));
     const auto& slot_1=cls_e_signals.at({buttons::InputKind::button,1});
-    check(slot_1==(buttons::CanSignal{2,0x60fd,0,true,0x00010000}) && cls_e_signals.at({buttons::InputKind::button,14}).operand==0x20000000u);
+    check(slot_1==(buttons::CanSignal{2,0x60fd,0,true,0x00010000}) && !cls_e_signals.count({buttons::InputKind::button,14}));
     const auto& ng_signals=builtin_cls_e_ng().button_registers;
     check(ng_signals==buttons::cls_e_ng_can_layout() && ng_signals.size()==14);
     check(ng_signals.at({buttons::InputKind::button,6})==(buttons::CanSignal{2,0x2880,3,true,0x20}));

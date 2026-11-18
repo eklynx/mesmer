@@ -5,7 +5,7 @@
       "name": "cls-e-ng",
       "title": "Brunner CLS-E NG",
       "verified": true,
-      "verified_firmware": [642],
+      "verified_firmware": [642, 810],
       "usb": [
         {
           "vendorId": "0x25BB",
