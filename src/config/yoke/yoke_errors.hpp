@@ -92,7 +92,7 @@ inline std::string overrides_refused(const std::string& why) { return "Yoke over
 
 // ---- A button mapping that is skipped (LoadedYokes::skipped): the rest of the file applies ----
 inline std::string skipped(const std::string& why) { return why + "; skipped"; }
-inline std::string action_method_skipped(const std::string& what, const std::string& kept) { return what + " must be VJoy or Direct; skipped, the model keeps " + kept; }
+inline std::string action_method_skipped(const std::string& what, const std::string& kept) { return what + " must be VJoy, Direct or Disabled; skipped, the model keeps " + kept; }
 inline std::string registers_not_an_object(const std::string& what) { return what + " must be an object of button and hat names; skipped, the model keeps its own"; }
 inline std::string aliases_not_an_object(const std::string& what) { return what + " must be an object of lists of names; skipped, the model keeps its own"; }
 // One button_registers entry (thrown inside the loop, which turns it into a skipped line).

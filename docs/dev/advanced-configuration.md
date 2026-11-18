@@ -35,6 +35,7 @@ this section is the format and the rules.
 | `auto_start`, `force_feel` | you | Startup overrides of the same-named `BrunnerDirect.ini` keys. Absent: the ini's value. |
 | `reply_tolerance_ms` | you | How long, in milliseconds, the yoke may go without completing a sample before the link counts as lost: a whole number from 0 to 5000, default 1000 ([hid-bridge](hid-bridge.md#a-silent-yoke-is-tolerated-for-a-while)). Meanwhile the controls stay on the last sample and no force updates are written. 0 is the old behaviour: the first missed reply ends the session. Anything else is ignored and named in `Log.txt`. |
 | `button_commands` | you | X-Plane commands for the yoke's controls ([below](#button-commands)). Absent: nothing runs. |
+| `button_action_method` | you | `"VJoy"`, `"Direct"` or `"Disabled"` (any case): what the plugin does with every yoke's buttons, instead of the yoke model's own ([below](#the-button-action)). Anything else is ignored and named. Absent: each model's own. |
 
 Rules:
 - **Per key.** Every key but `version` is optional and judged alone: a value that is not a literal
@@ -44,9 +45,11 @@ Rules:
 - **Whole file.** Not JSON, not an object, or not `"version":1`: everything is off, the ini applies,
   and one line in the log says the file was ignored.
 - **Precedence.** State file, then `BrunnerDirect.ini`, then the built-in default (0). The state file
-  is read after the ini; each override in effect is logged with the ini's value.
+  is read after the ini; each override in effect is logged with the ini's value. `button_action_method` is the same idea against the
+  yoke model's preset: the state file's word beats every model's `button_action_method`, and `Log.txt` says `button_action_method
+  Disabled from BrunnerDirect.state.json (the model's: Direct)` when it does.
 - **Saving.** Only the Developer toggle makes the plugin write the file (atomically: a temp file,
-  then a rename). It writes `allow_unverified_yoke` and the two overrides exactly as it read them, so
+  then a rename). It writes `allow_unverified_yoke`, the two overrides and `button_action_method` as it read them, so
   flipping the toggle never erases them, nor a `button_commands` map. The menu never writes `auto_start` or `force_feel`.
 - An older install's copy in the plugin folder is read once when the new place has none, and saved
   to the new place.
@@ -214,8 +217,8 @@ out of a model for the default (`Direct`). What the shipped models say:
 |---|---|
 | `VJoy` | presses the buttons of a virtual joystick, which you bind in X-Plane's Joystick screen ([The yoke's buttons](../buttons.md)). Windows only for now: elsewhere a model asking for it gets `Direct`, and `Log.txt` says so. |
 | `Direct` | runs the X-Plane commands in [`button_commands`](#button-commands). |
-| `None` | **Not yet implemented.** Turns the buttons off entirely: the plugin reads no buttons, presses no virtual joystick and runs no commands, so any `button_commands` are ignored. For a yoke that already appears as a joystick in X-Plane, when you wish to use that interface. Until it is implemented a preset that says `None` is refused like any other unknown word. |
+| `Disabled` | turns the buttons off entirely: the plugin reads no buttons, presses no virtual joystick and runs no commands, so any `button_commands` are ignored, and `Log.txt` says so once per model. For a yoke that already appears as a joystick in X-Plane, when you wish to use that interface. |
 
 A virtual joystick's button numbers are the controls' button numbers (hat positions take 17 to 24). Nothing is read unless something
-uses the buttons: `VJoy`, or at least one command. When the yoke's model is known, `Log.txt` says which action is in use. MacOS and
+uses the buttons: `VJoy`, or `Direct` with at least one command; with `Disabled` nothing is ever read. When the yoke's model is known, `Log.txt` says which action is in use. MacOS and
 Linux gain `VJoy` when a virtual joystick is written for them.

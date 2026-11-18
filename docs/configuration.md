@@ -232,10 +232,12 @@ starts, after the ini.
 | <a id="state-version"></a>`version` | 1 | Required. A file without `"version":1` is ignored whole. |
 | <a id="state-auto_start"></a>`auto_start` | `true` or `false` | Overrides the ini's `auto_start`. With `true` the plugin centres the yoke by itself soon after X-Plane starts, so **keep clear of the yoke and read [SAFETY.md](../SAFETY.md) first**. |
 | <a id="state-force_feel"></a>`force_feel` | `true` or `false` | Overrides the ini's `force_feel`: whether force feel is on when X-Plane starts. |
+| <a id="state-button_action_method"></a>`button_action_method` | `"VJoy"`, `"Direct"` or `"Disabled"` | What the plugin does with the yoke's buttons, for every yoke, instead of the yoke model's own ([The yoke's buttons](buttons.md#the-button-methods)). Any case. `Disabled` turns the buttons off entirely: nothing is read or run, and `button_commands` are ignored. Read when X-Plane starts. |
 | <a id="state-button_commands"></a>`button_commands` | an object | What each control of the yoke does, as X-Plane commands: `"button_1": "sim/view/default_view"`. Nothing is bound until you write it. See [The yoke's buttons](buttons.md#commands-on-the-yoke-buttons). |
 
-A key you leave out keeps the ini's value, so the ini is still where the defaults are and the state
-file only changes what you name. The values are the words `true` and `false`, not 1, 0 or text.
+A key you leave out keeps the ini's value (for `button_action_method`, the yoke model's own), so the
+ini is still where the defaults are and the state file only changes what you name. The on/off keys
+take the words `true` and `false`, not 1, 0 or text; `button_action_method` takes one of its three words.
 A wrong value, or a key this version does not know, is ignored on its own and the other keys still
 apply; `Log.txt` says which, for example
 `BrunnerDirect.state.json: auto_start must be true or false; ignored`. When an override is in effect

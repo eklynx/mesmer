@@ -24,4 +24,5 @@ inline std::string entry_wrong_kind(const char* file, const std::string& entry) 
     return std::string(file) + ": button_commands." + entry + " must be a command name, a list of them, or null; ignored";
 }
 inline std::string not_a_boolean(const char* file, const std::string& key) { return std::string(file) + ": " + key + " must be true or false; ignored"; }
+inline std::string action_method_invalid(const char* file) { return std::string(file) + ": button_action_method must be VJoy, Direct or Disabled; ignored"; }
 }

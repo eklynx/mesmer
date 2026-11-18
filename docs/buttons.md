@@ -11,7 +11,7 @@ what the plugin does with the buttons it reads.
 |---|---|---|
 | **[vJoy](#vjoy)** | The plugin presses the matching buttons of a virtual joystick, vJoy device 1. X-Plane lists it in its Joystick screen as `vJoy - Virtual Joystick`, and you bind its buttons like any other controller's. | Windows only |
 | **[Direct](#direct)** | The plugin runs the X-Plane commands you name in `button_commands`. No binding in X-Plane is needed. | Windows, MacOS and Linux |
-| **None** | Turns the buttons off entirely. Use it when your yoke already appears as a joystick in X-Plane and you wish to use that interface. **Not yet implemented.** | Windows, MacOS and Linux (once implemented) |
+| **Disabled** | Turns the buttons off entirely: the plugin reads no buttons, presses nothing and runs no commands, so any `button_commands` are ignored. Use it when your yoke already appears as a joystick in X-Plane and you wish to use that interface. | Windows, MacOS and Linux |
 
 - **vJoy** uses other software to create a virtual joystick that X-Plane can
   see. On Windows that is the vJoy software included in the CLS2Sim package.
@@ -22,7 +22,10 @@ what the plugin does with the buttons it reads.
 - **Direct** is the default, and works on every platform now.
 
 Each yoke model's preset says which method it uses (the original CLS-E:
-`vJoy`; the CLS-E NG: `Direct`), so there is nothing to set. See
+`vJoy`; the CLS-E NG: `Direct`), so there is normally nothing to set. To choose
+one yourself, for every yoke, add `"button_action_method": "Disabled"` (or
+`"VJoy"`, `"Direct"`) to [`BrunnerDirect.state.json`](configuration.md#state-button_action_method)
+and restart X-Plane. `Log.txt` says which method is in use (search `Yoke buttons`). See
 [The button action](dev/advanced-configuration.md#the-button-action), which
 also says what each method needs.
 

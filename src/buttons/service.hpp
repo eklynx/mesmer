@@ -2,8 +2,9 @@
 // Portable; read this header, not service.cpp.
 //
 // The service owns the whole chain: a ButtonHub (where the reader, which the plugin attaches to sink(), delivers the yoke's buttons)
-// and the action: Direct runs X-Plane commands through a CommandRunner, VJoy presses a virtual joystick. Which action is the
-// connected yoke's (its preset, buttons/methods.hpp), so it is chosen when the model is known.
+// and the action: Direct runs X-Plane commands through a CommandRunner, VJoy presses a virtual joystick, Disabled has no action at all
+// (nothing is read, pressed or run). Which action is the connected yoke's (its preset, or the owner's choice in the state file,
+// buttons/methods.hpp), so it is chosen when the model is known.
 //
 // Happy path, in the order the plugin calls it: construct (until a yoke is known the action is Direct); set_commands(entries) with
 // the owner's button_commands; start() at XPluginEnable; set_aircraft(label, entries, log) when X-Plane loads or changes the aircraft, with
@@ -17,7 +18,8 @@
 //
 // Error cases (none thrown): an action the operating system cannot do, VJoy without a virtual joystick, becomes Direct and `log`
 // says so once per model. When neither a virtual joystick nor any button_commands would use the buttons, nothing is read (no bus
-// traffic) and the log says so once per model. A refused register read is said in `log` once per change; the yoke flies as before
+// traffic) and the log says so once per model. Disabled: wants_buttons() is false whatever button_commands exist; the log says once
+// per model (and once per aircraft file that has commands) that they are ignored. A refused register read is said in `log` once per change; the yoke flies as before
 // in every case.
 #pragma once
 #include "brunner/core.hpp"
@@ -46,7 +48,10 @@ public:
     void unload();
     void update(Clock::time_point now, const brunner::Snapshot& snapshot, const Log& log);
 private:
-    bool in_use() const { return action_in_force_ == ActionMethod::vjoy || !entries_.empty() || !aircraft_entries_.empty(); }
+    bool in_use() const {
+        return action_in_force_ == ActionMethod::vjoy
+            || (action_in_force_ == ActionMethod::direct && (!entries_.empty() || !aircraft_entries_.empty()));
+    }
     std::shared_ptr<const ButtonCommands> resolve_commands(const Log& log) const;
     ActionMethod requested_ = default_action_method, action_in_force_ = default_action_method;   // what the yoke's model asked for; what is in force
     CommandRunner& runner_;

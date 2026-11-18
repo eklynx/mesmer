@@ -1,7 +1,9 @@
 // SOURCE OF TRUTH for the owner's saved choices that are not in BrunnerDirect.ini:
 // "allow unverified yoke" (Developer menu), which the plugin writes, and the optional startup overrides
 // "auto_start" and "force_feel", which the owner writes by hand and the plugin only reads and keeps, and the
-// optional "reply_tolerance_ms" and "button_commands" map (a control of the yoke -> X-Plane command, buttons/commands.hpp).
+// optional "reply_tolerance_ms", "button_commands" map (a control of the yoke -> X-Plane command, buttons/commands.hpp) and
+// "button_action_method" (what the plugin does with every yoke's buttons, instead of the yoke model's own: "VJoy", "Direct" or
+// "Disabled", any case; buttons/methods.hpp).
 // Specification: docs/configuration.md (the overrides), docs/dev/advanced-configuration.md (the format and
 // every rule below) and docs/dev/yoke-presets.md (the gate). Saved as BrunnerDirect.state.json in X-Plane's
 // Output/BrunnerDirect (so updating the plugin never replaces it); an older install's copy in the plugin
@@ -20,8 +22,10 @@
 // command string, or a list of command strings (several commands run in the order written). Any other value is ignored
 // and named; inside a list an item that is not a string is dropped and named and the others stay. Entry names are kept
 // as read (buttons/commands.hpp judges them, so a save never erases an entry this version does not understand, and
-// it writes back the form that was read: a string stays a string, a list stays a list).
+// it writes back the form that was read: a string stays a string, a list stays a list). "button_action_method" must be one of the
+// three words (a string, any case; "None" and anything else is ignored and named); it is written back in its canonical case.
 #pragma once
+#include "buttons/methods.hpp"
 #include "config/state/button_commands.hpp"
 #include "config/state/state_errors.hpp"
 #include "brunner/core.hpp"
@@ -40,12 +44,13 @@ struct OwnerState {
     std::optional<bool> auto_start;     // startup override of BrunnerDirect.ini's auto_start (hand-edited)
     std::optional<bool> force_feel;     // startup override of BrunnerDirect.ini's force_feel (hand-edited)
     std::optional<int> reply_tolerance_ms;   // 0..5000, default 1000 (brunner/core.hpp); hand-edited
+    std::optional<buttons::ActionMethod> button_action_method;   // beats every yoke model's button_action_method; hand-edited
     // Hand-edited: input name ("button_1", "hat_n_released", "button_4_hold") -> X-Plane command or commands; null, "" and
     // [] mean no command. Empty by default and never written unless the owner wrote it.
     std::map<std::string,ButtonEntry> button_commands;
     bool operator==(const OwnerState& o) const {
         return allow_unverified_yoke==o.allow_unverified_yoke && auto_start==o.auto_start && force_feel==o.force_feel
-            && reply_tolerance_ms==o.reply_tolerance_ms && button_commands==o.button_commands;
+            && reply_tolerance_ms==o.reply_tolerance_ms && button_action_method==o.button_action_method && button_commands==o.button_commands;
     }
 };
 // What a read found: the state, and one line per thing that was ignored (for Log.txt), worded for the owner.
@@ -59,6 +64,7 @@ inline std::string serialize_owner_state(const OwnerState& s) {
     if (s.auto_start) text+=std::string(",\"auto_start\":")+(*s.auto_start?"true":"false");
     if (s.force_feel) text+=std::string(",\"force_feel\":")+(*s.force_feel?"true":"false");
     if (s.reply_tolerance_ms) text+=",\"reply_tolerance_ms\":"+std::to_string(*s.reply_tolerance_ms);
+    if (s.button_action_method) text+=std::string(",\"button_action_method\":\"")+buttons::action_method_name(*s.button_action_method)+"\"";
     if (!s.button_commands.empty()) {
         text+=",\"button_commands\":{";
         bool first=true;
@@ -90,7 +96,7 @@ inline OwnerStateRead read_owner_state(std::string_view text) {
         for (const auto& m:root.members) {
             const auto& key=m.first;
             if (key=="version") continue;
-            const bool known=key=="allow_unverified_yoke" || key=="auto_start" || key=="force_feel" || key=="button_commands" || key=="reply_tolerance_ms";
+            const bool known=key=="allow_unverified_yoke" || key=="auto_start" || key=="force_feel" || key=="button_commands" || key=="reply_tolerance_ms" || key=="button_action_method";
             if (!known) {out.notes.push_back(state_errors::unknown_key(state_file,key));continue;}
             if (key=="reply_tolerance_ms") {
                 if (m.second.kind!=Json::Kind::integer || m.second.integer<0 || m.second.integer>max_reply_tolerance_ms) {
@@ -98,6 +104,12 @@ inline OwnerStateRead read_owner_state(std::string_view text) {
                     continue;
                 }
                 out.state.reply_tolerance_ms=static_cast<int>(m.second.integer);
+                continue;
+            }
+            if (key=="button_action_method") {
+                const auto method=m.second.kind==Json::Kind::string?buttons::parse_action_method(m.second.text):std::nullopt;
+                if (method) out.state.button_action_method=method;
+                else out.notes.push_back(state_errors::action_method_invalid(state_file));
                 continue;
             }
             if (key=="button_commands") {read_button_commands(m.second,state_file,out.state.button_commands,out.notes);continue;}

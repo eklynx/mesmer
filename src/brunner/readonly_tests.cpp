@@ -465,6 +465,22 @@ void the_saved_owner_state() {
     check(serialize_owner_state(only_feel)==std::string("{\"version\":1,\"allow_unverified_yoke\":false,\"force_feel\":true}\n"));
     check(read_owner_state("{\"version\":1,\"auto_start\":false}").state.auto_start==std::optional<bool>(false));   // every key but version is optional
     check(read_owner_state("{\"version\":1}").state==OwnerState{} && read_owner_state("{\"version\":1}").notes.empty());
+    {   // button_action_method: the owner's choice for every yoke, any case; kept when the state is saved; a wrong word is ignored and named
+        for (const auto* word:{"Disabled","disabled","DISABLED"}) {
+            const auto r=read_owner_state(std::string("{\"version\":1,\"button_action_method\":\"")+word+"\"}");
+            check(r.state.button_action_method==std::optional<buttons::ActionMethod>(buttons::ActionMethod::disabled) && r.notes.empty());
+        }
+        check(read_owner_state("{\"version\":1,\"button_action_method\":\"vjoy\"}").state.button_action_method==std::optional<buttons::ActionMethod>(buttons::ActionMethod::vjoy));
+        check(!read_owner_state("{\"version\":1}").state.button_action_method);
+        OwnerState chosen;chosen.button_action_method=buttons::ActionMethod::disabled;
+        check(serialize_owner_state(chosen)==std::string("{\"version\":1,\"allow_unverified_yoke\":false,\"button_action_method\":\"Disabled\"}\n"));
+        check(read_owner_state(serialize_owner_state(chosen)).state==chosen);
+        for (const auto* bad:{"\"None\"","\"\"","\"hid\"","1","null","true","[\"Disabled\"]"}) {
+            const auto r=read_owner_state(std::string("{\"version\":1,\"force_feel\":true,\"button_action_method\":")+bad+"}");
+            check(!r.state.button_action_method && r.state.force_feel==std::optional<bool>(true));   // the other keys still apply
+            check(r.notes.size()==1 && r.notes[0].find("button_action_method must be VJoy, Direct or Disabled; ignored")!=std::string::npos);
+        }
+    }
     // A wrong key is ignored and named; the others still apply.
     for (const auto* bad:{"\"yes\"","1","null","\"true\"","[true]","{}"}) {
         const auto r=read_owner_state(std::string("{\"version\":1,\"allow_unverified_yoke\":true,\"auto_start\":")+bad+",\"force_feel\":true}");

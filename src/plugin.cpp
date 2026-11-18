@@ -43,7 +43,7 @@ brunner::Reader reader;
 brunner::monitor::Window force_monitor,force_hud{true};
 brunner::recording::Recorder recorder;
 // The yoke's buttons (src/buttons, docs/dev/button-commands.md): where they are read from and what they do are the connected yoke's
-// button_action_method (its preset). The service is made once the presets have been read.
+// button_action_method (its preset, or the owner's choice in BrunnerDirect.state.json). The service is made once the presets have been read.
 std::unique_ptr<buttons::ButtonService> button_service;
 std::string last_button_model;
 XPLMCommandRef hud_command=nullptr,pin_command=nullptr,move_command=nullptr;
@@ -621,7 +621,10 @@ void buttons_follow_model(const std::string& model) {
     if (!button_service || model.empty() || model==last_button_model) return;
     last_button_model=model;
     for (const auto& preset:yoke_presets) if (preset.name==model) {
-        button_service->set_yoke(preset.title,preset.button_aliases,preset.button_action_method,log);
+        const auto action=buttons::effective_action_method(preset.button_action_method,owner_state.button_action_method);
+        if (owner_state.button_action_method)
+            log(std::string("button_action_method ")+buttons::action_method_name(action)+" from "+brunner::state_file+" (the model's: "+buttons::action_method_name(preset.button_action_method)+")");
+        button_service->set_yoke(preset.title,preset.button_aliases,action,log);
         reader.can_buttons().enable(button_service->wants_buttons());   // the registers are read only while something uses the buttons
         return;
     }

@@ -22,14 +22,23 @@ read of the registers) and `config/yoke/preset_tests.cpp`. Terms are in [GLOSSAR
 ## What the plugin does with the buttons
 
 A yoke model's preset ([yoke presets](yoke-presets.md)) gives its `button_action_method`, in any case; a model that gives none is
-`Direct`.
+`Direct`. The owner can name one for every yoke in `BrunnerDirect.state.json` (`button_action_method`, same words, any case), which
+beats the model's (`effective_action_method` in `src/buttons/methods.hpp`; the state file is read once, when X-Plane starts).
 
 | Preset field | Values | Meaning |
 |---|---|---|
-| `button_action_method` | `VJoy`, `Direct` | what the plugin **does** with the buttons |
+| `button_action_method` | `VJoy`, `Direct`, `Disabled` | what the plugin **does** with the buttons |
 
 - **VJoy** presses the buttons of a virtual joystick that X-Plane binds.
 - **Direct** runs the X-Plane commands in `button_commands`.
+- **Disabled** does nothing with the buttons: no action exists, no register is read, nothing is pressed, run or held, and every
+  `button_commands` entry (the owner's and an aircraft's) is ignored. It is for a yoke that already appears as a joystick in X-Plane.
+  Switching to it ends what was held (the Direct commands' `_hold` entries are ended, a virtual joystick is let go and unloaded). It
+  is never changed by a fallback. `Log.txt` says `Yoke buttons: <model>: action Disabled` and then either `the buttons are disabled;
+  button_commands are ignored` or `the yoke's buttons are not read`, and once per aircraft file with commands `the buttons are
+  disabled; its button_commands are ignored`. The word `None` was never accepted. A state-file word that is not one of the three is
+  ignored and named (`button_action_method must be VJoy, Direct or Disabled; ignored`); in a preset the field is skipped and the model
+  keeps its own.
 
 The shipped models: the original CLS-E is `VJoy`, the CLS-E NG is `Direct`. It is a setting of the connected yoke:
 `ButtonService::set_yoke` applies it when the model becomes known (and again if another model connects), switching the action.
@@ -38,8 +47,8 @@ The shipped models: the original CLS-E is `VJoy`, the CLS-E NG is `Direct`. It i
 elsewhere gets `Direct` and `Log.txt` says so once per model; MacOS and Linux gain it by implementing that one factory (what was found
 looking for a MacOS one is in [macos-virtual-joystick.md](macos-virtual-joystick.md)).
 
-**When the buttons are read at all.** They are only read when something uses them: the `VJoy` action, or at least one command in
-`button_commands`. With neither, no register is read (no bus traffic) and `Log.txt` says so once per model. Reading costs one or two
+**When the buttons are read at all.** They are only read when something uses them: the `VJoy` action, or `Direct` with at least one
+command in `button_commands`; never with `Disabled`. With neither, no register is read (no bus traffic) and `Log.txt` says so once per model. Reading costs one or two
 requests, about 2 ms each of the 20 ms sampling cycle, only while it is wanted.
 
 ## Controls and names

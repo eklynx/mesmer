@@ -301,7 +301,7 @@ inline void validate_presets(const std::vector<YokePreset>& presets) {
 // roll_spring_percent, pitch_spring_percent, pitch_gain_denominator, pitch_move_back, pitch_cutoff, mode},
 // roll_encoder_sign,
 // pitch_encoder_sign, roll_spring_sign, pitch_spring_sign, roll_input_reverse, pitch_input_reverse,
-// button_aliases {"button_4": ["rocker_down", "other_alias"], ...}, button_action_method "VJoy" | "Direct" (any case), button_registers {"button_1": {"node": 2, "object":
+// button_aliases {"button_4": ["rocker_down", "other_alias"], ...}, button_action_method "VJoy" | "Direct" | "Disabled" (any case), button_registers {"button_1": {"node": 2, "object":
 // "0x2880", "sub": 3, "mask": "0x01"}, "hat_n": {"node": 2, "object": "0x2880", "sub": 4, "value": 1}, ...}. Unknown fields are refused.
 namespace preset_detail {
 inline double number(const Json& j,const std::string& what) {

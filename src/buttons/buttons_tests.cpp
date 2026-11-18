@@ -97,8 +97,14 @@ void bad_aliases_are_refused() {
 // ---- the setting ----
 void the_action_methods() {
     check(parse_action_method("VJoy")==ActionMethod::vjoy && parse_action_method("vjoy")==ActionMethod::vjoy && parse_action_method("DIRECT")==ActionMethod::direct);
-    for (const char* bad:{"","can bus","hid","canbus","usb","0","1","vjoy ","direct1"}) check(!parse_action_method(bad));
-    check(std::string(action_method_name(ActionMethod::vjoy))=="VJoy" && std::string(action_method_name(ActionMethod::direct))=="Direct");
+    check(parse_action_method("Disabled")==ActionMethod::disabled && parse_action_method("disabled")==ActionMethod::disabled && parse_action_method("DISABLED")==ActionMethod::disabled);
+    for (const char* bad:{"","can bus","hid","canbus","usb","0","1","vjoy ","direct1","none","None","disable","disabled "}) check(!parse_action_method(bad));
+    check(std::string(action_method_name(ActionMethod::vjoy))=="VJoy" && std::string(action_method_name(ActionMethod::direct))=="Direct"
+        && std::string(action_method_name(ActionMethod::disabled))=="Disabled");
+    // The owner's choice in the state file beats the model's; with none, the model's stands.
+    check(effective_action_method(ActionMethod::vjoy,std::nullopt)==ActionMethod::vjoy);
+    check(effective_action_method(ActionMethod::vjoy,ActionMethod::disabled)==ActionMethod::disabled);
+    check(effective_action_method(ActionMethod::disabled,ActionMethod::direct)==ActionMethod::direct);
     // What a model that gives none is, on every operating system (the shipped models say their own: config/yoke/preset_tests.cpp).
     static_assert(default_action_method==ActionMethod::direct,"a model that says nothing runs commands");
 }
@@ -480,6 +486,54 @@ void the_service_chooses_what_to_run() {
         check(rig.said_part("not read") && !rig.service->wants_buttons());
     }
 }
+// Disabled: nothing is read, pressed or run, whatever commands exist; a held command is ended when it takes effect.
+void the_disabled_method_reads_and_runs_nothing() {
+    const ButtonCommands::Entries held{{"trigger_hold",{"h/one"}}};
+    ServiceRig rig(ActionMethod::direct,held,true);
+    rig.service->start(rig.log);
+    rig.service->set_yoke("Brunner CLS-E NG",ng_aliases(),ActionMethod::direct,rig.log);
+    check(rig.service->wants_buttons());
+    const auto t=Clock::now();
+    const auto press=[&](std::uint32_t bits) {rig.service->sink().publish({bits,0},t);rig.service->update(t,brunner::Snapshot{},rig.log);};
+    press(0);rig.runner.take();
+    press(0b01);
+    check(rig.runner.take()=="begin h/one");
+    rig.said.clear();
+    rig.service->set_yoke("Brunner CLS-E NG",ng_aliases(),ActionMethod::disabled,rig.log);
+    check(rig.runner.take()=="end h/one");                                             // what was held is ended
+    check(rig.service->action_method()==ActionMethod::disabled && !rig.service->wants_buttons());
+    check(rig.said_part("Brunner CLS-E NG: action Disabled") && rig.said_part("the buttons are disabled; button_commands are ignored"));
+    check(!rig.said_part("with commands"));                                            // no summary of commands that will not run
+    press(0);press(0b01);press(0);
+    check(rig.runner.take().empty());                                                  // nothing runs, though the commands are still there
+    check(rig.joystick==nullptr);                                                      // and no virtual joystick was made
+    // An aircraft's commands are ignored too, and the log says so once for the file.
+    rig.said.clear();
+    rig.service->set_aircraft("aircraft C172",{{"trigger",{"air/trigger"}}},rig.log);
+    check(rig.said_part("aircraft C172: the buttons are disabled; its button_commands are ignored") && !rig.service->wants_buttons());
+    press(0b01);
+    check(rig.runner.take().empty());
+    // Back to Direct: the commands work again.
+    rig.service->set_aircraft("",{},rig.log);
+    rig.service->set_yoke("Brunner CLS-E NG",ng_aliases(),ActionMethod::direct,rig.log);
+    check(rig.service->action_method()==ActionMethod::direct && rig.service->wants_buttons());
+    press(0);rig.runner.take();press(0b01);
+    check(rig.runner.take()=="begin h/one");
+    // Without any commands the log says the yoke's buttons are not read.
+    ServiceRig bare(ActionMethod::direct,{},true);
+    bare.service->start(bare.log);
+    bare.said.clear();
+    bare.service->set_yoke("Brunner CLS-E NG",ng_aliases(),ActionMethod::disabled,bare.log);
+    check(bare.said_part("the buttons are disabled; the yoke's buttons are not read") && !bare.service->wants_buttons());
+    // From a virtual joystick: it is let go and unloaded, and a fallback never changes Disabled.
+    ServiceRig vjoy(ActionMethod::vjoy,{},true);
+    vjoy.service->start(vjoy.log);
+    vjoy.service->set_yoke("Brunner CLS-E",{},ActionMethod::vjoy,vjoy.log);
+    check(vjoy.service->wants_buttons() && vjoy.joystick);
+    vjoy.service->set_yoke("Brunner CLS-E",{},ActionMethod::disabled,vjoy.log);
+    check(vjoy.service->action_method()==ActionMethod::disabled && !vjoy.service->wants_buttons());
+    check(!vjoy.said_part("does not have yet"));
+}
 void the_service_applies_an_aircrafts_commands() {
     ServiceRig rig(ActionMethod::direct,{{"button_1",{"base/trigger"}},{"button_2",{"base/left"}}},false);
     rig.service->start(rig.log);
@@ -571,6 +625,7 @@ int main() {
         aliases_are_matched_in_any_case();
         bad_aliases_are_refused();
         the_action_methods();
+        the_disabled_method_reads_and_runs_nothing();
         edges_over_a_stream();
         all_sixteen_buttons_and_the_hat_are_seen();
         commands_resolve_through_names();

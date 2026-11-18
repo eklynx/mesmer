@@ -29,8 +29,10 @@ void ButtonService::set_aircraft(const std::string& label, const ButtonCommands:
     aircraft_entries_ = entries;
     auto commands = resolve_commands(log);
     if (direct_) direct_->set_commands(controls_, commands);   // ends what the old commands had held
-    if (!model_.empty() && !aircraft_entries_.empty())
-        log("Yoke buttons: " + label + ": " + std::to_string(commands->size()) + " controls with commands");
+    if (!model_.empty() && !aircraft_entries_.empty()) {
+        if (action_in_force_ == ActionMethod::disabled) log("Yoke buttons: " + label + ": the buttons are disabled; its button_commands are ignored");
+        else log("Yoke buttons: " + label + ": " + std::to_string(commands->size()) + " controls with commands");
+    }
 }
 
 void ButtonService::set_yoke(const std::string& model, const ControlMap::Aliases& aliases, ActionMethod action, const Log& log) {
@@ -53,6 +55,7 @@ void ButtonService::set_yoke(const std::string& model, const ControlMap::Aliases
         if (action_) { action_->close(); action_->unload(); }
         direct_ = nullptr;
         if (in_force == ActionMethod::vjoy) action_ = std::move(next);
+        else if (in_force == ActionMethod::disabled) { action_.reset(); hub_.release_all(); }   // no action: nothing is pressed or held
         else { auto direct = std::make_unique<DirectAction>(runner_); direct_ = direct.get(); action_ = std::move(direct); }
     }
     action_in_force_ = in_force;
@@ -69,8 +72,13 @@ void ButtonService::set_yoke(const std::string& model, const ControlMap::Aliases
     if (known) {
         log(std::string("Yoke buttons: ") + model + ": action " + action_method_name(action_in_force_));
         if (!fallback_note_.empty()) log(fallback_note_);
-        log("Yoke buttons: " + model + " has " + std::to_string(controls_->size()) + " controls; " + std::to_string(commands->size()) + " with commands");
-        if (!in_use()) log("Yoke buttons: no button_commands configured and no virtual joystick; the yoke's buttons are not read");
+        if (action_in_force_ == ActionMethod::disabled) {
+            const bool any = !entries_.empty() || !aircraft_entries_.empty();
+            log("Yoke buttons: " + model + ": the buttons are disabled; " + (any ? "button_commands are ignored" : "the yoke's buttons are not read"));
+        } else {
+            log("Yoke buttons: " + model + " has " + std::to_string(controls_->size()) + " controls; " + std::to_string(commands->size()) + " with commands");
+            if (!in_use()) log("Yoke buttons: no button_commands configured and no virtual joystick; the yoke's buttons are not read");
+        }
     }
 }
 

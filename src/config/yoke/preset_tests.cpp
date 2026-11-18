@@ -317,6 +317,8 @@ void button_aliases() {
     check(club_yoke.button_action_method==buttons::ActionMethod::direct);
     const auto methods=parse_yoke_presets(R"({"schema":1,"yokes":[{"name":"cls-e","button_action_method":"DIRECT"},{"name":"cls-e-ng","button_action_method":"VJoy"}]})",builtin_yoke_presets());
     check(named(methods,"cls-e").button_action_method==buttons::ActionMethod::direct && named(methods,"cls-e-ng").button_action_method==buttons::ActionMethod::vjoy);
+    const auto disabled=parse_yoke_presets(R"({"schema":1,"yokes":[{"name":"cls-e-ng","button_action_method":"Disabled"},{"name":"cls-e","button_action_method":"disabled"}]})",builtin_yoke_presets());
+    check(named(disabled,"cls-e-ng").button_action_method==buttons::ActionMethod::disabled && named(disabled,"cls-e").button_action_method==buttons::ActionMethod::disabled);
     // A mapping that cannot be used never refuses the file: the bad entry is skipped and named, the rest of the file applies.
     const auto parse_cls_e=[&](const std::string& fields,std::vector<std::string>& skipped) {
         return named(parse_yoke_presets(R"({"schema":1,"yokes":[{"name":"cls-e",)"+fields+"}]}",builtin_yoke_presets(),skipped),"cls-e");
@@ -325,11 +327,11 @@ void button_aliases() {
         for (const auto& l:lines) if (l.find(part)!=std::string::npos) return true;
         return false;
     };
-    for (const char* bad:{R"("button_action_method":"HID")",R"("button_action_method":"v joy")",R"("button_action_method":"")",R"("button_action_method":1)",R"("button_action_method":null)"}) {
+    for (const char* bad:{R"("button_action_method":"HID")",R"("button_action_method":"v joy")",R"("button_action_method":"")",R"("button_action_method":"None")",R"("button_action_method":1)",R"("button_action_method":null)"}) {
         std::vector<std::string> skipped;
         const auto cls=parse_cls_e(std::string(R"("title":"Kept anyway",)")+bad,skipped);
         check(cls.button_action_method==buttons::ActionMethod::vjoy && cls.title=="Kept anyway");   // the model keeps its own; the rest applies
-        check(skipped.size()==1 && mentions(skipped,"must be VJoy or Direct") && mentions(skipped,"the model keeps VJoy"));
+        check(skipped.size()==1 && mentions(skipped,"must be VJoy, Direct or Disabled") && mentions(skipped,"the model keeps VJoy"));
     }
     const std::string good=R"("node":2,"object":"0x2880","sub":3,"mask":"0x01")";
     const auto registers=[&](const std::string& extra,std::vector<std::string>& skipped) {
