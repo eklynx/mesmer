@@ -6,7 +6,7 @@ pre-release with one zip for every platform, its SHA-256 in `SHA256SUMS`, and a 
 provenance attestation. The first previews were numbered 0.1.0-alpha.1 to
 0.1.0-alpha.3; 0.1.0 follows them.
 
-## Unreleased
+## 0.0.12
 
 - **The buttons can be turned off.** A new button action, `Disabled` (the preset field `button_action_method`, or a `button_action_method` key in `BrunnerDirect.state.json` for every yoke), reads no buttons and runs no commands, for a yoke that already appears as a joystick in X-Plane. `button_commands` are ignored and `Log.txt` says so.
 - **The original CLS-E's three front panel buttons are disabled.** Slots 12 to 14 are no longer controls: they also work the yoke's own menu, and on the tested yoke one press switched the motors on while the plugin was driving it. They no longer have names, are not read, and don't press a vJoy button.
@@ -35,7 +35,7 @@ The first release numbered major.minor.patch. The plugin flies as 0.1.0-alpha.3 
 - **"Preview" where it said "alpha".** The badge and the warning box near the top of [the README](README.md), the safety paragraph near its end, and the "No warranty" section of [SAFETY.md](SAFETY.md) now call Mesmer preview software. So does the header comment of `config/BrunnerDirect.ini`. The help for `install.ps1 -Tag` now gives `v0.1.0` as its example, and so does the Mesmer version field of the bug report form. Only the wording changed.
 - **Release tags.** [The release workflow](.github/workflows/release.yml) now builds only from tags of the form `v<major.minor.patch>`. It stops at any other tag with "is not v<major.minor.patch>".
 
-## Unreleased
+## 0.0.10
 
 - **A Linux build of the plugin (development, not for flying).** `src/scripts/build_linux.sh` builds `lin_x64/BrunnerDirect.xpl`, `src/scripts/install_linux.sh` installs it into the folder named in `~/.x-plane/x-plane_install_N.txt`, and the yoke is read through the kernel's hidraw interface (`src/hid/lin/hid_lin.cpp`). Like the macOS reader it has not been run on hardware yet. The CI and release workflows build it by default, so a release zip carries `lin_x64/` (set the repository variable `LINUX_BUILD` to `false` to leave it out). Windows and macOS builds are unchanged. See [docs/dev/linux-build.md](docs/dev/linux-build.md).
 
